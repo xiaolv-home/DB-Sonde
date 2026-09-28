@@ -24,7 +24,7 @@ const RUNTIME_VERSION: &str = "py3.12.14-pkgs3";
 /// (只有 Python 版本或包清单变了才动),所以不跟应用版本绑。
 const RUNTIME_TAG: &str = "runtime-py3.12.14-pkgs3";
 const RUNTIME_BASE: &str =
-    "https://github.com/aaa1305119017-commits/DB-Sonde/releases/download";
+    "https://github.com/xiaolv-home/DB-Sonde/releases/download";
 
 /// 每个平台的 (资产名, 期望的 SHA256)。
 ///

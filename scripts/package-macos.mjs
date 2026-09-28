@@ -67,7 +67,7 @@ try {
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
   symlinkSync('/Applications', join(stage, 'Applications'));
-  writeFileSync(join(stage, '安装说明.txt'), `DB Sonde ${config.version} — Apple Silicon / M 系列 Mac\n\n1. 把 DB Sonde.app 拖到旁边的 Applications 文件夹。\n2. 从“应用程序”打开 DB Sonde。\n3. 首次打开连接列表为空；可手动创建本地演示库体验。\n\n当前安装包未经过 Apple 签名公证。如果首次打开被拦截，请在“系统设置 → 隐私与安全性”中找到 DB Sonde，选择“仍要打开”。\n\n安装不需要 Node、Rust、Homebrew 或编译源码。\n此基础安装包包含数据库客户端与云端 AI 接口；本地 AI 和 Python 运行时未内置。\n\n项目与更新：https://github.com/aaa1305119017-commits/DB-Sonde\n`);
+  writeFileSync(join(stage, '安装说明.txt'), `DB Sonde ${config.version} — Apple Silicon / M 系列 Mac\n\n1. 把 DB Sonde.app 拖到旁边的 Applications 文件夹。\n2. 从“应用程序”打开 DB Sonde。\n3. 首次打开连接列表为空；可手动创建本地演示库体验。\n\n当前安装包未经过 Apple 签名公证。如果首次打开被拦截，请在“系统设置 → 隐私与安全性”中找到 DB Sonde，选择“仍要打开”。\n\n安装不需要 Node、Rust、Homebrew 或编译源码。\n此基础安装包包含数据库客户端与云端 AI 接口；本地 AI 和 Python 运行时未内置。\n\n项目与更新：https://github.com/xiaolv-home/DB-Sonde\n`);
   run('/usr/bin/hdiutil', ['create', '-ov', '-volname', 'DB Sonde', '-fs', 'HFS+', '-format', 'UDZO', '-srcfolder', stage, dmg]);
   run('/usr/bin/hdiutil', ['verify', dmg]);
   const sha256 = createHash('sha256').update(readFileSync(dmg)).digest('hex');

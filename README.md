@@ -4,7 +4,7 @@
 
 ## 下载安装
 
-**[下载 DB Sonde 0.51.13 · macOS Apple Silicon](https://github.com/aaa1305119017-commits/DB-Sonde/releases/download/v0.51.13/DB-Sonde_0.51.13_macOS_arm64.dmg)**
+**[下载 DB Sonde 0.51.13 · macOS Apple Silicon](https://github.com/xiaolv-home/DB-Sonde/releases/download/v0.51.13/DB-Sonde_0.51.13_macOS_arm64.dmg)**
 
 1. 下载并打开 `.dmg`。
 2. 将 **DB Sonde** 拖入 **Applications（应用程序）**。
@@ -15,7 +15,7 @@
 **系统设置 → 隐私与安全性 → 仍要打开** 中允许。参见 [Apple 官方说明](https://support.apple.com/102445)。
 
 安装包包含数据库客户端和云端 AI 接口，本地 AI 与 Python 运行时需另行配置。
-版本说明和 SHA-256 校验文件见 [Releases](https://github.com/aaa1305119017-commits/DB-Sonde/releases/tag/v0.51.13)。
+版本说明和 SHA-256 校验文件见 [Releases](https://github.com/xiaolv-home/DB-Sonde/releases/tag/v0.51.13)。
 
 > [!NOTE]
 > 当前为 Beta。各平台的验证程度不同，见下表；SQL 执行和表格编辑可以修改数据库，
@@ -56,7 +56,7 @@ AI 分析需要配置模型服务及指标；Python 工作台需要可用的 Pyt
 [Tauri 平台构建依赖](https://v2.tauri.app/start/prerequisites/)。
 
 ```sh
-git clone https://github.com/aaa1305119017-commits/DB-Sonde.git
+git clone https://github.com/xiaolv-home/DB-Sonde.git
 cd DB-Sonde
 npm ci
 npm run tauri dev
