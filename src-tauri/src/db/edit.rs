@@ -354,3 +354,61 @@ fn postgres_edit_query_fixture() {
         })).unwrap()).unwrap();
     }
 }
+
+#[cfg(test)]
+mod binary_key_tests {
+    use super::*;
+    use sqlx::{mysql::MySqlConnectOptions, Connection, MySqlConnection};
+    use std::collections::HashMap;
+
+    /// 真机:主键是 VARBINARY、里面存的是文本("10087947")的表,改哪一格都报
+    /// 「该行已被修改」。原因是读出来的值被显示成 "0x3130…",编辑时这串字符被当
+    /// 原值拿去 WHERE,和列里的字节永远对不上。现在读出来就是文本,绑回去的正是
+    /// 原来的字节。这里用一个用完即删的库,在真 MySQL 上走一遍「读 → 用读到的值改」。
+    #[tokio::test]
+    #[ignore = "requires SONDE_TEST_MYSQL_HOST, SONDE_TEST_MYSQL_USER and SONDE_TEST_MYSQL_PASSWORD"]
+    async fn varbinary_text_key_round_trips_through_an_edit() {
+        let options = MySqlConnectOptions::new()
+            .host(&std::env::var("SONDE_TEST_MYSQL_HOST").expect("test MySQL host"))
+            .port(std::env::var("SONDE_TEST_MYSQL_PORT").unwrap_or_else(|_| "3306".into()).parse().unwrap())
+            .username(&std::env::var("SONDE_TEST_MYSQL_USER").expect("test MySQL user"))
+            .password(&std::env::var("SONDE_TEST_MYSQL_PASSWORD").expect("test MySQL password"));
+        let mut conn = MySqlConnection::connect_with(&options).await.unwrap();
+        let db = "sonde_binary_key_test";
+        sqlx::query(&format!("DROP DATABASE IF EXISTS `{db}`")).execute(&mut conn).await.unwrap();
+        sqlx::query(&format!("CREATE DATABASE `{db}`")).execute(&mut conn).await.unwrap();
+        sqlx::query(&format!(
+            "CREATE TABLE `{db}`.`t` (`store_id` VARBINARY(64) NOT NULL, `dt` DATE NOT NULL, \
+             `code` VARBINARY(64) NULL, PRIMARY KEY (`store_id`, `dt`))"
+        )).execute(&mut conn).await.unwrap();
+        sqlx::query(&format!("INSERT INTO `{db}`.`t` VALUES ('69a13f63076831e41a13998176664b5e', '2026-09-27', '10087947')"))
+            .execute(&mut conn).await.unwrap();
+
+        // 读:两列都应是文本,不是 0x…
+        let row = sqlx::query(&format!("SELECT `store_id`, `code` FROM `{db}`.`t`")).fetch_one(&mut conn).await.unwrap();
+        let key = crate::db::value::mysql_value(&row, 0);
+        let code = crate::db::value::mysql_value(&row, 1);
+        assert_eq!(key, Value::String("69a13f63076831e41a13998176664b5e".into()));
+        assert_eq!(code, Value::String("10087947".into()));
+
+        let request = |key: Value, old: Value, new: Value| UpdateCellRequest {
+            conn_id: String::new(), database: db.into(), schema: String::new(), table: "t".into(),
+            column: "code".into(),
+            primary_key: HashMap::from([("store_id".into(), key), ("dt".into(), Value::String("2026-09-27".into()))]),
+            old_value: old, new_value: new,
+        };
+
+        // 老的显示值拿去改,对不上 —— 这就是原来的 bug
+        let hex = Value::String("0x3639613133663633303736383331653431613133393938313736363634623565".into());
+        let stale = update_mysql(&mut conn, &request(hex, code.clone(), Value::String("x".into()))).await.unwrap();
+        assert_eq!(stale, 0, "0x 显示值作为主键永远匹配不上");
+
+        // 用现在读出来的值改,改得动
+        let updated = update_mysql(&mut conn, &request(key.clone(), code, Value::String("20010733".into()))).await.unwrap();
+        assert_eq!(updated, 1, "用读出来的文本当主键和旧值,必须改到这一行");
+        let back: Vec<u8> = sqlx::query_scalar(&format!("SELECT `code` FROM `{db}`.`t`")).fetch_one(&mut conn).await.unwrap();
+        assert_eq!(back, b"20010733", "写进去的是正确的字节");
+
+        sqlx::query(&format!("DROP DATABASE `{db}`")).execute(&mut conn).await.unwrap();
+    }
+}

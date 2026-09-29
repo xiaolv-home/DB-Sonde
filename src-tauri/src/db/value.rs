@@ -33,9 +33,29 @@ pub fn exact_json_integer(value: Value) -> Value {
     }
 }
 
-/// Render a byte blob compactly: full hex when short, otherwise a truncated
-/// preview plus the length.
+/// 二进制列的值怎么交给界面。
+///
+/// 很多表把**文本**存在 VARBINARY / BLOB 里(或者 CTAS 从表达式建表,列成了二进制):
+/// 内容其实是 "10087947"、一串 32 位 uuid。以前一律转成 `0x3130303837393437`,
+/// 两个问题 ——
+///   1. 读不出来;
+///   2. **编辑失灵。** 更新时要拿原值做 WHERE 校验,而原值是界面上那串
+///      `"0x3130…"`,作为文本绑定后和列里 `10087947` 这几个字节永远对不上,
+///      只要主键里有这种列,整张表改哪一格都报「该行已被修改」。超过 32 字节
+///      被截成 `0x…(N bytes)` 的更是不可能匹配。
+///
+/// 所以:合法 UTF-8、不含控制字符(制表 / 换行 / 回车除外)、不超过 64 KiB 的,
+/// 按文本返回 —— 显示读得懂,绑回去的也正是原来的字节。
+/// 其余才是真二进制,照旧给十六进制(短的全给,长的截断并标长度)。
 fn bytes_to_value(bytes: Vec<u8>) -> Value {
+    const TEXT_LIMIT: usize = 64 * 1024;
+    if bytes.len() <= TEXT_LIMIT {
+        if let Ok(text) = std::str::from_utf8(&bytes) {
+            if !text.chars().any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r')) {
+                return Value::String(text.to_owned());
+            }
+        }
+    }
     fn hex(bytes: &[u8]) -> String {
         let mut s = String::with_capacity(bytes.len() * 2);
         for b in bytes {
@@ -229,5 +249,35 @@ mod tests {
             ]
         );
         conn.close().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod bytes_tests {
+    use super::bytes_to_value;
+    use serde_json::Value;
+
+    /* VARBINARY 里存的是文本时,要按文本给出去。真机:platform_store_id / store_id
+       两列显示成 0x3130303837393437 这种,既读不出来,也让编辑的 WHERE 永远对不上。 */
+    #[test]
+    fn text_stored_as_binary_comes_back_as_text() {
+        assert_eq!(bytes_to_value(b"10087947".to_vec()), Value::String("10087947".into()));
+        let uuid = "69a13f63076831e41a13998176664b5e";
+        assert_eq!(bytes_to_value(uuid.as_bytes().to_vec()), Value::String(uuid.into()),
+            "32 字节以上的文本也不能截断 —— 截断了就更对不上了");
+        assert_eq!(bytes_to_value("河北战区".as_bytes().to_vec()), Value::String("河北战区".into()));
+        assert_eq!(bytes_to_value(b"a\tb\nc".to_vec()), Value::String("a\tb\nc".into()), "制表换行算文本");
+        assert_eq!(bytes_to_value(Vec::new()), Value::String(String::new()));
+    }
+
+    /* 真二进制(UUID 的 16 个原始字节、图片、带 NUL 的数据)照旧十六进制。 */
+    #[test]
+    fn real_binary_stays_hex() {
+        assert_eq!(bytes_to_value(vec![0x00, 0x01, 0xff]), Value::String("0x0001ff".into()));
+        assert_eq!(bytes_to_value(b"ab\x00cd".to_vec()), Value::String("0x6162006364".into()),
+            "合法 UTF-8 但带 NUL 这种控制字符的,不当文本");
+        let long = vec![0xffu8; 40];
+        let Value::String(s) = bytes_to_value(long) else { panic!() };
+        assert!(s.starts_with("0xffff") && s.ends_with("(40 bytes)"), "长的真二进制截断并标长度:{s}");
     }
 }
