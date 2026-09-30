@@ -37,11 +37,10 @@ export default function DdlCode({ ddl, kind }: { ddl: string; kind?: DbKind }) {
 
   return (
     <div className="ddl-view ddl-code">
-      <div className="ddl-toolbar">
-        <button className="btn ghost sm" onClick={copy}>
-          <Copy size={13} /> {t("inspector.copyDdl")}
-        </button>
-      </div>
+      {/* 浮在代码框右上角,不单独占一行 */}
+      <button className="ddl-copy" onClick={copy}>
+        <Copy size={13} /> {t("inspector.copyDdl")}
+      </button>
       <CodeMirror
         value={shown}
         theme={editorTheme}
