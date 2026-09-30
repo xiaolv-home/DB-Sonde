@@ -8,6 +8,7 @@ import Sidebar from "./components/Sidebar";
 import SyntaxThemePicker from "./components/SyntaxThemePicker";
 import StorageNotice from "./components/StorageNotice";
 import WorkspaceLifecycle from "./components/WorkspaceLifecycle";
+import WorkspaceTabBar from "./components/WorkspaceTabBar";
 import { useAi } from "./features/ai/aiStore";
 import { openAsset } from "./features/assets/AssetShell";
 import { AiFeature, AssetFeatures, EntityFeature } from "./features/FeatureHosts";
@@ -16,35 +17,39 @@ import { useI18n } from "./hooks/useI18n";
 import { useApp } from "./store/appStore";
 import { kindLabel } from "./types";
 
+/* 顶栏和工作区标签栏合成一行:左边品牌区跟侧栏一样宽,标签从主区的左边沿开始,
+   右边是全局操作。窗口窄时操作按钮只留图标(鼠标停上去有名字),把地方让给标签。 */
 function Toolbar() {
   const theme = useApp((s) => s.theme);
+  const sidebarWidth = useApp((s) => s.sidebarWidth);
   const { language, t } = useI18n();
   return (
     <div className="toolbar">
-      <div className="brand">
+      <div className="brand" style={{ width: sidebarWidth, flexBasis: sidebarWidth }}>
         <img className="logo" src="/db-sonde.png" alt="" />
         DB Sonde <small>beta</small>
       </div>
-      <div className="toolbar-spacer" />
-      <button className="btn" onClick={() => useAi.getState().togglePanel()}>
+      <WorkspaceTabBar />
+      <div className="toolbar-actions">
+      <button className="btn" onClick={() => useAi.getState().togglePanel()} title="AI">
         <Sparkles size={15} /> AI
       </button>
       {/* 「分析」是独立工作区,不是聊天框里的一个模式:
           数据范围由人在表单里锁死,AI 只管分析和做图 —— 抽参判错了看不出来,
           分析判错了一眼就看见,该谁干的活归谁。 */}
-      <button className="btn" onClick={() => useApp.getState().openAnalysisTab()} title="锁定数据范围,让 AI 做分析和看板">
-        <LineChart size={15} /> 分析
+      <button className="btn" onClick={() => useApp.getState().openAnalysisTab()} title="分析:锁定数据范围,让 AI 做分析和看板">
+        <LineChart size={15} /> <span className="tb-label">分析</span>
       </button>
-      <button className="btn" onClick={() => useApp.getState().openDashboardTab()}>
-        <LayoutDashboard size={15} /> {t("toolbar.dashboard")}
+      <button className="btn" onClick={() => useApp.getState().openDashboardTab()} title={t("toolbar.dashboard")}>
+        <LayoutDashboard size={15} /> <span className="tb-label">{t("toolbar.dashboard")}</span>
       </button>
       {/* 调度 / 指标 / ETL / 血缘 原本是顶栏四个按钮、四个互不相通的浮层。
           它们是同一件事的四个侧面,收敛成一个「数据资产」,进去左侧随时互跳。 */}
-      <button className="btn" onClick={() => openAsset("etl")} title="数据来源 / 运行情况 / 上下游 / 指标口径">
-        <Boxes size={15} /> 数据资产
+      <button className="btn" onClick={() => openAsset("etl")} title="数据资产:数据来源 / 运行情况 / 上下游 / 指标口径">
+        <Boxes size={15} /> <span className="tb-label">数据资产</span>
       </button>
-      <button className="btn" onClick={() => useApp.getState().openDialog()}>
-        <Plus size={15} /> {t("toolbar.newConnection")}
+      <button className="btn" onClick={() => useApp.getState().openDialog()} title={t("toolbar.newConnection")}>
+        <Plus size={15} /> <span className="tb-label">{t("toolbar.newConnection")}</span>
       </button>
       <button
         className="btn language-btn"
@@ -61,6 +66,7 @@ function Toolbar() {
       >
         {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
       </button>
+      </div>
     </div>
   );
 }

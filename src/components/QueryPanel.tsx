@@ -11,7 +11,6 @@ import PanelErrorBoundary from "./PanelErrorBoundary";
 import PythonPanel from "./PythonPanel";
 import SqlWorkspace from "./SqlWorkspace";
 import TableInspector from "./TableInspector";
-import WorkspaceTabBar from "./WorkspaceTabBar";
 
 const RoutineWorkspace = lazy(() => import("./RoutineWorkspace"));
 const DashboardWorkspace = lazy(() => import("../features/dashboard/DashboardWorkspace"));
@@ -37,7 +36,7 @@ export default function QueryPanel() {
     window.addEventListener("keydown", save);
     return () => window.removeEventListener("keydown", save);
   }, []);
-  return <div className="main"><WorkspaceTabBar />
+  return <div className="main">
     {tabs.length === 0 && <div className="empty-main">打开一个数据库、表或 SQL 脚本开始工作</div>}
     {tabs.filter(tab => tab.id === activeTabId || visited.has(tab.id)).map(tab =>
       <div className="workspace-pane" key={tab.id} style={{ display: tab.id === activeTabId ? "flex" : "none" }}>
