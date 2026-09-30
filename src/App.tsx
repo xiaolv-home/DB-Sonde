@@ -127,10 +127,10 @@ export default function App() {
       .catch(error => useApp.getState().showToast({ kind: "error", text: `指标目录导入失败：${String(error)}` }));
   }, []);
 
-  const resizer = useDrag((d) => {
-    const cur = useApp.getState().sidebarWidth;
-    useApp.getState().setSidebarWidth(cur + d);
-  }, "x");
+  const resizer = useDrag("x", {
+    start: () => useApp.getState().sidebarWidth,
+    move: (startWidth, delta) => useApp.getState().setSidebarWidth(startWidth + delta),
+  });
 
   return (
     <div className="app">

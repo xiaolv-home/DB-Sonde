@@ -33,9 +33,15 @@ export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
   const databases = useApp((s) => (tab ? s.databases[tab.connId] : undefined));
   const language = useApp((s) => s.language);
 
-  const resizer = useDrag((d) => {
-    useApp.getState().setResultHeight(resultHeight - d, tab.id);
-  }, "y");
+  // 分隔条在结果区上方:往上拖(delta 为负)结果区变高
+  const resizer = useDrag("y", {
+    start: () => {
+      const s = useApp.getState();
+      const current = s.tabs.find(t => t.id === tabId);
+      return current?.kind === "query" ? current.resultHeight ?? s.resultHeight : s.resultHeight;
+    },
+    move: (startHeight, delta) => useApp.getState().setResultHeight(startHeight - delta, tabId),
+  });
   const [menuCtx, setMenuCtx] = useState<EditorAiContext | null>(null);
   const [aiCtx, setAiCtx] = useState<{ ctx: EditorAiContext; action: InlineAction | "ask"; } | null>(null);
 

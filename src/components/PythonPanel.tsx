@@ -95,7 +95,10 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
   const [pkgOpen, setPkgOpen] = useState(false);
   const outHeight = useApp((s) => s.pyOutputHeight);
   const outCollapsed = useApp((s) => s.pyOutputCollapsed);
-  const outResizer = useDrag((d) => useApp.getState().setPyOutputHeight(outHeight - d), "y");
+  const outResizer = useDrag("y", {
+    start: () => useApp.getState().pyOutputHeight,
+    move: (startHeight, delta) => useApp.getState().setPyOutputHeight(startHeight - delta),
+  });
   const runIdRef = useRef("");
   const unlistenRef = useRef<null | (() => void)>(null);
   const startRef = useRef(0);
