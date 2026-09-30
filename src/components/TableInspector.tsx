@@ -1,7 +1,7 @@
 import { useGlassPill } from "../hooks/useGlassPill";
 import { explainMetadataFailure } from "../lib/metadataFailure";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   Braces,
   Columns3,
@@ -519,7 +519,13 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const { t } = useI18n();
   const kind = useApp((state) => state.meta[tab.connId]?.kind);
   const [section, setSection] = useState<Section>("columns");
-  const { trackProps: tabTrack, pillProps: tabPill } = useGlassPill(section);
+  /* 切换分区时,标签和胶囊立刻动,下面的内容晚一拍再换(并发渲染,可被打断)。
+     以前两件事挤在同一帧:切到 DDL 要重建代码编辑器、切回数据要重排整张表,
+     主线程一卡,胶囊就在半路顿一下 —— 「不丝滑」主要就是这一下。 */
+  const shown = useDeferredValue(section);
+  /* 这排是 5 个固定分区,胶囊只跟着「选中」走,不追鼠标 ——
+     鼠标划过时胶囊满排乱跑、离开又弹回去,来回切的时候最晃眼。 */
+  const { trackProps: tabTrack, pillProps: tabPill } = useGlassPill(section, { followHover: false });
   const [search, setSearch] = useState("");
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [indexes, setIndexes] = useState<IndexInfo[]>([]);
@@ -532,6 +538,9 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const [metadataReloadKey, setMetadataReloadKey] = useState(0);
   const [dataVisited, setDataVisited] = useState(false);
   useEffect(() => { if (section === "data") setDataVisited(true); }, [section]);
+  // DDL 看过一次就留着(隐藏),再切回来不用重新格式化、重建编辑器
+  const [ddlVisited, setDdlVisited] = useState(false);
+  useEffect(() => { if (section === "ddl") setDdlVisited(true); }, [section]);
   const [hasUnsavedDataEdits, setHasUnsavedDataEdits] = useState(false);
   useUnsavedChanges(tab.id, hasUnsavedDataEdits);
 
@@ -636,14 +645,10 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
           <span className="muted">{subtitle}</span>
         </div>
 
-        {/* 跟工作区标签栏、资产侧栏共用同一块玻璃胶囊。
-            这排每一项自带颜色,所以把当前项的 tint 作为 --pill-accent 传给胶囊 ——
-            胶囊滑到哪儿就染成哪一项的颜色,而不是全都一个蓝。 */}
-        <div
-          className="ti-bar-tabs pill-track"
-          style={{ "--pill-accent": sections.find((x) => x.id === section)?.tint } as CSSProperties}
-          {...tabTrack}
-        >
+        {/* 跟工作区标签栏、资产侧栏共用同一块玻璃胶囊。胶囊统一用强调色:
+            以前按分区染色(橙/绿/黄/青/蓝),可渐变色没法过渡,每次切换颜色都是
+            「啪」一下跳过去,和滑动叠在一起很闹。分区的颜色留在图标上。 */}
+        <div className="ti-bar-tabs pill-track" {...tabTrack}>
           <span {...tabPill} />
           {sections.map((item) => {
             const Icon = item.icon;
@@ -710,7 +715,7 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
 
       <section className="object-content">
         <div className="inspector-body" style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: section === "data" ? "none" : undefined }}>
+          <div style={{ display: shown === "data" || (shown === "ddl" && !loading && !error) ? "none" : undefined }}>
           {loading ? (
             <div className="object-state"><Loader2 size={18} className="spin" /> {t("inspector.loadingMetadata")}</div>
           ) : error ? (
@@ -718,19 +723,21 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
           ) : (
             <>
             {notice && <div className="object-notice">{notice}</div>}
-            {section === "properties" ? (
+            {shown === "properties" ? (
             <PropertiesPanel tab={tab} info={info} />
-            ) : section === "columns" ? (
+            ) : shown === "columns" ? (
               <ColumnsPanel columns={visibleColumns} />
-            ) : section === "indexes" ? (
+            ) : shown === "indexes" ? (
               <IndexesPanel indexes={visibleIndexes} />
-            ) : section === "ddl" ? (
-              <DdlPanel ddl={ddl} kind={kind} />
             ) : null}
             </>
           )}
           </div>
-          {(dataVisited || section === "data") && <div style={{ display: section === "data" ? "flex" : "none", flex: 1, minHeight: 0, flexDirection: "column" }}>
+          {(ddlVisited || shown === "ddl") && !loading && !error && <div style={{ display: shown === "ddl" ? undefined : "none" }}>
+            {notice && <div className="object-notice">{notice}</div>}
+            <DdlPanel ddl={ddl} kind={kind} />
+          </div>}
+          {(dataVisited || shown === "data") && <div style={{ display: shown === "data" ? "flex" : "none", flex: 1, minHeight: 0, flexDirection: "column" }}>
             <DataPanel
               tab={tab}
               kind={kind}

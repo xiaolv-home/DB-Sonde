@@ -1919,7 +1919,20 @@ button {
 }
 .ti-bar-tabs button:hover { color: var(--text-2); }
 .ti-bar-tabs button.on { color: var(--text); }
-.ti-bar-tabs .pill { border-radius: 999px; }
+/* 这排的胶囊:短、不回弹。通用的 420ms 带回弹适合偶尔点一下的标签栏,
+   在五个分区之间来回切就显得拖泥带水。底色是实的,毛玻璃模糊没东西可糊,
+   反而让 WebKit 每帧重算一次模糊,也去掉。 */
+.ti-bar-tabs .pill {
+  border-radius: 999px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity var(--dur-1) var(--ease);
+}
+.ti-bar-tabs button { transition: color 120ms var(--ease); }
 .ti-bar-tabs button b {
   color: var(--text-3);
   font-weight: 600;
