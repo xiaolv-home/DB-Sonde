@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "db-sonde"
-version = "0.51.19"
+version = "0.51.20"
 dependencies = [
  "bigdecimal",
  "chrono",
