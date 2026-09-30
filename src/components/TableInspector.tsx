@@ -1,7 +1,7 @@
 import { useGlassPill } from "../hooks/useGlassPill";
 import { explainMetadataFailure } from "../lib/metadataFailure";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Braces,
   Columns3,
@@ -532,6 +532,19 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const [metadataReloadKey, setMetadataReloadKey] = useState(0);
   const [dataVisited, setDataVisited] = useState(false);
   useEffect(() => { if (section === "data") setDataVisited(true); }, [section]);
+
+  /* 切换分区时,下面的内容短暂淡入,而不是「啪」一下整块换掉。
+     只动透明度、不滑动 —— 用户嫌的就是「点过去画面变得太快、动得太多」。
+     第一次打开不淡入;系统开了「减少动态效果」也不淡入。 */
+  const contentRef = useRef<HTMLElement>(null);
+  const firstSection = useRef(true);
+  useLayoutEffect(() => {
+    if (firstSection.current) { firstSection.current = false; return; }
+    const el = contentRef.current;
+    if (!el || typeof el.animate !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+  }, [section]);
   const [hasUnsavedDataEdits, setHasUnsavedDataEdits] = useState(false);
   useUnsavedChanges(tab.id, hasUnsavedDataEdits);
 
@@ -708,7 +721,7 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
         </button>
       </div>
 
-      <section className="object-content">
+      <section className="object-content" ref={contentRef}>
         <div className="inspector-body" style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ display: section === "data" ? "none" : undefined }}>
           {loading ? (
