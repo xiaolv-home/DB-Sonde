@@ -1,7 +1,7 @@
 import { useGlassPill } from "../hooks/useGlassPill";
 import { explainMetadataFailure } from "../lib/metadataFailure";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Braces,
   Columns3,
@@ -141,17 +141,31 @@ function IndexesPanel({ indexes }: { indexes: IndexInfo[] }) {
   );
 }
 
-/* 格式化 + 高亮在懒加载的 DdlCode 里(CodeMirror 和 sql-formatter 不小,
-   没必要让每次启动都下载)。加载那一下先显示原文,不留白屏。 */
-const DdlCode = lazy(() => import("./DdlCode"));
+/* 格式化 + 高亮在单独打包的 DdlCode 里(sql-formatter 不小,没必要跟着启动一起加载)。
+ *
+ * 以前用 React.lazy + Suspense,加载那一下先显示没格式化、没高亮的原文,
+ * 加载完再整块换成高亮版 —— 第一次点进 DDL 总会「闪一下」。
+ * 现在:打开表的时候就在后台把它预先加载好(preloadDdlCode),点进来直接是成品;
+ * 万一点得比加载还快,只显示一个空的代码框,不显示原文,也就没有东西可闪。 */
+type DdlCodeModule = typeof import("./DdlCode");
+let ddlCodeModule: DdlCodeModule | null = null;
+let ddlCodeLoading: Promise<DdlCodeModule> | null = null;
+function preloadDdlCode(): Promise<DdlCodeModule> {
+  ddlCodeLoading ??= import("./DdlCode").then((module) => (ddlCodeModule = module));
+  return ddlCodeLoading;
+}
 
 function DdlPanel({ ddl, kind }: { ddl: string; kind?: DbKind }) {
-  const { t } = useI18n();
-  return (
-    <Suspense fallback={<div className="ddl-view"><pre>{ddl || t("inspector.noDdl")}</pre></div>}>
-      <DdlCode ddl={ddl} kind={kind} />
-    </Suspense>
-  );
+  const [module, setModule] = useState<DdlCodeModule | null>(ddlCodeModule);
+  useEffect(() => {
+    if (module) return;
+    let alive = true;
+    void preloadDdlCode().then((loaded) => { if (alive) setModule(loaded); });
+    return () => { alive = false; };
+  }, [module]);
+  if (!module) return <div className="ddl-view ddl-code"><div className="ddl-placeholder" /></div>;
+  const DdlCode = module.default;
+  return <DdlCode ddl={ddl} kind={kind} />;
 }
 
 interface DataPanelProps {
@@ -525,6 +539,8 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const [metadataReloadKey, setMetadataReloadKey] = useState(0);
   const [dataVisited, setDataVisited] = useState(false);
   useEffect(() => { if (section === "data") setDataVisited(true); }, [section]);
+  // 打开表就在后台把 DDL 的代码框加载好,第一次点 DDL 不用等、不闪
+  useEffect(() => { void preloadDdlCode(); }, []);
 
   /* 切换分区时,下面的内容轻轻淡入,而不是「啪」一下整块换掉。
      只动透明度、不滑动 —— 用户嫌的就是「点过去画面变得太快、动得太多」。

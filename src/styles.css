@@ -1838,6 +1838,14 @@ button {
   border-radius: 8px;
   overflow: hidden;
 }
+/* 代码框还没加载好时的空框:和真代码框同样的边框底色,不放原文 */
+.ddl-placeholder {
+  flex: 1;
+  min-height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
 .ddl-code .cm-scroller { font: 14px/1.65 var(--mono); }
 .ddl-code .cm-content { user-select: text; }
 
