@@ -7,6 +7,7 @@ import {
   Columns3,
   Database,
   Filter,
+  Info,
   KeyRound,
   Loader2,
   RefreshCw,
@@ -449,14 +450,15 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
             </span>
           )}
         </div>
-        {editable && <span className="muted data-hint">{editHint}</span>}
-        <div className="toolbar-spacer" />
-        <label className="data-pagesize">
-          {t("data.perPage")}
+        {/* 编辑说明收进一个小图标,鼠标停上去看 —— 这行只留过滤框和分页 */}
+        <span className="data-hint-icon" title={editHint} aria-label={editHint}>
+          <Info size={14} />
+        </span>
+        <label className="data-pagesize" title={t("data.perPage")}>
           <select value={pageSize} onChange={(e) => changePageSize(Number(e.target.value))}>
             {[100, 200, 500, 1000].map((n) => (
               <option key={n} value={n}>
-                {n}
+                {t("data.perPageOption", { n })}
               </option>
             ))}
           </select>
@@ -612,77 +614,60 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const refresh = () => guardUnsavedDataEdits(() => { if (section === "data") setReloadKey(value => value + 1); else setMetadataReloadKey(value => value + 1); });
 
   const searchable = section === "columns" || section === "indexes";
+  const subtitle = [
+    `${tab.database}${tab.schema && tab.schema !== "main" ? ` / ${tab.schema}` : ""}`,
+    t(tab.objectKind === "view" ? "inspector.view" : "inspector.table"),
+    info?.comment,
+  ].filter(Boolean).join(" · ");
   const searchPlaceholder = t("inspector.search", {
     section: sections.find((item) => item.id === section)?.label ?? section,
   });
 
   return (
     <div className="object-workspace table-inspector">
-      <div className="ti-header">
+      {/* 标题、分区标签、行数大小、操作压成一行,把高度让给数据。
+          引擎 / 排序规则不常看,放进行数那块的提示和「属性」里。 */}
+      <div className="ti-bar">
         <div className="table-title-icon">
-          {tab.objectKind === "view" ? <Braces size={16} /> : <TableProperties size={16} />}
+          {tab.objectKind === "view" ? <Braces size={14} /> : <TableProperties size={14} />}
         </div>
-        <div className="ti-title">
+        <div className="ti-bar-title" title={[tab.table, subtitle].join("\n")}>
           <strong>{tab.table}</strong>
-          <div className="muted">
-            {tab.database}
-            {tab.schema && tab.schema !== "main" ? ` / ${tab.schema}` : ""} ·{" "}
-            {t(tab.objectKind === "view" ? "inspector.view" : "inspector.table")}
-            {info?.comment ? ` · ${info.comment}` : ""}
-          </div>
+          <span className="muted">{subtitle}</span>
         </div>
-        <div className="toolbar-spacer" />
-        <div className="ti-meta">
-          <span className="ti-chip"><b>{t("inspector.engine")}</b>{info?.engine || "—"}</span>
-          <span className="ti-chip"><b>{t("inspector.rows")}</b>{info?.estimatedRows?.toLocaleString() ?? "—"}</span>
-          <span className="ti-chip"><b>{t("inspector.dataSize")}</b>{formatBytes(info?.dataSize)}</span>
-          <span className="ti-chip"><b>{t("inspector.collation")}</b>{info?.collation || "—"}</span>
-        </div>
-        <button
-          className="btn ghost sm"
-          onClick={() =>
-            useAi.getState().seedAsk(
-              `解释一下 ${tab.table} 这张表:大致用途、关键字段的含义,并给出一个示例的只读查询。`,
-            )
-          }
-        >
-          <Sparkles size={13} /> AI
-        </button>
-        <button className="btn ghost sm" onClick={refresh}>
-          <RefreshCw size={13} /> {t("action.refresh")}
-        </button>
-      </div>
 
-      {/* 跟工作区标签栏、资产侧栏共用同一块玻璃胶囊。
-          这排每一项自带颜色,所以把当前项的 tint 作为 --pill-accent 传给胶囊 ——
-          胶囊滑到哪儿就染成哪一项的颜色,而不是全都一个蓝。 */}
-      <div
-        className="ti-tabs pill-track"
-        style={{ "--pill-accent": sections.find((x) => x.id === section)?.tint } as CSSProperties}
-        {...tabTrack}
-      >
-        <span {...tabPill} />
-        {sections.map((item) => {
-          const Icon = item.icon;
-          const on = section === item.id;
-          return (
-            <button
-              key={item.id}
-              data-pill={item.id}
-              className={on ? "on" : ""}
-              onClick={() => guardUnsavedDataEdits(() => {
-                setSection(item.id);
-                setSearch("");
-              })}
-            >
-              <Icon size={14} style={{ color: item.tint }} />
-              <span>{item.label}</span>
-              {item.count != null && <b>{item.count}</b>}
-            </button>
-          );
-        })}
+        {/* 跟工作区标签栏、资产侧栏共用同一块玻璃胶囊。
+            这排每一项自带颜色,所以把当前项的 tint 作为 --pill-accent 传给胶囊 ——
+            胶囊滑到哪儿就染成哪一项的颜色,而不是全都一个蓝。 */}
+        <div
+          className="ti-bar-tabs pill-track"
+          style={{ "--pill-accent": sections.find((x) => x.id === section)?.tint } as CSSProperties}
+          {...tabTrack}
+        >
+          <span {...tabPill} />
+          {sections.map((item) => {
+            const Icon = item.icon;
+            const on = section === item.id;
+            return (
+              <button
+                key={item.id}
+                data-pill={item.id}
+                className={on ? "on" : ""}
+                title={item.label}
+                onClick={() => guardUnsavedDataEdits(() => {
+                  setSection(item.id);
+                  setSearch("");
+                })}
+              >
+                <Icon size={13} style={{ color: item.tint }} />
+                <span>{item.label}</span>
+                {item.count != null && <b>{item.count}</b>}
+              </button>
+            );
+          })}
+        </div>
         {searchable && (
-          <div className="ti-filter">
+          <div className="ti-bar-search">
             <Search size={13} />
             <input
               value={search}
@@ -692,6 +677,35 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
             />
           </div>
         )}
+
+        <div className="toolbar-spacer" />
+        <span
+          className="ti-bar-stats"
+          title={[
+            `${t("inspector.engine")}: ${info?.engine || "—"}`,
+            `${t("inspector.rows")}: ${info?.estimatedRows?.toLocaleString() ?? "—"}`,
+            `${t("inspector.dataSize")}: ${formatBytes(info?.dataSize)}`,
+            `${t("inspector.collation")}: ${info?.collation || "—"}`,
+          ].join("\n")}
+        >
+          {t("inspector.rowsShort", { count: info?.estimatedRows?.toLocaleString() ?? "—" })}
+          <i>·</i>
+          {formatBytes(info?.dataSize)}
+        </span>
+        <button
+          className="btn ghost sm"
+          title={t("inspector.askAi")}
+          onClick={() =>
+            useAi.getState().seedAsk(
+              `解释一下 ${tab.table} 这张表:大致用途、关键字段的含义,并给出一个示例的只读查询。`,
+            )
+          }
+        >
+          <Sparkles size={13} /> <span className="ti-bar-ai-label">AI</span>
+        </button>
+        <button className="icon-btn" title={t("action.refresh")} onClick={refresh}>
+          <RefreshCw size={15} />
+        </button>
       </div>
 
       <section className="object-content">
