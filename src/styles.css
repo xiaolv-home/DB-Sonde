@@ -2149,16 +2149,6 @@ button {
   width: 20px;
   height: 20px;
 }
-/* 过滤框右边那块:「数据」放分页和行数,「列」「索引」放个数。定宽,
-   这样三个分区的输入框一样长,来回切不伸缩。 */
-.data-toolbar-end {
-  flex: 0 0 230px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  min-width: 0;
-}
 .data-hint-icon {
   display: inline-grid;
   place-items: center;

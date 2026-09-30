@@ -11,7 +11,6 @@ import {
   KeyRound,
   Loader2,
   RefreshCw,
-  Search,
   Sparkles,
   TableProperties,
   X,
@@ -57,11 +56,6 @@ function formatBytes(value?: number | null): string {
   return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
 }
 
-function containsQuery(query: string, values: unknown[]): boolean {
-  return !query || values
-    .filter((value) => value != null)
-    .some((value) => String(value).toLocaleLowerCase().includes(query));
-}
 
 function PropertiesPanel({ tab, info }: { tab: TableTab; info?: TableInfo }) {
   const { t } = useI18n();
@@ -450,8 +444,6 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
             </span>
           )}
         </div>
-        {/* 右边这块定宽,和「列」「索引」那行一样宽 —— 切换时过滤框长度不变 */}
-        <div className="data-toolbar-end">
         {/* 编辑说明收进一个小图标,鼠标停上去看 —— 这行只留过滤框和分页 */}
         <span className="data-hint-icon" title={editHint} aria-label={editHint}>
           <Info size={14} />
@@ -468,7 +460,6 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
         <span className="muted data-rowcount">
           {t("query.rowCount", { count: `${rows.length.toLocaleString()}${hasMore ? "+" : ""}` })}
         </span>
-        </div>
       </div>
 
       <div className="data-grid-area">
@@ -523,7 +514,6 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const kind = useApp((state) => state.meta[tab.connId]?.kind);
   const [section, setSection] = useState<Section>("columns");
   const { trackProps: tabTrack, pillProps: tabPill } = useGlassPill(section);
-  const [search, setSearch] = useState("");
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [indexes, setIndexes] = useState<IndexInfo[]>([]);
   const [ddl, setDdl] = useState("");
@@ -589,21 +579,6 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
     };
   }, [tab.connId, tab.database, tab.schema, tab.table, tab.objectKind, tab.objectInfo, metadataReloadKey]);
 
-  const query = search.trim().toLocaleLowerCase();
-  const visibleColumns = useMemo(
-    () => columns.filter((column) => containsQuery(
-      query,
-      [column.name, column.dataType, column.defaultValue, column.comment],
-    )),
-    [columns, query],
-  );
-  const visibleIndexes = useMemo(
-    () => indexes.filter((index) => containsQuery(
-      query,
-      [index.name, index.indexType, index.columns.join(", "), index.definition],
-    )),
-    [indexes, query],
-  );
   const hasPrimaryKey = columns.some((column) => column.isPrimaryKey);
   const editable = tab.objectKind === "table" && hasPrimaryKey;
   const editHint = tab.objectKind === "view"
@@ -630,15 +605,11 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
 
   const refresh = () => guardUnsavedDataEdits(() => { if (section === "data") setReloadKey(value => value + 1); else setMetadataReloadKey(value => value + 1); });
 
-  const searchable = section === "columns" || section === "indexes";
   const subtitle = [
     `${tab.database}${tab.schema && tab.schema !== "main" ? ` / ${tab.schema}` : ""}`,
     t(tab.objectKind === "view" ? "inspector.view" : "inspector.table"),
     info?.comment,
   ].filter(Boolean).join(" · ");
-  const searchPlaceholder = t("inspector.search", {
-    section: sections.find((item) => item.id === section)?.label ?? section,
-  });
 
   return (
     <div className="object-workspace table-inspector">
@@ -671,10 +642,7 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
                 data-pill={item.id}
                 className={on ? "on" : ""}
                 title={item.label}
-                onClick={() => guardUnsavedDataEdits(() => {
-                  setSection(item.id);
-                  setSearch("");
-                })}
+                onClick={() => guardUnsavedDataEdits(() => setSection(item.id))}
               >
                 <Icon size={13} style={{ color: item.tint }} />
                 <span>{item.label}</span>
@@ -714,34 +682,6 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
       </div>
 
       <section className="object-content" ref={contentRef}>
-        {/* 「列」「索引」的搜索框和「数据」的 WHERE 过滤框放在同一个位置、同一个样子。
-            以前搜索框挤在标题那行,切到数据就没了、下面又冒出一行过滤框 ——
-            输入框来回跳位置,表格也跟着上下窜。现在标题行永远不变,
-            切换时输入框待在原地,只是提示文字不同。 */}
-        {searchable && !loading && !error && (
-          <div className="data-toolbar">
-            <div className="data-where">
-              <Search size={13} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={searchPlaceholder}
-                aria-label={searchPlaceholder}
-                spellCheck={false}
-              />
-              {search && (
-                <span className="icon-btn" onClick={() => setSearch("")} title={t("data.clearFilter")}>
-                  <X size={13} />
-                </span>
-              )}
-            </div>
-            <span className="data-toolbar-end muted data-rowcount">
-              {section === "columns"
-                ? t("inspector.countColumns", { count: search ? `${visibleColumns.length} / ${columns.length}` : columns.length })
-                : t("inspector.countIndexes", { count: search ? `${visibleIndexes.length} / ${indexes.length}` : indexes.length })}
-            </span>
-          </div>
-        )}
         <div className="inspector-body" style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ display: section === "data" ? "none" : undefined }}>
           {loading ? (
@@ -754,9 +694,9 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
             {section === "properties" ? (
             <PropertiesPanel tab={tab} info={info} />
             ) : section === "columns" ? (
-              <ColumnsPanel columns={visibleColumns} />
+              <ColumnsPanel columns={columns} />
             ) : section === "indexes" ? (
-              <IndexesPanel indexes={visibleIndexes} />
+              <IndexesPanel indexes={indexes} />
             ) : section === "ddl" ? (
               <DdlPanel ddl={ddl} kind={kind} />
             ) : null}
