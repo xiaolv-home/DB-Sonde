@@ -1,3 +1,4 @@
+import { useViewportFit } from "../../hooks/useViewportFit";
 import { useSubmitOnEnter } from "../../hooks/useSubmitOnEnter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Square, CornerDownLeft, Replace, FileInput, Play, ChevronLeft } from "lucide-react";
@@ -76,13 +77,13 @@ export default function AiInline({ ctx, action, kind, catalog, onRunSql, onClose
   const sql = phase === "result" ? extractSql(reply) : null;
   const readonly = sql ? isReadOnlySql(sql, kind) : true;
 
-  const x = Math.min(ctx.x, window.innerWidth - 372);
-  const y = Math.min(ctx.y, window.innerHeight - 260);
+  // 回复是流式的,浮层会边显示边长高:只往上挪够用的距离,不整块翻上去跳走
+  const fit = useViewportFit(ctx, { mode: "clamp" });
 
   return (
     <>
       <div className="ai-inline-backdrop" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
-      <div className="ai-inline" style={{ left: x, top: y }} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="ai-inline" ref={fit.ref} style={fit.style} onMouseDown={(e) => e.stopPropagation()}>
         <div className="ai-inline-head">
           {phase === "result" ? (
             <button className="ai-icon" title={t("back")} onClick={() => { streamRef.current?.cancel(); setPhase("menu"); setReply(""); }}>

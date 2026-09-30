@@ -23,6 +23,7 @@ import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import type { Cell, EditDraft, QueryResult } from "../types";
 import { useAi } from "../features/ai/aiStore";
 import { useI18n } from "../hooks/useI18n";
+import { useViewportFit } from "../hooks/useViewportFit";
 import { maxOf, minOf } from "../lib/numbers";
 
 const DEFAULT_W = 168;
@@ -215,6 +216,10 @@ export default function ResultGrid({
   const [customFilter, setCustomFilter] = useState<{ column: string; op: FilterOp } | null>(null);
   const [hClip, setHClip] = useState("");
   const [gutterMenu, setGutterMenu] = useState<{ x: number; y: number; vi: number } | null>(null);
+  // 三个右键菜单都按真实尺寸摆位,见 hooks/useViewportFit
+  const cellMenuFit = useViewportFit(cellMenu);
+  const headerMenuFit = useViewportFit(headerMenu);
+  const gutterMenuFit = useViewportFit(gutterMenu);
   const sorts = !sort ? [] : Array.isArray(sort) ? sort : [sort];
   /** Newly-added rows awaiting INSERT. `after` is the loaded-row index they
    *  render below (-1 = above the first loaded row); order is display-only. */
@@ -1163,7 +1168,7 @@ export default function ResultGrid({
       )}
 
       {gutterMenu && (
-        <div className="ctx-menu" style={{ left: Math.min(gutterMenu.x, window.innerWidth - 200), top: gutterMenu.y }}>
+        <div className="ctx-menu" ref={gutterMenuFit.ref} style={gutterMenuFit.style}>
           <div className="ctx-item" onClick={() => { addRow(); setGutterMenu(null); }}>
             <Plus size={15} /> {t("edit.addRow")}
           </div>
@@ -1174,7 +1179,7 @@ export default function ResultGrid({
       )}
 
       {cellMenu && (
-        <div className="ctx-menu" style={{ left: Math.min(cellMenu.x, window.innerWidth - 230), top: cellMenu.y }}>
+        <div className="ctx-menu" ref={cellMenuFit.ref} style={cellMenuFit.style}>
           <div className="ctx-item" onClick={() => { copySelection(); setCellMenu(null); }}>
             <Copy size={15} /> {t("action.copy")}
           </div>
@@ -1208,14 +1213,7 @@ export default function ResultGrid({
       )}
 
       {headerMenu && (
-        <div
-          className="ctx-menu wide"
-          style={{
-            left: Math.min(headerMenu.x, window.innerWidth - 280),
-            top: Math.max(8, Math.min(headerMenu.y, window.innerHeight - 600)),
-            maxHeight: "calc(100vh - 16px)", overflowY: "auto",
-          }}
-        >
+        <div className="ctx-menu wide" ref={headerMenuFit.ref} style={headerMenuFit.style}>
           <div className="ctx-head mono" title={cols[headerMenu.c]?.name}>{cols[headerMenu.c]?.name}</div>
           <div className="ctx-item" onClick={() => { onSortColumn?.(cols[headerMenu.c].name, "asc"); setHeaderMenu(null); }}>
             <ArrowUp size={15} /> {t("data.orderAsc")}

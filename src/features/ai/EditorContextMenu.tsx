@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { useViewportFit } from "../../hooks/useViewportFit";
 import {
   Play,
   Sparkles,
@@ -28,8 +30,20 @@ interface Props {
 export default function EditorContextMenu({ ctx, onRunSelection, onAiAction, onClose }: Props) {
   const t = useAiStrings();
   const hasSelection = !!ctx.selection.trim();
-  const x = Math.min(ctx.x, window.innerWidth - 230);
-  const y = Math.min(ctx.y, window.innerHeight - 130);
+  const fit = useViewportFit(ctx);
+  /* AI 子菜单固定往右下飞出,菜单贴近屏幕右边/底边时整块出屏。
+     悬停展开那一刻量它的真实位置,放不下就翻到左边 / 往上对齐。 */
+  const [subFlip, setSubFlip] = useState({ x: false, y: false });
+  const placeSubmenu = (item: HTMLElement) => {
+    const sub = item.querySelector<HTMLElement>(".ectx-submenu");
+    if (!sub) return;
+    const parent = item.getBoundingClientRect();
+    const { width, height } = sub.getBoundingClientRect();
+    setSubFlip({
+      x: parent.right - 6 + width > window.innerWidth - 8,
+      y: parent.top - 6 + height > window.innerHeight - 8,
+    });
+  };
 
   const aiActions: { id: InlineAction; label: string; icon: typeof SearchCheck }[] = [
     { id: "review", label: t("inlineReview"), icon: SearchCheck },
@@ -54,7 +68,7 @@ export default function EditorContextMenu({ ctx, onRunSelection, onAiAction, onC
           onClose();
         }}
       />
-      <div className="editor-ctx" style={{ left: x, top: y }} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="editor-ctx" ref={fit.ref} style={fit.style} onMouseDown={(e) => e.stopPropagation()}>
         <button
           className="ectx-item"
           disabled={!hasSelection}
@@ -68,7 +82,10 @@ export default function EditorContextMenu({ ctx, onRunSelection, onAiAction, onC
 
         <div className="ectx-sep" />
 
-        <div className="ectx-item has-sub">
+        <div
+          className={`ectx-item has-sub${subFlip.x ? " flip-x" : ""}${subFlip.y ? " flip-y" : ""}`}
+          onMouseEnter={(e) => placeSubmenu(e.currentTarget)}
+        >
           <Sparkles size={14} style={{ color: "var(--accent)" }} /> AI
           <ChevronRight size={14} className="ectx-caret" />
           <div className="ectx-submenu">

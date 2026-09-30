@@ -29,6 +29,7 @@ import { openEntity360 } from "../features/entity/Entity360";
 import DeleteObjectDialog from "./DeleteObjectDialog";
 import TreeRow from "./TreeRow";
 import { useI18n } from "../hooks/useI18n";
+import { useViewportFit } from "../hooks/useViewportFit";
 import { parseDashboardHtml } from "../features/dashboard/export/htmlImport";
 import { dashboardRepository } from "../features/dashboard/repository";
 
@@ -322,6 +323,7 @@ export default function Sidebar() {
   const showHidden = useApp((s) => s.showHidden);
   const [deleteNode, setDeleteNode] = useState<TreeNode | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const menuFit = useViewportFit(menu);
   const [section, setSection] = useState<Section>(
     () => (localStorage.getItem(SECTION_KEY) as Section) || "conn",
   );
@@ -617,14 +619,7 @@ export default function Sidebar() {
       {menu && (
         <>
           <div className="ctx-backdrop" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
-          <div
-            className="ctx-menu"
-            style={{
-              left: Math.min(menu.x, window.innerWidth - 210),
-              top: Math.max(8, Math.min(menu.y, window.innerHeight - 360)),
-              maxHeight: "calc(100vh - 16px)", overflowY: "auto",
-            }}
-          >
+          <div className="ctx-menu" ref={menuFit.ref} style={menuFit.style}>
             {buildItems(menu.node).map((it, i) => (
               <div key={i}>
                 {it.sep && <div className="ctx-sep" />}

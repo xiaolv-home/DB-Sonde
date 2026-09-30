@@ -15,6 +15,7 @@ import {
 import { useState } from "react";
 import { useGlassPill } from "../hooks/useGlassPill";
 import { useI18n } from "../hooks/useI18n";
+import { useViewportFit } from "../hooks/useViewportFit";
 import { isUnsavedTab } from "../lib/workspaceSession";
 import { useApp } from "../store/appStore";
 
@@ -25,6 +26,7 @@ export default function WorkspaceTabBar() {
   const dirtyTabs = useApp(s => s.dirtyTabs);
   const activeTabId = useApp((s) => s.activeTabId);
   const [menu, setMenu] = useState<{ tabId: string; x: number; y: number; } | null>(null);
+  const menuFit = useViewportFit(menu);
   const [renaming, setRenaming] = useState<{ tabId: string; value: string; } | null>(null);
   /* 标签背后那块玻璃:鼠标在这排上时跟着指的那项走,移开就回到当前标签。 */
   const { trackProps, pillProps } = useGlassPill(activeTabId);
@@ -164,7 +166,7 @@ export default function WorkspaceTabBar() {
                   setMenu(null);
                 }}
               />
-              <div className="ctx-menu" style={{ left: Math.min(menu.x, window.innerWidth - 180), top: menu.y }}>
+              <div className="ctx-menu" ref={menuFit.ref} style={menuFit.style}>
                 <div className="ctx-item" onClick={() => startRename(tab.id, tab.title)}>
                   <Pencil size={14} /> 重命名
                 </div>

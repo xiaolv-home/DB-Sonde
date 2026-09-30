@@ -403,6 +403,9 @@
 .ectx-item.has-sub:hover .ectx-submenu {
   display: block;
 }
+/* 右边 / 下面放不下时由 EditorContextMenu 量过后加上 */
+.ectx-item.has-sub.flip-x .ectx-submenu { left: auto; right: calc(100% - 6px); }
+.ectx-item.has-sub.flip-y .ectx-submenu { top: auto; bottom: -6px; }
 
 /* ---- inline (right-click) AI popover in the SQL editor ---- */
 .ai-inline-backdrop {
