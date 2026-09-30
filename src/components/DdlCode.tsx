@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql as sqlLang } from "@codemirror/lang-sql";
 import { syntaxHighlighting } from "@codemirror/language";
@@ -16,12 +16,11 @@ import type { DbKind } from "../types";
  * 只有真点开 DDL 标签时才要。 */
 export default function DdlCode({ ddl, kind }: { ddl: string; kind?: DbKind }) {
   const { t } = useI18n();
-  const pretty = useMemo(() => formatDdl(ddl, kind), [ddl, kind]);
-  const [raw, setRaw] = useState(false);
-  const shown = raw || !pretty.formatted ? ddl : pretty.text;
+  // 只显示一份:能安全格式化就显示格式化后的,否则原样显示(formatDdl 失败时 text 就是原文)
+  const shown = useMemo(() => formatDdl(ddl, kind).text, [ddl, kind]);
 
   const copy = () => {
-    // 复制当前看到的那份 —— 看的是格式化版就复制格式化版
+    // 复制看到的那份
     navigator.clipboard?.writeText(shown);
     useApp.getState().showToast({ kind: "success", text: t("inspector.ddlCopied") });
   };
@@ -39,14 +38,6 @@ export default function DdlCode({ ddl, kind }: { ddl: string; kind?: DbKind }) {
   return (
     <div className="ddl-view ddl-code">
       <div className="ddl-toolbar">
-        {pretty.formatted ? (
-          <div className="ddl-toggle" role="group">
-            <button className={!raw ? "on" : ""} onClick={() => setRaw(false)}>{t("inspector.ddlPretty")}</button>
-            <button className={raw ? "on" : ""} onClick={() => setRaw(true)}>{t("inspector.ddlRaw")}</button>
-          </div>
-        ) : (
-          <span className="ddl-note">{t("inspector.ddlNotFormatted")}</span>
-        )}
         <button className="btn ghost sm" onClick={copy}>
           <Copy size={13} /> {t("inspector.copyDdl")}
         </button>
