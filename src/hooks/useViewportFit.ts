@@ -14,7 +14,7 @@ import { fitToViewport, type Placement } from "../lib/fitToViewport";
  */
 export function useViewportFit<T extends HTMLElement = HTMLDivElement>(
   anchor: { x: number; y: number } | null,
-  { margin = 8, mode = "flip" }: { margin?: number; mode?: "flip" | "clamp" } = {},
+  { margin = 8, mode = "anchor" }: { margin?: number; mode?: "anchor" | "clamp" } = {},
 ) {
   const ref = useRef<T>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);

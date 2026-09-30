@@ -6,45 +6,57 @@
  * max-height: 100vh - 16px,top 却不是 0,top + 最大高度照样超出屏幕,
  * 连滚动区域的下半截都在屏幕外,滚也滚不到。
  *
- * 所以不猜,量:菜单画出来之后拿真实尺寸算 ——
- *   下面放得下就从点击处往下开;放不下而上面放得下就往上翻;
- *   上下都放不下就贴着屏幕底,并限高出滚动条(整块一定在屏幕里)。
- *   横向同理:右边放不下往左开,都放不下就贴右边。
+ * 所以不猜,量:菜单画出来之后拿真实尺寸算。
  *
- * mode = "clamp" 给会边显示边长高的浮层用(AI 回复是流式的):不整块翻到上面去,
- * 只往上挪够用的距离 —— 否则你正在读,它突然跳走。
+ * mode = "anchor"(右键菜单用):**左上角就钉在鼠标点的位置**,放不下不翻、不挪,
+ *   只限高出滚动条。用户明确要的是这个 —— 菜单跳到别处去就找不着了。
+ *   两个例外,都是为了菜单还能用:
+ *     · 鼠标点在离屏幕底很近的地方,限高后只剩一两行,那就往上挪到刚好能露出
+ *       MIN_VISIBLE 高;
+ *     · 右边真放不下时往左挪刚好够的距离,否则右半截被切掉(横向不滚动)。
+ *
+ * mode = "clamp"(会边显示边长高的浮层用,AI 回复是流式的):整块放不下
+ *   就往上挪够用的距离,比屏幕还高才限高。
  */
 
 export interface Placement {
   left: number;
   top: number;
-  /** 只有内容比屏幕还高时才给;此时菜单要能滚动。 */
+  /** 需要滚动时的最大高度;不给表示整块放得下。 */
   maxHeight?: number;
 }
+
+/** 锚定模式下菜单至少要露出这么高,少于这个就往上挪一点。 */
+export const MIN_VISIBLE = 180;
 
 export function fitToViewport(
   anchor: { x: number; y: number },
   size: { width: number; height: number },
   viewport: { width: number; height: number },
   margin = 8,
-  mode: "flip" | "clamp" = "flip",
+  mode: "anchor" | "clamp" = "anchor",
 ): Placement {
-  const maxH = Math.max(0, viewport.height - margin * 2);
-  const h = Math.min(size.height, maxH);
+  const bottom = viewport.height - margin;
+  const screenH = Math.max(0, viewport.height - margin * 2);
+
   let top: number;
-  if (anchor.y + h <= viewport.height - margin) top = anchor.y;
-  else if (mode === "flip" && anchor.y - h >= margin) top = anchor.y - h;
-  else top = viewport.height - margin - h;
-  // 点击处本身就贴着屏幕边(最后几个像素)时,翻过来的那一边也会压进边距,再夹一次
-  top = Math.max(margin, Math.min(top, viewport.height - margin - h));
+  let maxHeight: number | undefined;
+  if (mode === "anchor") {
+    top = Math.max(margin, anchor.y);
+    if (size.height > bottom - top) {
+      const want = Math.min(size.height, MIN_VISIBLE, screenH);
+      if (bottom - top < want) top = Math.max(margin, bottom - want);
+      const room = bottom - top;
+      if (size.height > room) maxHeight = room;
+    }
+  } else {
+    const h = Math.min(size.height, screenH);
+    top = Math.max(margin, Math.min(anchor.y, bottom - h));
+    if (size.height > screenH) maxHeight = screenH;
+  }
 
-  const maxW = Math.max(0, viewport.width - margin * 2);
-  const w = Math.min(size.width, maxW);
-  let left: number;
-  if (anchor.x + w <= viewport.width - margin) left = anchor.x;
-  else if (mode === "flip" && anchor.x - w >= margin) left = anchor.x - w;
-  else left = viewport.width - margin - w;
-  left = Math.max(margin, Math.min(left, viewport.width - margin - w));
+  const w = Math.min(size.width, Math.max(0, viewport.width - margin * 2));
+  const left = Math.max(margin, Math.min(anchor.x, viewport.width - margin - w));
 
-  return size.height > maxH ? { left, top, maxHeight: maxH } : { left, top };
+  return maxHeight === undefined ? { left, top } : { left, top, maxHeight };
 }
