@@ -1919,7 +1919,20 @@ button {
 }
 .ti-bar-tabs button:hover { color: var(--text-2); }
 .ti-bar-tabs button.on { color: var(--text); }
-.ti-bar-tabs .pill { border-radius: 999px; }
+/* 这排的胶囊滑得快一点、不回弹:5 个分区来回跳,420ms 带过冲的话
+   跨两三格时字已经亮了、胶囊还在半路,看着就是「跟不上」。
+   颜色仍按 motion.css 里的节奏渐变。 */
+.ti-bar-tabs .pill {
+  border-radius: 999px;
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    --pill-accent var(--dur-2) var(--ease),
+    --pill-tint var(--dur-2) var(--ease),
+    opacity var(--dur-1) var(--ease);
+}
+.ti-bar-tabs .pill.instant { transition: opacity var(--dur-1) var(--ease); }
 .ti-bar-tabs button b {
   color: var(--text-3);
   font-weight: 600;

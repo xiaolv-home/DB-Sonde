@@ -533,7 +533,7 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
   const [dataVisited, setDataVisited] = useState(false);
   useEffect(() => { if (section === "data") setDataVisited(true); }, [section]);
 
-  /* 切换分区时,下面的内容短暂淡入,而不是「啪」一下整块换掉。
+  /* 切换分区时,下面的内容轻轻淡入,而不是「啪」一下整块换掉。
      只动透明度、不滑动 —— 用户嫌的就是「点过去画面变得太快、动得太多」。
      第一次打开不淡入;系统开了「减少动态效果」也不淡入。 */
   const contentRef = useRef<HTMLElement>(null);
@@ -543,7 +543,8 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
     const el = contentRef.current;
     if (!el || typeof el.animate !== "function") return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+    // 从半透明起,不从全透明起:从 0 起内容会先「没了」一下,看着是闪
+    el.animate([{ opacity: 0.45 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
   }, [section]);
   const [hasUnsavedDataEdits, setHasUnsavedDataEdits] = useState(false);
   useUnsavedChanges(tab.id, hasUnsavedDataEdits);

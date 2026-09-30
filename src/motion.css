@@ -18,6 +18,20 @@
        不要每个标签都糊一层。
    ============================================================ */
 
+/* 胶囊的强调色和「上色浓度」注册成有类型的变量,颜色才能渐变过去。
+   不注册的话,变量一变,依赖它的渐变背景就是「啪」地一下换掉 ——
+   从「属性」(橙)跳到「DDL」(青)、从「路过」变成「选中」,都会闪一下。 */
+@property --pill-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0b8fd6;
+}
+@property --pill-tint {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
 :root {
   /* 时长:按"这个变化有多大"分三档,不按控件分 */
   --dur-1: 120ms;   /* 微交互:悬停、按下、图标换色 */
@@ -106,7 +120,11 @@
   pointer-events: none;          /* 它只是背景,别挡住底下的点击 */
   border-radius: 999px;
   /* 上亮下暗的渐变,不是平涂 —— 光从上方来 */
-  background: linear-gradient(180deg, var(--glass-top) 0%, var(--glass-bottom) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--glass-top) 100%, var(--pill-accent) var(--pill-tint)) 0%,
+    color-mix(in srgb, var(--glass-bottom) 100%, var(--pill-accent) calc(var(--pill-tint) * 0.36)) 100%
+  );
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow:
@@ -120,7 +138,8 @@
     transform var(--dur-travel) var(--ease-settle),
     width var(--dur-travel) var(--ease-settle),
     height var(--dur-travel) var(--ease-settle),
-    background var(--dur-2) var(--ease),
+    --pill-accent var(--dur-2) var(--ease),
+    --pill-tint var(--dur-2) var(--ease),
     opacity var(--dur-1) var(--ease);
 }
 
@@ -131,11 +150,7 @@
 /* 跟着鼠标走时是"路过":纯玻璃,不上色。落到选中项才染上强调色 ——
    「临时指着」和「这就是当前项」要看得出区别。 */
 .pill.hovering {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--glass-top) 100%, white 4%) 0%,
-    var(--glass-bottom) 100%
-  );
+  --pill-tint: 0%;
 }
 
 /* 选中态的辉光。单独一层伪元素做,过渡 opacity 而不是过渡 box-shadow */
@@ -156,12 +171,8 @@
 .pill.settled {
   /* 选中时往玻璃里兑强调色,而且**上浓下淡** —— 光和颜色都从上面来,
      方向一致才像同一块材质。纯白玻璃在深色面板上看得出"有块东西",
-     看不出"这是当前项"。 */
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--glass-top) 100%, var(--pill-accent) 22%) 0%,
-    color-mix(in srgb, var(--glass-bottom) 100%, var(--pill-accent) 8%) 100%
-  );
+     看不出"这是当前项"。浓度走 --pill-tint,「路过」→「选中」是渐变上色。 */
+  --pill-tint: 22%;
 }
 
 .pill.settled::after {
