@@ -450,6 +450,8 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
             </span>
           )}
         </div>
+        {/* 右边这块定宽,和「列」「索引」那行一样宽 —— 切换时过滤框长度不变 */}
+        <div className="data-toolbar-end">
         {/* 编辑说明收进一个小图标,鼠标停上去看 —— 这行只留过滤框和分页 */}
         <span className="data-hint-icon" title={editHint} aria-label={editHint}>
           <Info size={14} />
@@ -466,6 +468,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
         <span className="muted data-rowcount">
           {t("query.rowCount", { count: `${rows.length.toLocaleString()}${hasMore ? "+" : ""}` })}
         </span>
+        </div>
       </div>
 
       <div className="data-grid-area">
@@ -680,18 +683,6 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
             );
           })}
         </div>
-        {searchable && (
-          <div className="ti-bar-search">
-            <Search size={13} />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-            />
-          </div>
-        )}
-
         <div className="toolbar-spacer" />
         <span
           className="ti-bar-stats"
@@ -723,6 +714,34 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
       </div>
 
       <section className="object-content" ref={contentRef}>
+        {/* 「列」「索引」的搜索框和「数据」的 WHERE 过滤框放在同一个位置、同一个样子。
+            以前搜索框挤在标题那行,切到数据就没了、下面又冒出一行过滤框 ——
+            输入框来回跳位置,表格也跟着上下窜。现在标题行永远不变,
+            切换时输入框待在原地,只是提示文字不同。 */}
+        {searchable && !loading && !error && (
+          <div className="data-toolbar">
+            <div className="data-where">
+              <Search size={13} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
+                spellCheck={false}
+              />
+              {search && (
+                <span className="icon-btn" onClick={() => setSearch("")} title={t("data.clearFilter")}>
+                  <X size={13} />
+                </span>
+              )}
+            </div>
+            <span className="data-toolbar-end muted data-rowcount">
+              {section === "columns"
+                ? t("inspector.countColumns", { count: search ? `${visibleColumns.length} / ${columns.length}` : columns.length })
+                : t("inspector.countIndexes", { count: search ? `${visibleIndexes.length} / ${indexes.length}` : indexes.length })}
+            </span>
+          </div>
+        )}
         <div className="inspector-body" style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ display: section === "data" ? "none" : undefined }}>
           {loading ? (
