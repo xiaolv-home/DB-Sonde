@@ -1,4 +1,5 @@
 import { isRecord, optionalString } from "./storageValidation";
+import { RESULT_MIN_HEIGHT } from "./paneSizes";
 import type { SavedQuery, WorkspaceTab } from "../store/appTypes";
 
 export const WORKSPACE_KEY = "sonde.workspace.v1";
@@ -74,7 +75,7 @@ export function restoreWorkspace(raw: string | null, savedQueries: SavedQuery[])
           const saved = savedQueries.find(q => q.id === item.savedId);
           if (item.savedId && !saved) continue;
           tabs.push({ ...base, kind: "query", savedId: saved?.id, readOnly: item.readOnly === true, sql: saved?.sql ?? "", running: false,
-            executions: [], activeExecutionIndex: 0, resultHeight: Number.isFinite(item.resultHeight) ? Math.max(140, item.resultHeight) : undefined, view: item.view === "chart" ? "chart" : "grid" });
+            executions: [], activeExecutionIndex: 0, resultHeight: Number.isFinite(item.resultHeight) ? Math.max(RESULT_MIN_HEIGHT, item.resultHeight) : undefined, view: item.view === "chart" ? "chart" : "grid" });
           break;
         }
         case "database":

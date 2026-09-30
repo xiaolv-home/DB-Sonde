@@ -1,5 +1,6 @@
 import { getStoredLanguage, translate } from "../i18n";
 import { readStoredText, writeStoredText } from "../lib/jsonStorage";
+import { acceptsPaneHeight, clampPaneHeight, PY_OUTPUT_MIN_HEIGHT, RESULT_MIN_HEIGHT } from "../lib/paneSizes";
 import type { AppSlice } from "./appTypes";
 import {
   DEFAULT_SYNTAX_THEME,
@@ -30,20 +31,15 @@ type ShellSlice = AppSlice<
 
 /** 面板高度上限跟着窗口走,至少给上半部分留 160px,免得拖到编辑器没了。
  *  没有 window 的环境(测试、SSR)只保下限 —— store 不该假定有 DOM。 */
-function clampPaneHeight(h: number, min: number) {
-    const viewport = typeof window === "undefined" ? 0 : window.innerHeight;
-    const max = viewport ? Math.max(min, viewport - 160) : Infinity;
-    return Math.round(Math.min(max, Math.max(min, h)));
-}
 
 export const createShellSlice: ShellSlice = (set, get) => ({
     theme: readStoredText<"dark" | "light">("theme", "dark", value => value === "dark" || value === "light"),
     syntaxTheme: readStoredText<SyntaxTheme>("syntaxTheme", DEFAULT_SYNTAX_THEME, isSyntaxTheme),
     language: getStoredLanguage(),
     sidebarWidth: Number(readStoredText("sidebarWidth", "268", value => Number.isFinite(Number(value)) && Number(value) >= 200 && Number(value) <= 520)),
-    resultHeight: Number(readStoredText("resultHeight", "320", value => Number.isFinite(Number(value)) && Number(value) >= 140)),
+    resultHeight: clampPaneHeight(Number(readStoredText("resultHeight", "320", acceptsPaneHeight(RESULT_MIN_HEIGHT))), RESULT_MIN_HEIGHT),
     resultCollapsed: readStoredText<"0" | "1">("resultCollapsed", "0", v => v === "0" || v === "1") === "1",
-    pyOutputHeight: Number(readStoredText("pyOutputHeight", "260", value => Number.isFinite(Number(value)) && Number(value) >= 80)),
+    pyOutputHeight: clampPaneHeight(Number(readStoredText("pyOutputHeight", "260", acceptsPaneHeight(PY_OUTPUT_MIN_HEIGHT))), PY_OUTPUT_MIN_HEIGHT),
     pyOutputCollapsed: readStoredText<"0" | "1">("pyOutputCollapsed", "0", v => v === "0" || v === "1") === "1",
     async init() {
         document.documentElement.setAttribute("data-theme", get().theme);
@@ -105,7 +101,7 @@ export const createShellSlice: ShellSlice = (set, get) => ({
     },
     setResultHeight(h, tabId = get().activeTabId) {
         if (!Number.isFinite(h)) return;
-        const height = clampPaneHeight(h, 120);
+        const height = clampPaneHeight(h, RESULT_MIN_HEIGHT);
         try { writeStoredText("resultHeight", String(height)); }
         catch (error) { get().showToast({ kind: "error", text: String(error) }); return; }
         // 拖动即展开:收起状态下还按着分隔条拖,显然是想把它拉回来。
@@ -121,7 +117,7 @@ export const createShellSlice: ShellSlice = (set, get) => ({
     },
     setPyOutputHeight(h) {
         if (!Number.isFinite(h)) return;
-        const height = clampPaneHeight(h, 80);
+        const height = clampPaneHeight(h, PY_OUTPUT_MIN_HEIGHT);
         try { writeStoredText("pyOutputHeight", String(height)); } catch { /* 同上 */ }
         set({ pyOutputHeight: height, pyOutputCollapsed: false });
     },
