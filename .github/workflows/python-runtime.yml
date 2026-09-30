@@ -75,6 +75,9 @@ jobs:
           ls -la out
           ( cd out && sha256sum ./*.tar.gz | tee SHA256SUMS.txt )
 
+      # 标成预发布:它只给 app 后台下载用,不能占仓库的「Latest」——
+      # 否则用户点「最新版本」看到的是运行时压缩包,不是安装包。
+      # 下载地址 releases/download/<tag>/<文件> 不受预发布影响。
       - name: 发 Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,6 +88,7 @@ jobs:
           gh release create "$tag" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Python 运行时 ${{ inputs.runtime_version }}" \
+            --prerelease \
             --notes "$(printf '%s\n\n%s\n\n```\n%s\n```\n' \
               'DB Sonde 的 Python 工作台运行时（CPython + pandas/numpy/polars/pyarrow/matplotlib 等）。应用在用户点「一键安装」时按平台下载。' \
               '每个包的 SHA256 由应用**写死在源码里**校验，所以换运行时必须同步更新 src-tauri/src/python.rs 的 runtime_asset()。' \

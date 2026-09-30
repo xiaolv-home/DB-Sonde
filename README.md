@@ -4,18 +4,23 @@
 
 ## 下载安装
 
-**[下载 DB Sonde 0.51.13 · macOS Apple Silicon](https://github.com/xiaolv-home/DB-Sonde/releases/download/v0.51.13/DB-Sonde_0.51.13_macOS_arm64.dmg)**
+**[下载最新版本](https://github.com/xiaolv-home/DB-Sonde/releases/latest)**，按系统选安装包：
 
-1. 下载并打开 `.dmg`。
-2. 将 **DB Sonde** 拖入 **Applications（应用程序）**。
-3. 打开应用，添加数据库连接，或创建 SQLite 演示库体验。
+| 系统 | 安装包 |
+| --- | --- |
+| macOS（M 系列芯片） | `DB-Sonde_版本号_macOS_arm64.dmg` |
+| macOS（Intel 芯片） | `DB-Sonde_版本号_macOS_x64.dmg` |
+| Windows 10 / 11 | `DB-Sonde_版本号_Windows_x64.msi` |
 
-无需安装开发工具。安装包适用于 M 系列 Mac，建议 macOS 14 或更新版本。
-当前版本未经过 Apple 签名公证；首次打开若被系统拦截，可在
-**系统设置 → 隐私与安全性 → 仍要打开** 中允许。参见 [Apple 官方说明](https://support.apple.com/102445)。
+**macOS**：打开 `.dmg`，把 **DB Sonde** 拖进「应用程序」。当前未经过 Apple 签名公证，
+首次打开若被拦截，在 **系统设置 → 隐私与安全性 → 仍要打开** 中允许。参见 [Apple 官方说明](https://support.apple.com/102445)。
 
-安装包包含数据库客户端和云端 AI 接口，本地 AI 与 Python 运行时需另行配置。
-版本说明和 SHA-256 校验文件见 [Releases](https://github.com/xiaolv-home/DB-Sonde/releases/tag/v0.51.13)。
+**Windows**：双击 `.msi` 安装。安装包没有代码签名，会弹「Windows 已保护你的电脑」，
+点 **更多信息 → 仍要运行**。
+
+无需安装开发工具。安装包包含数据库客户端和云端 AI 接口；Python 工作台的运行时
+在首次使用时可一键下载安装，本地 AI 需另行配置。每个版本的 SHA-256 校验文件见
+[Releases](https://github.com/xiaolv-home/DB-Sonde/releases)。
 
 > [!NOTE]
 > 当前为 Beta。各平台的验证程度不同，见下表；SQL 执行和表格编辑可以修改数据库，

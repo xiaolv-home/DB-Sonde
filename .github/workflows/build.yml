@@ -144,6 +144,9 @@ jobs:
           ls -la out
           ( cd out && sha256sum ./* > SHA256SUMS.txt && cat SHA256SUMS.txt )
 
+      # 不标 prerelease、并显式 --latest:仓库的「Latest」和 /releases/latest 只认
+      # 非预发布版本。以前 app 全标成预发布,唯一的正式版是 Python 运行时,于是
+      # 「最新版本」指向了三个 150MB 的运行时压缩包。Beta 写在标题和 README 里。
       - name: 建 Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -151,7 +154,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "DB Sonde ${GITHUB_REF_NAME#v} Beta" \
-            --prerelease \
+            --latest \
             --notes "三平台构建产物,均由 CI 在各自的原生 runner 上构建。校验和见 SHA256SUMS.txt。
 
             **未签名**:macOS 首次打开走 系统设置 → 隐私与安全性 → 仍要打开;Windows 会弹 SmartScreen,点 更多信息 → 仍要运行。
