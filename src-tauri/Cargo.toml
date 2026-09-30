@@ -1,6 +1,6 @@
 [package]
 name = "db-sonde"
-version = "0.51.22"
+version = "0.51.23"
 description = "DB Sonde — a fast, friendly database manager"
 authors = ["DB Sonde contributors"]
 license = "MIT"
