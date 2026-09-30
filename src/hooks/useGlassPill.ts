@@ -45,11 +45,7 @@ const measure = (track: HTMLElement, key: string): Rect | null => {
 const same = (a: Rect | null, b: Rect | null) =>
   a === b || (!!a && !!b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height);
 
-export function useGlassPill(
-  activeKey: string | null | undefined,
-  /** false:胶囊只跟「选中」走,不追鼠标。项少、切得勤的分段控件用这个更稳。 */
-  { followHover = true }: { followHover?: boolean } = {},
-): GlassPill {
+export function useGlassPill(activeKey: string | null | undefined): GlassPill {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [rect, setRect] = useState<Rect | null>(null);
@@ -89,12 +85,11 @@ export function useGlassPill(
   }, [rect, ready]);
 
   const onPointerMove = useCallback((event: React.PointerEvent) => {
-    if (!followHover) return;
     const item = (event.target as HTMLElement | null)?.closest?.("[data-pill]") as HTMLElement | null;
     const key = item?.dataset.pill ?? null;
     // 只有"指着的那项变了"才 setState —— 同一项里晃鼠标不该引起任何重算
     setHoverKey((prev) => (prev === key ? prev : key));
-  }, [followHover]);
+  }, []);
 
   const onPointerLeave = useCallback(() => setHoverKey(null), []);
 
