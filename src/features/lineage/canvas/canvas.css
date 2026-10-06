@@ -1,0 +1,331 @@
+/* 链路画布。颜色全部走主题 token,深色 / 浅色自动跟着变。 */
+.cv-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 520;               /* 盖在数据资产(400)上面 */
+  display: flex;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---- 左侧:画布列表 ---- */
+.cv-side {
+  width: 240px;
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.cv-side-head {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cv-side-head b { font-size: 15px; }
+.cv-side-list { flex: 1; overflow: auto; padding: 6px; }
+.cv-side-none { padding: 16px 8px; color: var(--text-3); font-size: 13px; line-height: 1.6; }
+.cv-doc {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  cursor: default;
+}
+.cv-doc:hover { background: var(--surface-2); }
+.cv-doc.on { background: var(--accent-soft); }
+.cv-doc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cv-doc-name { font-size: 14px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-doc-meta { font-size: 11.5px; color: var(--text-3); }
+.cv-doc-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.cv-doc-acts { display: none; gap: 0; }
+.cv-doc:hover .cv-doc-acts { display: flex; }
+.cv-doc-acts .icon-btn { width: 24px; height: 24px; }
+.cv-overlay .icon-btn.danger:hover { color: var(--red); }
+
+/* ---- 右侧主区 ---- */
+.cv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cv-blank {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-2);
+  text-align: center;
+  padding: 24px;
+}
+.cv-blank svg { color: var(--accent); }
+.cv-blank b { font-size: 17px; color: var(--text); }
+.cv-blank span { max-width: 420px; font-size: 13.5px; line-height: 1.6; }
+
+.cv-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; outline: none; }
+.cv-topbar {
+  height: 46px;
+  flex: 0 0 46px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.cv-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.cv-dirty { font-size: 13px; color: var(--text-3); margin-right: 4px; }
+.cv-dirty.on { color: var(--amber, #d9a514); }
+
+/* 选中东西后出现的属性条 */
+.cv-props {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header);
+}
+.cv-props-label { font-size: 13px; color: var(--text-2); font-weight: 600; min-width: 48px; }
+.cv-props .icon-btn { width: 28px; height: 28px; }
+.cv-props .icon-btn.on { background: var(--accent-soft); color: var(--accent); }
+.cv-select {
+  height: 26px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 4px;
+}
+.cv-swatches { display: flex; gap: 4px; }
+.cv-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--c);
+  box-shadow: inset 0 0 0 2px var(--header);
+  cursor: default;
+}
+.cv-swatch.on { border-color: var(--c); }
+.cv-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.cv-seg button {
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: default;
+}
+.cv-seg button.on { background: var(--accent); color: #fff; }
+.cv-overlay .btn.xs { height: 24px; padding: 0 8px; font-size: 12.5px; }
+.cv-overlay .btn.on { background: var(--accent-soft); border-color: var(--accent-border, var(--accent)); color: var(--accent); }
+.cv-label-input {
+  height: 26px;
+  width: 160px;
+  padding: 0 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.cv-label-input:focus { border-color: var(--accent); }
+
+.cv-stage { flex: 1; min-height: 0; display: flex; }
+.cv-palette {
+  width: 68px;
+  flex: 0 0 68px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+.cv-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 2px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: grab;
+}
+.cv-tool:hover { background: var(--surface-2); color: var(--text); }
+.cv-tool:active { cursor: grabbing; }
+
+.cv-flow { position: relative; flex: 1; min-width: 0; }
+.cv-flow .react-flow { --xy-background-color: var(--bg); --xy-background-pattern-color: var(--border-2); }
+.cv-flow .react-flow__controls { box-shadow: var(--shadow-sm); border-radius: 8px; overflow: hidden; }
+.cv-flow .react-flow__minimap { border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.cv-flow .react-flow__edge.selected .react-flow__edge-path { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.cv-flow .react-flow__selection { background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid var(--accent); }
+
+.cv-empty {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 13.5px;
+  text-align: center;
+  pointer-events: none;
+}
+.cv-empty b { color: var(--text-2); font-size: 15px; }
+.cv-hint {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- 形状 ---- */
+.cv-node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  text-align: center;
+  line-height: 1.35;
+  color: var(--text);
+  border: 1.5px solid var(--c);
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+}
+.cv-label { white-space: pre-wrap; word-break: break-word; overflow: hidden; max-height: 100%; position: relative; z-index: 1; }
+.cv-rect { border-radius: 3px; }
+.cv-rounded { border-radius: 12px; }
+.cv-pill { border-radius: 999px; padding: 6px 18px; }
+.cv-ellipse { border-radius: 50%; padding: 6px 20px; }
+.cv-diamond, .cv-cylinder { border: 0; background: transparent; }
+.cv-diamond { padding: 10px 26px; }
+.cv-cylinder { padding: 16px 12px 8px; }
+.cv-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.cv-svg polygon, .cv-svg path {
+  fill: color-mix(in srgb, var(--c) 14%, var(--surface));
+  stroke: var(--c);
+  stroke-width: 1.5;
+}
+.cv-svg .cv-svg-rim { fill: none; }
+.cv-note {
+  border-radius: 2px;
+  border-color: color-mix(in srgb, var(--c) 60%, transparent);
+  background: color-mix(in srgb, var(--c) 30%, var(--surface));
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.45);
+}
+.cv-node.cv-text { border: 0; background: transparent; }
+.cv-group {
+  border-style: dashed;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 6%, transparent);
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 8px 12px;
+  font-weight: 650;
+  color: var(--c);
+}
+.cv-node.is-selected:not(.cv-diamond):not(.cv-cylinder) { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.cv-diamond.is-selected .cv-svg, .cv-cylinder.is-selected .cv-svg { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 70%, transparent)); }
+
+.cv-edit {
+  position: absolute;
+  inset: 4px;
+  z-index: 3;
+  resize: none;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  padding: 4px 6px;
+  outline: none;
+}
+.cv-note .cv-edit { text-align: left; }
+
+/* 连接点:平时藏着,指到形状或选中时才露出来 */
+.cv-node .cv-handle {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--accent);
+  background: var(--surface);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.react-flow__node:hover .cv-handle, .cv-node.is-selected .cv-handle, .react-flow.connecting .cv-handle { opacity: 1; }
+.cv-ref {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  color: var(--c);
+  opacity: 0.85;
+  z-index: 2;
+}
+.cv-flow .cv-resize-line { border-color: var(--accent); }
+.cv-flow .cv-resize-handle { width: 8px; height: 8px; border-radius: 2px; background: var(--surface); border: 1.5px solid var(--accent); }
+
+/* ---- 从血缘添加 ---- */
+.cv-picker {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  width: 420px;
+  max-height: min(70%, 520px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.55);
+}
+.cv-picker-search { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-3); }
+.cv-picker-search input { flex: 1; border: 0; background: transparent; color: var(--text); font-size: 14px; outline: none; }
+.cv-picker-list { overflow: auto; padding: 4px; }
+.cv-picker-none { padding: 14px; color: var(--text-3); font-size: 13px; }
+.cv-picker-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; }
+.cv-picker-row:hover { background: var(--surface-2); }
+.cv-picker-kind { flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--surface-2); color: var(--text-3); }
+.cv-picker-name { flex: 1; min-width: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

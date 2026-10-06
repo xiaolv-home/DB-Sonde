@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   Sparkles,
   Trash2,
+  PenTool,
 } from "lucide-react";
 import { useLineage, buildGraph, nodeLabelOf, tableId, type Graph, type NodeKind } from "./lineageStore";
 import { useOps, type HealthState, type NodeHealth } from "./opsStore";
@@ -403,6 +404,15 @@ function SqlScanForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* 链路画布单独打包(画布库不小),打开血缘时在后台先加载好,点「画布」不用等。 */
+type CanvasModule = typeof import("./canvas/CanvasEditor");
+let canvasModule: CanvasModule | null = null;
+let canvasLoading: Promise<CanvasModule> | null = null;
+function preloadCanvas(): Promise<CanvasModule> {
+  canvasLoading ??= import("./canvas/CanvasEditor").then((m) => (canvasModule = m));
+  return canvasLoading;
+}
+
 export default function LineageCenter() {
   const open = useLineage((s) => s.open);
   const scanned = useLineage((s) => s.scanned);
@@ -417,6 +427,14 @@ export default function LineageCenter() {
   const [q, setQ] = useState("");
   const [kinds, setKinds] = useState<Record<NodeKind, boolean>>(DEFAULT_KINDS);
   const [panel, setPanel] = useState<"none" | "view" | "sql" | "inspect" | "tools">("none");
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [canvasMod, setCanvasMod] = useState<CanvasModule | null>(canvasModule);
+  useEffect(() => { void preloadCanvas().then(setCanvasMod).catch(() => { canvasLoading = null; }); }, []);
+  const openCanvas = () => {
+    if (canvasMod) { setCanvasOpen(true); return; }
+    void preloadCanvas().then((m) => { setCanvasMod(m); setCanvasOpen(true); })
+      .catch((error) => { canvasLoading = null; useApp.getState().showToast({ kind: "error", text: `画布加载失败:${String(error)}` }); });
+  };
   const [view, setView] = useState<"list" | "graph">("list");
   const [onlyRelevant, setOnlyRelevant] = useState(true);
   const health = useOps((s) => s.health);
@@ -494,6 +512,9 @@ export default function LineageCenter() {
           <button className={`btn sm ${panel === "tools" ? "on" : ""}`} onClick={() => setPanel(panel === "tools" ? "none" : "tools")} title="扫描血缘、同步运行状态等维护动作">
             <ScanLine size={13} /> 扫描 · 维护
           </button>
+          <button className="btn sm" onClick={openCanvas} title="自己画链路:摆表、作业、指标,连线、分组、配颜色">
+            <PenTool size={13} /> 链路画布
+          </button>
           <div className="toolbar-spacer" />
           {(syncMsg || lastMsg) && <span className="lin-msg">{syncMsg ?? lastMsg}</span>}
         </div>
@@ -526,6 +547,7 @@ export default function LineageCenter() {
         {panel === "view" && <ViewScanForm onClose={() => setPanel("none")} />}
         {panel === "sql" && <SqlScanForm onClose={() => setPanel("none")} />}
         {panel === "inspect" && <InspectPanel onPick={(id) => useLineage.getState().select(id)} />}
+        {canvasOpen && canvasMod && <canvasMod.default graph={graph} onClose={() => setCanvasOpen(false)} />}
 
         <div className="lin-body">
           <aside className="lin-rail">
