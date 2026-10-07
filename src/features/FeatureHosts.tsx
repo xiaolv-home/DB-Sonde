@@ -3,10 +3,8 @@ import PanelErrorBoundary, { PanelFailure } from "../components/PanelErrorBounda
 import AiPanel from "./ai/AiPanel";
 import { useAi } from "./ai/aiStore";
 import AssetShell, { AssetChromeHost, closeAssets, type AssetSection } from "./assets/AssetShell";
-import DailyReportCenter from "./daily-report/DailyReportCenter";
 import DatasetsCenter from "./datasets/DatasetsCenter";
 import { useDatasets } from "./datasets/datasetsStore";
-import { useDailyReport } from "./daily-report/reportStore";
 import Entity360 from "./entity/Entity360";
 import { useEntity } from "./entity/entityStore";
 import EtlCenter from "./etl/EtlCenter";
@@ -24,7 +22,6 @@ export function AssetFeatures() {
   const metrics = useMetrics(s => s.open);
   const etl = useEtl(s => s.open);
   const lineage = useLineage(s => s.open);
-  const daily = useDailyReport(s => s.open);
   const datasets = useDatasets(s => s.open);
   const features: { section: AssetSection; name: string; open: boolean; View: ComponentType }[] = [
     { section: "sched", name: "调度", open: sched, View: SchedulerCenter },
@@ -32,7 +29,6 @@ export function AssetFeatures() {
     { section: "metrics", name: "指标", open: metrics, View: MetricsCenter },
     { section: "etl", name: "ETL", open: etl, View: EtlCenter },
     { section: "lineage", name: "血缘", open: lineage, View: LineageCenter },
-    { section: "daily", name: "每日汇报", open: daily, View: DailyReportCenter },
   ];
   /* 外壳(遮罩 + 侧栏 + 玻璃胶囊)只此一套,由 AssetChromeHost 渲染;各中心仍旧
      各自挂着,只是把内容投进壳里。谁开着这一件事只有这儿一个说法。 */

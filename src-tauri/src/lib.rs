@@ -1,6 +1,5 @@
 mod ai;
 mod etl_files;
-mod daily_reports;
 mod commands;
 mod credentials;
 mod workspace_lifecycle;
@@ -69,8 +68,6 @@ pub fn run() {
             python::py_complete,
             python::py_sql_lineage,
             etl_files::inspect_etl_files,
-            daily_reports::daily_report_request,
-            daily_reports::daily_report_source,
             store::load_semantic_catalog,
             commands::list_connections,
             commands::save_connection,

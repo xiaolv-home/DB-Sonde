@@ -19,9 +19,6 @@ import { inTauri, mockApi } from "./mockBackend";
 export const api = {
   getRoutineDetails: (connId: string, database: string, schema: string, name: string, kind: string) => invoke<import("../types").RoutineDetails>("get_routine_details", { connId, database, schema, name, kind }),
   executeRoutine: (connId: string, database: string, schema: string, name: string, kind: string, values: (string | null)[]) => invoke<QueryResult>("execute_routine", { connId, database, schema, name, kind, values }),
-  dailyReportSource: () => inTauri ? invoke<unknown>("daily_report_source") : Promise.resolve(null),
-  dailyReportRequest: (request: import("../features/daily-report/types").ReportSource, operation: Record<string, unknown>) =>
-    inTauri ? invoke<import("../features/daily-report/types").ReportResponse>("daily_report_request", { request, operation }) : Promise.resolve({ error: "每日汇报需要在桌面版连接服务端" }),
   inspectEtlFiles: (request: {root:string;host?:string;username?:string;port?:number;password?:string}) => invoke<import("../features/etl/fileCatalog").FileInventory>("inspect_etl_files", { request }),
   loadSemanticCatalog: () => inTauri ? invoke<unknown>("load_semantic_catalog") : Promise.resolve(null),
   listConnections: () =>
