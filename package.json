@@ -18,7 +18,7 @@
     "test:session": "node scripts/test-session.mjs",
     "test:architecture": "node scripts/test-architecture.mjs",
     "test:resilience": "node scripts/test-resilience.mjs",
-    "check": "npm run test:architecture && npm run test:hooks && npm run test:boundaries && npm run test:ops && npm run test:scheduler && npm run test:ai && npm run test:analysis && npm run test:nodes && npm run test:exploration && npm run test:analysis-e2e && npm run test:metadata && npm run test:ddl && npm run test:fit && npm run test:pane && npm run test:canvas && npm run test:cloud-privacy && npm run test:units && npm run test:resilience && npm run test:session && npm run test:query && npm run test:integration && npm run test:workspace && npm run test:quality && npm run test:design && npm run test:query-runtime && npm run test:model-recovery && npm run test:startup && npm run test:stranded && npm run test:roundtrip && npm run test:dataset && npm run test:dataset-avail && npm run test:runtime-keys && npm run test:field-values && npm run test:domain-neutral && npm run test:recompile && npm run test:rollup && npm run test:pivot && npm run test:pivot-layout && npm run test:column-window && npm run test:offline-export && npm run test:complexity && npm run test:persistence && npm run test:xlsx && npm run test:order && npm run test:sortsql && npm run test:facts && npm run test:health && npm run test:limits && npm run test:kpiscale && npm run test:sqlsafe && npm run test:stream && npm run test:dates && npm run test:lineage && npm run test:etl && npm run test:security && npm run lint && tsc --noEmit",
+    "check": "npm run test:architecture && npm run test:hooks && npm run test:boundaries && npm run test:ops && npm run test:scheduler && npm run test:ai && npm run test:analysis && npm run test:nodes && npm run test:exploration && npm run test:analysis-e2e && npm run test:metadata && npm run test:ddl && npm run test:fit && npm run test:pane && npm run test:canvas && npm run test:monitor && npm run test:cloud-privacy && npm run test:units && npm run test:resilience && npm run test:session && npm run test:query && npm run test:integration && npm run test:workspace && npm run test:quality && npm run test:design && npm run test:query-runtime && npm run test:model-recovery && npm run test:startup && npm run test:stranded && npm run test:roundtrip && npm run test:dataset && npm run test:dataset-avail && npm run test:runtime-keys && npm run test:field-values && npm run test:domain-neutral && npm run test:recompile && npm run test:rollup && npm run test:pivot && npm run test:pivot-layout && npm run test:column-window && npm run test:offline-export && npm run test:complexity && npm run test:persistence && npm run test:xlsx && npm run test:order && npm run test:sortsql && npm run test:facts && npm run test:health && npm run test:limits && npm run test:kpiscale && npm run test:sqlsafe && npm run test:stream && npm run test:dates && npm run test:lineage && npm run test:etl && npm run test:security && npm run lint && tsc --noEmit",
     "test:query": "node scripts/test-query-workspace.mjs",
     "test:boundaries": "node scripts/test-feature-boundaries.mjs",
     "test:ops": "node scripts/test-ops-boundaries.mjs",
@@ -67,7 +67,8 @@
     "test:ddl": "node scripts/test-ddl-format.mjs",
     "test:fit": "node scripts/test-viewport-fit.mjs",
     "test:pane": "node scripts/test-pane-sizes.mjs",
-    "test:canvas": "node scripts/test-lineage-canvas.mjs"
+    "test:canvas": "node scripts/test-lineage-canvas.mjs",
+    "test:monitor": "node scripts/test-monitor.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

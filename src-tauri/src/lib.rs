@@ -1,5 +1,6 @@
 mod ai;
 mod etl_files;
+mod monitor;
 mod commands;
 mod credentials;
 mod workspace_lifecycle;
@@ -68,6 +69,12 @@ pub fn run() {
             python::py_complete,
             python::py_sql_lineage,
             etl_files::inspect_etl_files,
+            monitor::monitor_show,
+            monitor::monitor_bounds,
+            monitor::monitor_hide_all,
+            monitor::monitor_close,
+            monitor::monitor_nav,
+            monitor::monitor_current_url,
             store::load_semantic_catalog,
             commands::list_connections,
             commands::save_connection,

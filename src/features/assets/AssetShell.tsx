@@ -1,15 +1,16 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { X, GitBranch, Workflow, CalendarClock, Gauge, Boxes } from "lucide-react";
+import { X, GitBranch, Workflow, CalendarClock, Gauge, Boxes, MonitorDot } from "lucide-react";
 import { useLineage } from "../lineage/lineageStore";
 import { useEtl } from "../etl/etlStore";
 import { useScheduler } from "../scheduler/schedulerStore";
 import { useMetrics } from "../metrics/metricsStore";
 import { useDatasets } from "../datasets/datasetsStore";
+import { useMonitor } from "../monitor/monitorStore";
 import "./assets.css";
 import { useGlassPill } from "../../hooks/useGlassPill";
 
-export type AssetSection = "lineage" | "etl" | "sched" | "metrics" | "datasets";
+export type AssetSection = "lineage" | "etl" | "sched" | "metrics" | "datasets" | "monitor";
 
 /**
  * 「数据资产」外壳。
@@ -31,6 +32,7 @@ const SECTIONS: { id: AssetSection; label: string; question: string; icon: typeo
   { id: "lineage", label: "血缘", question: "动了它会影响谁", icon: GitBranch },
   { id: "datasets", label: "数据集", question: "看板的数拿哪张表算", icon: Boxes },
   { id: "metrics", label: "指标", question: "这个数怎么算的", icon: Gauge },
+  { id: "monitor", label: "监控中心", question: "各系统现在跑得怎么样", icon: MonitorDot },
 ];
 
 /** 切到某一面:关掉其它三个,只留一个开着 —— 保证任何时候只有一个浮层。 */
@@ -40,6 +42,7 @@ export function openAsset(section: AssetSection) {
   useLineage.getState().setOpen(section === "lineage");
   useMetrics.getState().setOpen(section === "metrics");
   useDatasets.getState().setOpen(section === "datasets");
+  useMonitor.getState().setOpen(section === "monitor");
 }
 
 export function closeAssets() {
@@ -48,6 +51,7 @@ export function closeAssets() {
   useLineage.getState().setOpen(false);
   useMetrics.getState().setOpen(false);
   useDatasets.getState().setOpen(false);
+  useMonitor.getState().setOpen(false);
 }
 
 /** 壳里留给内容的那块地方。null = 浮层没开(或还没落地),中心这一帧什么都不画。 */
