@@ -87,7 +87,9 @@ jobs:
           set -euo pipefail
           dmg=$(ls src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg | head -1)
           mnt=$(mktemp -d)
-          yes | hdiutil attach -nobrowse -noverify -noautoopen -readonly -mountpoint "$mnt" "$dmg" >/dev/null
+          # dmg 带许可协议,要喂 Y 才能挂载;hdiutil 读完就关管道,yes 会以 141 退出,
+          # 在 pipefail 下这一步就算失败了 —— 所以把 yes 的退出码吞掉
+          { yes || true; } | hdiutil attach -nobrowse -noverify -noautoopen -readonly -mountpoint "$mnt" "$dmg" >/dev/null
           app="$mnt/DB Sonde.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dv "$app" 2>&1 | grep -q 'Sealed Resources version=2'
