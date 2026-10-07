@@ -77,6 +77,22 @@ jobs:
       - name: 应用构建
         run: npx tauri build --target ${{ matrix.target }} --config src-tauri/tauri.ci.conf.json
 
+      # 0.51.24 及以前只有可执行文件带了链接器签名,整个 .app 没签 —— 别的 Mac
+      # 下载后直接「无法打开」,连「仍要打开」都不给。这里验 dmg 里那份 .app,
+      # 签名不完整就不让发布。
+      - name: 校验 macOS 签名
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(ls src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg | head -1)
+          mnt=$(mktemp -d)
+          yes | hdiutil attach -nobrowse -noverify -noautoopen -readonly -mountpoint "$mnt" "$dmg" >/dev/null
+          app="$mnt/DB Sonde.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -q 'Sealed Resources version=2'
+          hdiutil detach "$mnt" >/dev/null
+
       # runner 的架构就是目标架构,不用 --target:带上它 cargo 会进"交叉编译"模式,
       # 构建脚本和 proc-macro 产出的 DLL 落在 host 的 target/debug,测试 exe 却在
       # target/<triple>/debug,Windows 上加载期就炸(0xc0000139)。

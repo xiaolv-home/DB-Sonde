@@ -13,7 +13,14 @@
 | Windows 10 / 11 | `DB-Sonde_版本号_Windows_x64.msi` |
 
 **macOS**：打开 `.dmg`，把 **DB Sonde** 拖进「应用程序」。当前未经过 Apple 签名公证，
-首次打开若被拦截，在 **系统设置 → 隐私与安全性 → 仍要打开** 中允许。参见 [Apple 官方说明](https://support.apple.com/102445)。
+首次打开会提示「无法验证开发者」，先点「完成」，再到 **系统设置 → 隐私与安全性**，
+页面底部会出现 DB Sonde 和 **仍要打开**，点它即可（只需一次）。参见 [Apple 官方说明](https://support.apple.com/102445)。
+如果提示「已损坏，无法打开」（0.51.24 及更早的安装包签名不完整），请下载最新版本；
+或者在「终端」里执行下面这行后再打开：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/DB Sonde.app"
+```
 
 **Windows**：双击 `.msi` 安装。安装包没有代码签名，会弹「Windows 已保护你的电脑」，
 点 **更多信息 → 仍要运行**。

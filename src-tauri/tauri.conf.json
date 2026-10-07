@@ -36,6 +36,9 @@
       "icons/icon.ico"
     ],
     "copyright": "Copyright (c) 2026 DB Sonde contributors",
-    "licenseFile": "../LICENSE"
+    "licenseFile": "../LICENSE",
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }
