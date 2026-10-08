@@ -217,6 +217,8 @@ export interface AppState {
     updateSql: (tabId: string, sql: string) => void;
     updateSelection: (tabId: string, sql: string) => void;
     runTab: (tabId: string) => Promise<void>;
+    /** 停止正在跑的查询:能取消的库让数据库取消,其余停止等待;剩下的语句不再执行。 */
+    stopTab: (tabId: string) => Promise<void>;
     selectExecution: (tabId: string, index: number) => void;
     saveResultEdits: (tabId: string, edits: EditDraft[]) => Promise<void>;
     setTabView: (tabId: string, view: "grid" | "chart" | "structure") => void;

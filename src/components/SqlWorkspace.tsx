@@ -50,19 +50,23 @@ export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
 
       <div className="editor-wrap">
         <div className="editor-bar">
-          <button
-            className="btn primary sm"
-            onClick={() => useApp.getState().runTab(tab.id)}
-            disabled={tab.running || tab.savingEdits || !connected}
-            title={t("query.runTitle")}
-          >
-            {tab.running ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
-            {tab.running
-              ? t("query.running")
-              : tab.selectedSql?.trim()
-                ? t("query.runSelection")
-                : t("query.run")}
-          </button>
+          {tab.running ? (
+            /* 跑着的时候这个位置就是「停止」:MySQL / PostgreSQL 让数据库真的取消这条语句,
+               其余库停止等待;脚本里剩下的语句不再执行。 */
+            <button className="btn danger sm" onClick={() => void useApp.getState().stopTab(tab.id)} title="停止正在执行的 SQL">
+              <Loader2 size={14} className="spin" /> 停止
+            </button>
+          ) : (
+            <button
+              className="btn primary sm"
+              onClick={() => useApp.getState().runTab(tab.id)}
+              disabled={tab.savingEdits || !connected}
+              title={t("query.runTitle")}
+            >
+              <Play size={14} />
+              {tab.selectedSql?.trim() ? t("query.runSelection") : t("query.run")}
+            </button>
+          )}
           <button className="btn sm" title="保存 SQL 脚本 (⌘S / Ctrl+S)" onClick={() => useApp.getState().saveTab(tab.id)}><Save size={14} />保存</button>
           <span className="conn-pill">
             <span className="dot" style={{ background: connected ? "var(--green)" : "var(--text-3)" }} />

@@ -368,6 +368,8 @@ export const createWorkspaceSlice: WorkspaceSlice = (set, get) => ({
         }
         if (!discard && tab && isUnsavedTab(tab, get()) && !window.confirm(`「${tab.title}」有未保存内容，是否丢弃并关闭？`))
             return;
+        // 关掉正在跑的查询标签:顺手让数据库取消那条语句,不然它关了还在服务器上跑、占着连接
+        if (tab?.kind === "query" && tab.running) void get().stopTab(id);
         set((s) => {
             const idx = s.tabs.findIndex((t) => t.id === id);
             const tabs = s.tabs.filter((t) => t.id !== id);

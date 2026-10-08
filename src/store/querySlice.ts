@@ -18,6 +18,7 @@ type QuerySlice = AppSlice<
   | "catalogLoading"
   | "loadCatalog"
   | "runTab"
+  | "stopTab"
   | "selectExecution"
   | "saveResultEdits"
   | "createDemo"
@@ -25,6 +26,9 @@ type QuerySlice = AppSlice<
 
 export const createQuerySlice: QuerySlice = (set, get) => {
   const runs = new Map<string, object>();
+  /** 每个标签当前正在跑的那一条语句(停止按钮要知道去取消谁) */
+  const activeStatement = new Map<string, { connId: string; database?: string; runId: string }>();
+  let runSeq = 0;
   return ({
     catalogs: {},
     catalogLoading: {},
@@ -84,9 +88,14 @@ export const createQuerySlice: QuerySlice = (set, get) => {
       const isCurrent = () => runs.get(tabId) === owner && get().tabs.some(t => t.id === tabId && t.kind === "query");
       try {
         await executeQueryScript(statements, {
-          execute: sql => tab.readOnly
-            ? api.runReadOnlyQuery(tab.connId, tab.database, sql, 10_000)
-            : api.runQuery(tab.connId, tab.database, sql, EDITOR_MAX_ROWS),
+          execute: sql => {
+            if (tab.readOnly) return api.runReadOnlyQuery(tab.connId, tab.database, sql, 10_000);
+            // 只许字母数字和 -:后端拿它拼进注释标记,停止时按标记找到这条语句
+            const runId = `q${Date.now().toString(36)}-${(runSeq++).toString(36)}`;
+            activeStatement.set(tabId, { connId: tab.connId, database: tab.database, runId });
+            return api.runQuery(tab.connId, tab.database, sql, EDITOR_MAX_ROWS, runId)
+              .finally(() => { if (activeStatement.get(tabId)?.runId === runId) activeStatement.delete(tabId); });
+          },
           isCurrent,
           canContinue: () => get().meta[tab.connId] === connection,
           started: index => set(s => ({
@@ -108,6 +117,32 @@ export const createQuerySlice: QuerySlice = (set, get) => {
             : t)
         }));
         if (runs.get(tabId) === owner) runs.delete(tabId);
+      }
+    },
+    async stopTab(tabId) {
+      const tab = get().tabs.find((t) => t.id === tabId);
+      if (!tab || tab.kind !== "query" || !tab.running) return;
+      const statement = activeStatement.get(tabId);
+      activeStatement.delete(tabId);
+      // 先放弃这次运行:迟到的结果不再写回,后面的语句也不再执行
+      runs.delete(tabId);
+      set((s) => ({
+        tabs: s.tabs.map((t) => {
+          if (t.id !== tabId || t.kind !== "query") return t;
+          const index = t.runProgress?.currentIndex ?? t.activeExecutionIndex;
+          const executions = t.executions.map((e, i) => i === index && !e.result && !e.error ? { ...e, error: "已停止" } : e);
+          return { ...t, running: false, executions, activeExecutionIndex: index, result: executions[index]?.result, error: executions[index]?.error,
+            runProgress: t.runProgress ? { ...t.runProgress, finishedAt: Date.now() } : undefined };
+        }),
+      }));
+      if (!statement) return;
+      try {
+        const cancelled = await api.cancelQuery(statement.connId, statement.database, statement.runId);
+        get().showToast(cancelled
+          ? { kind: "success", text: "已停止,数据库已取消这条语句" }
+          : { kind: "warn", text: "已停止等待。这种数据库不支持从这里取消,服务器上可能仍在执行" });
+      } catch (error) {
+        get().showToast({ kind: "warn", text: `已停止等待,但没能通知数据库取消:${String(error)}` });
       }
     },
     selectExecution(tabId, index) {

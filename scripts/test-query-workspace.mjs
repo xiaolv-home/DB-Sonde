@@ -177,5 +177,33 @@ try {
     assert.throws(() => parse('{坏 json', { a: 1 }));
   }
 
+  // 「停止」:当前语句标成已停止、剩下的不再执行、迟到的结果不写回,并按同一个编号通知数据库取消
+  {
+    reset([{...q,sql:'SELECT SLEEP(20); SELECT 2;'}]);
+    let pendingRun=[],runCalls=[],cancels=[];
+    m.api.runQuery=async(conn,db,sql,maxRows,runId)=>{const work=deferred();pendingRun.push(work);runCalls.push({sql,runId});return work.promise;};
+    m.api.cancelQuery=async(conn,db,runId)=>{cancels.push(runId);return true;};
+    const toasts=[];app.setState({showToast:(t)=>toasts.push(t)});
+    const run=app.getState().runTab('q');await tick();
+    assert.equal(runCalls.length,1);
+    assert(/^[A-Za-z0-9-]+$/.test(runCalls[0].runId),`运行编号只能是字母数字和 -:${runCalls[0].runId}`);
+    await app.getState().stopTab('q');
+    const after=app.getState().tabs[0];
+    assert.equal(after.running,false,'停止后不再显示运行中');
+    assert.equal(after.executions[0].error,'已停止');
+    assert.deepEqual(cancels,[runCalls[0].runId],'按正在跑的那条语句的编号去取消');
+    pendingRun[0].resolve(result);await run;await tick();
+    assert.equal(runCalls.length,1,'停止后脚本里剩下的语句不能再执行');
+    assert.equal(app.getState().tabs[0].executions[0].error,'已停止','迟到的结果不能覆盖「已停止」');
+    assert(toasts.some(t=>t.kind==='success'),'数据库取消成功要告诉用户');
+    // 不支持服务器端取消的库:如实说「可能仍在执行」
+    reset([{...q,sql:'SELECT 1'}]);pendingRun=[];runCalls=[];cancels=[];toasts.length=0;app.setState({showToast:(t)=>toasts.push(t)});
+    m.api.cancelQuery=async()=>false;
+    const run2=app.getState().runTab('q');await tick();
+    await app.getState().stopTab('q');
+    assert(toasts.some(t=>t.kind==='warn'&&/仍在执行/.test(t.text)));
+    pendingRun[0].resolve(result);await run2;
+  }
+
   console.log('Query workspace checks passed: precise sort/filter, per-result identity, refresh reconciliation, original execution context, late response isolation, manual result selection, save ownership and duplicate guards, preview delimiters, explicit resize target, clipboard failures, cell edit parsing.');
 } finally { rmSync(dir,{recursive:true,force:true}); }

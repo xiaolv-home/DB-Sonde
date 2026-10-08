@@ -382,7 +382,13 @@ pub async fn run_query(
     database: Option<String>,
     sql: String,
     max_rows: Option<usize>,
+    run_id: Option<String>,
 ) -> AppResult<QueryResult> {
+    // 带上编号标记,「停止」按钮才能在服务器的运行列表里找到这一条
+    let sql = match run_id.as_deref().and_then(db::run_marker) {
+        Some(marker) => format!("/* {marker} */ {sql}"),
+        None => sql,
+    };
     let target = requested_database(&state, &conn_id, database.as_deref()).await?;
     if let Some(cell) = state.sessions.read().await.get(&conn_id).cloned() {
         let mut session = cell.lock().await;
@@ -392,6 +398,20 @@ pub async fn run_query(
     }
     let (_kind, pool) = pool_for_database(&state, &conn_id, database.as_deref()).await?;
     db::run_query(&pool, &sql, max_rows).await
+}
+
+/// 停止编辑器里正在跑的那条语句(run_query 时带的 run_id)。
+/// 返回 true = 已让数据库取消;false = 没找到(已跑完)或这种库不支持服务器端取消。
+#[tauri::command]
+pub async fn cancel_query(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: Option<String>,
+    run_id: String,
+) -> AppResult<bool> {
+    let marker = db::run_marker(&run_id).ok_or_else(|| AppError::msg("运行编号无效"))?;
+    let (_kind, pool) = pool_for_database(&state, &conn_id, database.as_deref()).await?;
+    Ok(db::cancel_marked_query(&pool, &marker).await? > 0)
 }
 
 /// Resolve an open connection by its human name or its id.

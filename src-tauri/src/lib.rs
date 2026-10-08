@@ -92,6 +92,7 @@ pub fn run() {
             commands::list_indexes,
             commands::get_object_ddl,
             commands::run_query,
+            commands::cancel_query,
             commands::preview_drop_object,
             commands::drop_object,
             commands::run_read_only_query,

@@ -65,13 +65,13 @@ async fn manual_queries_writes_and_reopen_stay_on_selected_database() {
     state.database_pools.write().await.insert("c\0other".into(), other.clone());
     commands::set_autocommit(state.clone(), "c".into(), false, Some("other".into())).await.unwrap();
     for sql in ["SELECT 1", "DELETE FROM items", "UPDATE items SET name='wrong'"] {
-        assert!(commands::run_query(state.clone(), "c".into(), Some("primary".into()), sql.into(), None).await.is_err());
+        assert!(commands::run_query(state.clone(), "c".into(), Some("primary".into()), sql.into(), None, None).await.is_err());
     }
     assert!(commands::run_statements(state.clone(), "c".into(), Some("primary".into()), vec!["DELETE FROM items".into()]).await.is_err());
     assert!(commands::apply_cell_edits(state.clone(), vec![req(json!(1), "before")]).await.is_err());
-    commands::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='right' WHERE id=1".into(), None).await.unwrap();
+    commands::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='right' WHERE id=1".into(), None, None).await.unwrap();
     commands::commit_session(state.clone(), "c".into()).await.unwrap();
-    commands::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='rollback' WHERE id=2".into(), None).await.unwrap();
+    commands::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='rollback' WHERE id=2".into(), None, None).await.unwrap();
     commands::rollback_session(state.clone(), "c".into()).await.unwrap();
     commands::set_autocommit(state, "c".into(), true, None).await.unwrap();
     assert_eq!(db::run_query(&pool, "SELECT name FROM items WHERE id=1", None).await.unwrap().rows[0][0], json!("before"));
@@ -93,7 +93,7 @@ async fn reopen_failure_stays_manual_and_blocks_execution() {
     assert!(p.is_closed());
     assert!(commands::commit_session(state.clone(), "c".into()).await.is_err());
     assert_eq!(state.autocommit.read().await.get("c"), Some(&false));
-    let error = commands::run_query(state, "c".into(), None, "DELETE FROM items".into(), None).await.unwrap_err();
+    let error = commands::run_query(state, "c".into(), None, "DELETE FROM items".into(), None, None).await.unwrap_err();
     assert!(error.to_string().contains("未执行"));
     close_task.await.unwrap();
 }
