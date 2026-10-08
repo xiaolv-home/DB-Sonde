@@ -289,7 +289,7 @@ fn download_and_extract(
     extracting: &Arc<Mutex<bool>>,
 ) -> Result<(), String> {
     use std::io::Read;
-    let mut resp = reqwest::blocking::get(url).map_err(|e| format!("下载失败:{e}"))?;
+    let mut resp = download_client()?.get(url).send().map_err(|e| format!("下载失败:{e}"))?;
     if !resp.status().is_success() {
         return Err(format!("下载失败:HTTP {}", resp.status()));
     }
@@ -324,6 +324,21 @@ fn download_and_extract(
     let _ = std::fs::remove_file(&tmp);
     r
 }
+
+/// 下载运行时用的客户端。
+///
+/// 不能用 `reqwest::blocking::get`:阻塞客户端默认**总时限 30 秒,连读响应体也算在内** ——
+/// 180MB 的运行时要 30 秒内下完得 6MB/s 以上,国内从 GitHub 下基本做不到,一键安装必然超时。
+/// 阻塞客户端没有「多久没收到数据」这种超时,所以总时限放宽到 60 分钟(50KB/s 也能下完),
+/// 真卡死了也不会永远挂着;连不上 20 秒就报错。
+fn download_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .timeout(DOWNLOAD_TOTAL_TIMEOUT)
+        .build()
+        .map_err(|e| format!("下载失败:{e}"))
+}
+const DOWNLOAD_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// 下载完的实际哈希 vs 源码里写死的期望值。抽出来是为了能单测 ——
 /// 「校验通过」这种事最怕写了个永远不会失败的检查。
@@ -1206,3 +1221,35 @@ mod runtime_download_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod download_timeout_tests {
+    /// 本地起一个慢服务器:35 秒才把响应体发完(比阻塞客户端默认的 30 秒总时限长)。
+    /// 旧写法 `reqwest::blocking::get` 在这里会超时失败;下载运行时用的客户端必须能下完。
+    #[test]
+    #[ignore = "慢:要 35 秒以上"]
+    fn runtime_download_survives_a_body_slower_than_30_seconds() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/runtime.tar.gz", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(2) {
+                let mut s = stream.unwrap();
+                let mut req = [0u8; 1024];
+                let _ = s.read(&mut req);
+                let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n");
+                for _ in 0..8 {
+                    std::thread::sleep(std::time::Duration::from_millis(4400));
+                    if s.write_all(b"x").is_err() { break; }
+                }
+            }
+        });
+        let old = std::thread::spawn({ let url = url.clone(); move || reqwest::blocking::get(&url).and_then(|r| r.bytes()).map(|b| b.len()) });
+        let mut resp = super::download_client().unwrap().get(&url).send().unwrap();
+        let mut body = Vec::new();
+        resp.read_to_end(&mut body).expect("新客户端应能下完");
+        assert_eq!(body.len(), 8);
+        assert!(old.join().unwrap().is_err(), "旧写法应该在 30 秒时被掐断(证明这个测试真的测到了总时限)");
+    }
+}
+

@@ -179,7 +179,9 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
       const poll = setInterval(async () => {
         const s = await api.pythonInstall();
         setStatus(s);
-        if (s.installed || (!s.extracting && s.progress === 0)) {
+        /* 以前用「progress 为 0」判断结束 —— 可下载刚开始、还没收到第一块数据时也是 0,
+           于是轮询提前停了,界面不再显示进度。现在只认「装好了」或「出错了」。 */
+        if (s.installed || s.error) {
           clearInterval(poll);
           setInstalling(false);
         }
