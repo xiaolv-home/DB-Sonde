@@ -1,5 +1,6 @@
 import type { FilterOp, FilterCond, GridSort } from "../lib/queryResultView";
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
@@ -477,6 +478,18 @@ export default function ResultGrid({
     dragRef.current = "col";
     parentRef.current?.focus();
   };
+  /* 表头悬停提示:鼠标一进来就出(系统 title 要等一秒多)。按着鼠标(拖选列、拖列宽)时不出。 */
+  const [headTip, setHeadTip] = useState<{ x: number; y: number; comment?: string; text: string } | null>(null);
+  const showHeadTip = (i: number, e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.buttons) { setHeadTip(null); return; }
+    const col = cols[i];
+    if (!col) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const sortIndex = sorts.findIndex((item) => item.column === col.name);
+    const text = `${col.name} · ${col.typeName}${sortIndex >= 0 ? ` · ${t("data.sortPriority", { number: sortIndex + 1 })}` : ""}`;
+    setHeadTip({ x: Math.max(8, Math.min(r.left, window.innerWidth - 328)), y: r.bottom + 4, comment: columnComments?.[col.name], text });
+  };
+
   const onHeaderMouseEnter = (i: number) => {
     if (dragRef.current !== "col" || anchorColRef.current == null) return;
     setRanges([{ a: { r: 0, c: anchorColRef.current }, b: { r: lastRow(), c: i }, full: true }]);
@@ -968,7 +981,7 @@ export default function ResultGrid({
       ref={parentRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      onScroll={handleScroll}
+      onScroll={() => { if (headTip) setHeadTip(null); handleScroll(); }}
       style={{ position: "relative", inset: "auto", flex: 1, minHeight: 0 }}
     >
       <div className="grid-inner" style={{ width: contentWidth }}>
@@ -984,11 +997,12 @@ export default function ResultGrid({
                 className={`gh-cell selectable ${sorted ? "sorted" : ""} ${colSelected(i) ? "colsel" : ""}`}
                 key={i}
                 style={{ width: widthOf(i) }}
-                title={`${columnComments?.[col.name] ? `${columnComments[col.name]}\n` : ""}${col.name} · ${col.typeName}${sorted ? ` · ${t("data.sortPriority", { number: sortIndex + 1 })}` : ""}`}
-                onMouseDown={(e) => onHeaderMouseDown(i, e)}
-                onMouseEnter={() => onHeaderMouseEnter(i)}
+                onMouseDown={(e) => { setHeadTip(null); onHeaderMouseDown(i, e); }}
+                onMouseEnter={(e) => { onHeaderMouseEnter(i); showHeadTip(i, e); }}
+                onMouseLeave={() => setHeadTip(null)}
                 onContextMenu={(e) => {
                   e.preventDefault();
+                  setHeadTip(null);
                   setHeaderMenu({ x: e.clientX, y: e.clientY, c: i });
                   setHClip("");
                   void readClipboardText().then((text) => setHClip(text.trim()));
@@ -1215,6 +1229,13 @@ export default function ResultGrid({
         </div>
       )}
 
+      {headTip && createPortal(
+        <div className="gh-tip" style={{ left: headTip.x, top: headTip.y }} role="tooltip">
+          {headTip.comment && <div className="gh-tip-comment">{headTip.comment}</div>}
+          <div className="gh-tip-meta">{headTip.text}</div>
+        </div>,
+        document.body,
+      )}
       {headerMenu && (
         <div className="ctx-menu wide" ref={headerMenuFit.ref} style={headerMenuFit.style}>
           <div className="ctx-head mono" title={cols[headerMenu.c]?.name}>{cols[headerMenu.c]?.name}</div>
