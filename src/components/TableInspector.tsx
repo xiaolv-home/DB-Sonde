@@ -25,6 +25,7 @@ import {
   buildRowInsert,
   quoteIdent,
   sqlLiteral,
+  checkWhereClause,
 } from "../lib/sql";
 import { buildCellRequest } from "../lib/tableEditing";
 import { useConfirm } from "./useConfirm";
@@ -209,16 +210,16 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
       const reqId = ++reqRef.current;
       const base = mode === "more" ? rowsRef.current : [];
       const limit = mode === "refresh" ? Math.max(pageSize, rowsRef.current.length) : pageSize;
-      const sql = buildDataQuery(kind, tab.database, tab.schema, tab.table, {
-        where: whereApplied,
-        orderBy,
-        limit,
-        offset: base.length,
-      });
       if (mode !== "more") setLoading(true);
       else setLoadingMore(true);
       setError(undefined);
       try {
+        const sql = buildDataQuery(kind, tab.database, tab.schema, tab.table, {
+          where: whereApplied,
+          orderBy,
+          limit,
+          offset: base.length,
+        });
         const res = await api.runQuery(tab.connId, tab.database, sql, limit);
         if (reqId !== reqRef.current) return;
         const next = mode !== "more" ? res.rows : [...base, ...res.rows];
@@ -277,6 +278,9 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
     guardDataShapeChange(() => setOrderBy((current) => current.filter((item) => item.column !== column)));
 
   const applyFilter = (clause: string) => {
+    // 过滤条件会原样拼进 SELECT / COUNT / 整列 UPDATE,先确认它只是一个条件(见 checkWhereClause)
+    const problem = clause.trim() ? checkWhereClause(clause.trim(), kind) : null;
+    if (problem) { useApp.getState().showToast({ kind: "error", text: problem }); return; }
     guardDataShapeChange(() => {
       setWhereInput(clause);
       setWhereApplied(clause);

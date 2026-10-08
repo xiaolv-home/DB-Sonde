@@ -44,7 +44,7 @@ try {
   function reset(tabs=[q]) { app.setState({tabs,activeTabId:'q',meta:{fixture:{id:'fixture',kind:'mysql'}},dirtyTabs:{},savedQueries:[],showToast:()=>{},loadCatalog:async()=>{}}); }
   // A script captures its original connection/database and cannot steal manual result selection.
   reset();let pending=[],calls=[];
-  m.api.runQuery=async(conn,db,sql)=>{const work=deferred();pending.push(work);calls.push([conn,db,sql]);return work.promise;};
+  m.api.runQuery=async(conn,db,sql,maxRows)=>{const work=deferred();pending.push(work);calls.push([conn,db,sql,maxRows]);return work.promise;};
   const running=app.getState().runTab('q');
   pending[0].resolve(result);await tick();
   assert.equal(calls.length,2);
@@ -54,6 +54,8 @@ try {
   assert.equal(app.getState().tabs[0].activeExecutionIndex,0);
   assert.strictEqual(app.getState().tabs[0].result,result);
   assert(calls.every(call=>call[1]==='original'));
+  // 编辑器查询必须带行数上限:不带的话大表一查就把几百 MB 推给界面(实测 30 万行就 1.5GB 内存)
+  assert(calls.every(call=>Number.isInteger(call[3]) && call[3] > 0 && call[3] <= 200000), `编辑器查询没带行数上限:${JSON.stringify(calls.map(c=>c[3]))}`);
   // Replaced runs ignore late results and never dispatch their remaining statements.
   reset();pending=[];calls=[];
   const old=app.getState().runTab('q');

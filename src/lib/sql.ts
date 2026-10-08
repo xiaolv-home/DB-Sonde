@@ -41,6 +41,45 @@ export interface DataQueryOptions {
   offset: number;
 }
 
+/**
+ * 数据页 WHERE 过滤框里的内容只许是「一个条件表达式」。
+ *
+ * 它会被原样拼进 SELECT / COUNT / 整列 UPDATE。实测过:输入 `1=1; DELETE FROM t; SELECT 1`
+ * 会真的把表删空 —— 驱动允许一次执行多条语句。注释同样危险:`x=1 -- 备注` 会把后面拼的
+ * LIMIT 注释掉,数据页就去拉整张表。所以在引号外出现 `;`、`--`、`/*`(MySQL 还有 `#`)
+ * 一律拒绝;引号没闭合也拒绝(拼进去会吞掉后面的语句)。
+ * 返回 null 表示可以用,否则是给用户看的原因。
+ */
+export function checkWhereClause(where: string, kind?: DbKind): string | null {
+  const { backslashEscapes, hashComments } = dialectFor(kind);
+  let quote: string | null = null;
+  for (let i = 0; i < where.length; i += 1) {
+    const ch = where[i];
+    if (quote) {
+      if (backslashEscapes && ch === "\\" && quote !== "`") { i += 1; continue; }
+      if (ch === quote) {
+        if (where[i + 1] === quote) { i += 1; continue; } // '' "" `` 是转义
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") { quote = ch; continue; }
+    if (ch === ";") return "过滤条件里不能有分号 —— 这里只能写一个条件,不能写多条语句";
+    if ((ch === "-" && where[i + 1] === "-") || (ch === "/" && where[i + 1] === "*") || (hashComments && ch === "#"))
+      return "过滤条件里不能写注释(-- /* #),会把后面的分页条件注释掉";
+  }
+  if (quote) return "过滤条件里有没闭合的引号";
+  return null;
+}
+
+function assertWhere(where: string | undefined, kind?: DbKind): string | undefined {
+  const w = where?.trim();
+  if (!w) return undefined;
+  const problem = checkWhereClause(w, kind);
+  if (problem) throw new Error(problem);
+  return w;
+}
+
 /** Build a paginated / sorted / filtered data query for browsing a table. */
 export function buildDataQuery(
   kind: DbKind | undefined,
@@ -50,7 +89,7 @@ export function buildDataQuery(
   opts: DataQueryOptions,
 ): string {
   const parts = ["SELECT *", `FROM ${qualifiedTable(kind, database, schema, table)}`];
-  const where = opts.where?.trim();
+  const where = assertWhere(opts.where, kind);
   if (where) parts.push(`WHERE ${where}`);
   if (opts.orderBy?.length) {
     const clauses = opts.orderBy.map((sort) =>
@@ -74,7 +113,7 @@ export function buildColumnUpdate(
   value: unknown,
   where?: string,
 ): string {
-  const w = where?.trim();
+  const w = assertWhere(where, kind);
   const set = `SET ${quoteIdent(kind, column)} = ${sqlLiteral(value, kind)}`;
   return `UPDATE ${qualifiedTable(kind, database, schema, table)} ${set}${w ? ` WHERE ${w}` : ""}`;
 }
@@ -88,7 +127,7 @@ export function buildCountQuery(
   table: string,
   where?: string,
 ): string {
-  const w = where?.trim();
+  const w = assertWhere(where, kind);
   return `SELECT COUNT(*) AS n FROM ${qualifiedTable(kind, database, schema, table)}${w ? ` WHERE ${w}` : ""}`;
 }
 

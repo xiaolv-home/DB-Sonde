@@ -20,13 +20,13 @@ try {
     stdin: { contents: `
       export { sqlLiteral } from './src/lib/sql';
       export { buildDatasetSql, normalizeDataset } from './src/features/datasets/domain';
-      export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments } from './src/lib/sql';
+      export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, checkWhereClause, buildDataQuery, buildCountQuery, buildColumnUpdate } from './src/lib/sql';
       export { isReadOnlySql } from './src/features/ai/readonly';`,
       resolveDir: resolve('.'), loader: 'ts' },
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql } = createRequire(import.meta.url)(outfile);
+  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, buildDataQuery, buildCountQuery, buildColumnUpdate } = createRequire(import.meta.url)(outfile);
 
   // ── 取值转义:以反斜杠结尾的值不能吃掉右引号 ────────────────────────────
   for (const kind of ['mysql', 'mariadb']) {
@@ -241,7 +241,26 @@ try {
       + '不传语言会跟着操作系统走,换台电脑顺序就变了:\n    ' + offenders.join('\n    '));
   }
 
-  console.log('sql safety: 59 assertions passed');
+  // ── 数据页 WHERE 过滤框:只能是一个条件 ──────────────────────────────
+  // 实测事故:输入 `1=1; DELETE FROM items; SELECT 1` 真的把表删空了(驱动允许多语句)。
+  {
+    const ok = (w, kind = 'mysql') => assert.equal(checkWhereClause(w, kind), null, `应放行:${w} (${kind})`);
+    const bad = (w, kind = 'mysql') => assert.notEqual(checkWhereClause(w, kind), null, `应拒绝:${w} (${kind})`);
+    ok("store_id = 'x'"); ok("name like '%--%'"); ok("note = 'a;b'"); ok("a = 'it''s'"); ok('`order` = 1');
+    ok("x = 'a\\'; DROP TABLE t'", 'mysql');        // MySQL 里 \' 是转义,分号还在字符串里
+    ok('"select" = 1', 'postgres'); ok("t >= '2026-01-01' and t < '2026-02-01'", 'postgres');
+    bad('1=1; DELETE FROM items; SELECT 1'); bad('1=1;'); bad('x=1 -- 备注'); bad('x=1 /* c */');
+    bad('x=1 # c', 'mysql'); ok('x=1 # 不是注释', 'postgres') ; bad("name = 'abc");
+    bad("x = 'a\\'; DROP TABLE t", 'postgres');          // PG 里 \ 不转义,字符串在 \' 处就结束了
+    for (const kind of ['mysql', 'postgres', 'sqlite', 'oracle']) bad("1=1; DROP TABLE t", kind);
+    // 三个拼 SQL 的地方都要自己再拦一道(不能只靠输入框)
+    assert.throws(() => buildDataQuery('mysql', 'db', '', 't', { where: '1=1; DELETE FROM t', limit: 200, offset: 0 }), /分号/);
+    assert.throws(() => buildCountQuery('mysql', 'db', '', 't', 'x=1 -- c'), /注释/);
+    assert.throws(() => buildColumnUpdate('mysql', 'db', '', 't', 'c', 1, '1=1; DROP TABLE t'), /分号/);
+    assert.match(buildDataQuery('mysql', 'db', '', 't', { where: "a = 'x;y'", limit: 200, offset: 0 }), /WHERE a = 'x;y'[\s\S]*LIMIT 200/);
+  }
+
+  console.log('sql safety: 59 assertions + WHERE 过滤框 passed');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

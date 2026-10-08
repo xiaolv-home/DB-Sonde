@@ -7,6 +7,12 @@ import { matchesPreviewExecution, prepareCellUpdate } from "../lib/tableEditing"
 import type { EditDraft, QueryResult } from "../types";
 import type { AppSlice } from "./appTypes";
 import { catalogKey } from "./stateKeys";
+
+/** 编辑器单条查询最多拿回来的行数。
+ *  以前不设上限:实测 30 万行×21 列就要 1.5GB 内存、往界面推 71MB;
+ *  89 万行×49 列的大表会推约 500MB,界面直接卡死或闪退。超出时后端只读到这里就停,
+ *  结果标记为已截断,界面提示「只显示前 N 行」。 */
+export const EDITOR_MAX_ROWS = 100_000;
 type QuerySlice = AppSlice<
   | "catalogs"
   | "catalogLoading"
@@ -80,7 +86,7 @@ export const createQuerySlice: QuerySlice = (set, get) => {
         await executeQueryScript(statements, {
           execute: sql => tab.readOnly
             ? api.runReadOnlyQuery(tab.connId, tab.database, sql, 10_000)
-            : api.runQuery(tab.connId, tab.database, sql, undefined),
+            : api.runQuery(tab.connId, tab.database, sql, EDITOR_MAX_ROWS),
           isCurrent,
           canContinue: () => get().meta[tab.connId] === connection,
           started: index => set(s => ({

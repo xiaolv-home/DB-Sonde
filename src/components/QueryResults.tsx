@@ -181,7 +181,7 @@ export default function QueryResults({ tab, height, collapsed = false }: { tab: 
             </span>
           )}
           {result && <span>{result.elapsedMs} ms</span>}
-          {result?.truncated && <span className="warn">{t("query.truncated")}</span>}
+          {result?.truncated && <span className="warn">{t("query.truncatedAt", { count: result.rows.length.toLocaleString() })}</span>}
         </div>
         <button
           className="icon-btn xs pane-toggle"
