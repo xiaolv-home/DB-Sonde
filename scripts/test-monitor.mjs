@@ -1,7 +1,7 @@
 // 监控中心:接入的地址校验、存取往返、坏数据不认。
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -34,6 +34,18 @@ try {
   assert(!m.isMonitorSource({ ...a, url: 'http://192.0.2.10:18086' }), '没规范化的地址(缺结尾 /)');
   assert(!m.isMonitorSource({ ...a, id: '../main' }), 'id 只能是安全字符(要拼成原生视图的标签)');
   assert(!m.isMonitorSource({ ...a, name: ' ' }), '名字不能为空');
+
+  // 数据资产里的每个中心都往同一个外壳里投内容,没选中时必须不画,
+  // 否则切到别的中心会两块摞在一起(监控中心上线时就漏了这一句)。
+  const hosts = readFileSync('src/features/FeatureHosts.tsx', 'utf8');
+  const views = [...hosts.matchAll(/View: (\w+Center) \}/g)].map((x) => x[1]);
+  assert(views.length >= 6, `应找到数据资产里的各个中心,只找到 ${views.length} 个`);
+  for (const view of views) {
+    const from = hosts.match(new RegExp(`import ${view} from "\\./([^"]+)"`))?.[1];
+    assert(from, `找不到 ${view} 的来源`);
+    const code = readFileSync(`src/features/${from}.tsx`, 'utf8');
+    assert(/if \(!(\w+\.)?open\) return null;/.test(code), `${view} 没选中时没有 return null,会和别的中心摞在一起`);
+  }
   console.log('monitor: 地址校验 / 存取往返 / 坏数据拒收 全部通过');
 } finally {
   rmSync(dir, { recursive: true, force: true });

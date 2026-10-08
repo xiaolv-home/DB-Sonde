@@ -125,6 +125,10 @@ export default function MonitorCenter() {
       useApp.getState().showToast({ kind: "error", text: String(error) }));
   };
 
+  // 没选中监控中心就什么都不画 —— 外壳只有一个,各中心都往里投,不判断就会和别的中心摞在一起。
+  // 状态(列表、选中项)还在组件里,切回来原样;原生视图在占位框消失时由 useNativeView 藏起。
+  if (!open) return null;
+
   return (
     <AssetShell
       title="监控中心"
