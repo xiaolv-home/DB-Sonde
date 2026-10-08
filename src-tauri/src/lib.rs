@@ -131,3 +131,37 @@ pub fn run() {
 
 #[cfg(test)]
 mod safety_tests;
+
+#[cfg(test)]
+mod main_thread_guard {
+    /// 同步的 `#[tauri::command]` 默认在主线程(界面线程)执行,跑多久界面就卡多久。
+    /// 实测过:血缘扫描每条 SQL 都起一个 Python 进程并在主线程等它,153 个指标卡十几秒。
+    /// 这里守住:同步命令的函数体里若有「等子进程 / 读写文件 / 读目录 / 阻塞网络」,
+    /// 必须标成 `#[tauri::command(async)]`(放进线程池)或改成 async。
+    #[test]
+    fn blocking_work_never_runs_on_the_ui_thread() {
+        const BLOCKING: &[&str] = &[".output()", ".wait_with_output()", ".wait()", "read_to_string(", "fs::read(", "fs::write(", "read_dir(", "blocking::", "write_all("];
+        let sources = [
+            ("python.rs", include_str!("python.rs")),
+            ("commands.rs", include_str!("commands.rs")),
+            ("export.rs", include_str!("export.rs")),
+            ("ai.rs", include_str!("ai.rs")),
+            ("credentials.rs", include_str!("credentials.rs")),
+            ("dashboard_store.rs", include_str!("dashboard_store.rs")),
+            ("dataset_store.rs", include_str!("dataset_store.rs")),
+        ];
+        let mut offenders = Vec::new();
+        for (file, src) in sources {
+            // 不按 #[cfg(test)] 截断:python.rs 开头就有测试用的 thread_local,截断会漏扫整个文件
+            for (i, chunk) in src.split("#[tauri::command]\npub fn ").enumerate().skip(1) {
+                let _ = i;
+                let name: String = chunk.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                let body = chunk.split("\n}\n").next().unwrap_or(chunk);
+                if let Some(hit) = BLOCKING.iter().find(|p| body.contains(**p)) {
+                    offenders.push(format!("{file}::{name} ({hit})"));
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "这些同步命令在界面线程上做阻塞的事,会卡界面:\n  {}", offenders.join("\n  "));
+    }
+}

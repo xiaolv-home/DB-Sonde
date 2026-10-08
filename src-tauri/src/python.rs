@@ -736,7 +736,8 @@ pub fn py_workspace_dir() -> String {
     ensure_workspace().to_string_lossy().into_owned()
 }
 
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_list_files() -> Vec<PyFile> {
     let dir = ensure_workspace();
     let mut out = Vec::new();
@@ -759,7 +760,8 @@ pub fn py_list_files() -> Vec<PyFile> {
 
 /// 按扩展名列工作区里的文件(不含子目录)。Python 脚本之外的东西也放这儿,
 /// 比如「导出网页」产出的看板 .html —— 文件面板据此分组展示。
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn workspace_list_files(ext: String) -> Vec<PyFile> {
     let dir = ensure_workspace();
     let want = ext.trim_start_matches('.').to_lowercase();
@@ -785,7 +787,8 @@ pub fn workspace_list_files(ext: String) -> Vec<PyFile> {
     out
 }
 
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_read_file(path: String) -> Result<String, String> {
     use std::io::Read;
     let mut content = String::new();
@@ -793,14 +796,16 @@ pub fn py_read_file(path: String) -> Result<String, String> {
     Ok(content)
 }
 
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_write_file(path: String, content: String) -> Result<(), String> {
     use std::io::Write;
     workspace_file(Path::new(&path), true)?.write_all(content.as_bytes()).map_err(|e| format!("写入失败:{e}"))
 }
 
 /// Create a new .py file (auto-suffixed if the name is taken). Returns its path.
-#[tauri::command]
+// 写文件,放线程池里
+#[tauri::command(async)]
 pub fn py_new_file(name: Option<String>) -> Result<PyFile, String> {
     let dir = ensure_workspace();
     let base = name.unwrap_or_else(|| "未命名".into());
@@ -921,7 +926,8 @@ pub fn py_playwright_install(app: tauri::AppHandle, run_id: String) -> Result<()
 }
 
 /// Read a plot PNG (written by `sonde.show()`) as a data: URL for inline view.
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_read_image(path: String) -> Result<String, String> {
     use std::io::Read;
     let mut bytes = Vec::new();
@@ -938,7 +944,8 @@ pub struct LintIssue {
 }
 
 /// Lint a saved script with the bundled ruff. Empty when ruff isn't present.
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_lint(path: String) -> Result<Vec<LintIssue>, String> {
     let ruff = python_dir().join("bin/ruff");
     if !ruff.exists() {
@@ -1003,7 +1010,8 @@ fn ensure_jedi(rt: &PyRuntime) -> Result<(), String> {
 
 /// Code completion via jedi. `line` is 1-based, `col` 0-based (jedi's convention).
 /// Returns empty on any failure so the editor never breaks.
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_complete(
     rt: tauri::State<'_, PyRuntime>,
     source: String,
@@ -1054,7 +1062,8 @@ pub struct LineageResult {
 
 /// Table-level lineage of one SQL statement, via sqlglot. `dialect` is a sqlglot
 /// dialect name (mysql/postgres/oracle/sqlite/tsql/clickhouse…), or empty.
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn py_sql_lineage(sql: String, dialect: Option<String>) -> Result<LineageResult, String> {
     if !runtime_ready() {
         return Err("Python 运行时未就绪".into());

@@ -183,7 +183,8 @@ pub fn ai_engine_start(
     Ok(status(&mut guard, resource.as_deref()))
 }
 
-#[tauri::command]
+// 要等引擎进程退出,放线程池里,别卡界面
+#[tauri::command(async)]
 pub fn ai_engine_stop(app: tauri::AppHandle, engine: tauri::State<'_, AiEngine>) -> EngineStatus {
     let mut guard = engine.server.lock().unwrap();
     if let Some(mut child) = guard.take() {

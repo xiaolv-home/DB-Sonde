@@ -758,7 +758,8 @@ pub struct ImportedFile {
 /// Read every *.json under `dir` (recursively) as {relative name, content}.
 /// Used by the ETL center to bulk-import a folder of DataX job configs. The
 /// folder is chosen by the user via a native dialog; we only read what's there.
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn read_json_dir(dir: String) -> AppResult<Vec<ImportedFile>> {
     let root = std::path::PathBuf::from(&dir);
     if !root.is_dir() {

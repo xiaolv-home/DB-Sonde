@@ -44,7 +44,8 @@ fn available_path(directory: &Path, base_name: &str, extension: &str) -> PathBuf
     ))
 }
 
-#[tauri::command]
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
 pub fn save_export(
     app: AppHandle,
     suggested_name: String,
