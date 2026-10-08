@@ -184,6 +184,7 @@ interface DataPanelProps {
 function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyChange }: DataPanelProps) {
   const { t } = useI18n();
   const nullableColumns = useMemo(() => Object.fromEntries(columns.map((c) => [c.name, c.nullable])), [columns]);
+  const columnComments = useMemo(() => Object.fromEntries(columns.filter((c) => c.comment?.trim()).map((c) => [c.name, c.comment!.trim()])), [columns]);
   const [pageSize, setPageSize] = useState(() => {
     const stored = Number(localStorage.getItem("dataPageSize"));
     return stored > 0 ? stored : 200;
@@ -491,6 +492,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
               onSaveRowChanges={saveRowChanges}
               onEditError={(text) => useApp.getState().showToast({ kind: "error", text })}
               nullableColumns={nullableColumns}
+              columnComments={columnComments}
               onDirtyChange={handleDirtyChange}
               sort={orderBy}
               onSortColumn={sortColumn}

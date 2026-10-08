@@ -57,6 +57,11 @@ export default function QueryResults({ tab, height, collapsed = false }: { tab: 
     if (dirty) return;
     setSelectedSets(previous => ({ ...previous, [executionKey]: index }));
   };
+  // 从表打开的查询标签带着那张表的列信息,表头悬停时显示列注释
+  const tableColumns = tab.tableContext?.columns;
+  const columnComments = useMemo(() => tableColumns
+    ? Object.fromEntries(tableColumns.filter((c) => c.comment?.trim()).map((c) => [c.name, c.comment!.trim()]))
+    : undefined, [tableColumns]);
   const reportDirty = useMemo(() => (value: boolean) => useApp.getState().setTabDirty(tabId, value), [tabId]);
   // Editable rows must retain their original indexes and refer to the exact preview SQL.
   const editablePreview = !tab.running && resultSetIndex === 0 && !!tab.tableContext?.editable &&
@@ -227,6 +232,7 @@ export default function QueryResults({ tab, height, collapsed = false }: { tab: 
           <ResultGrid
             key={`${activeTabId}:${viewKey}`}
             result={result}
+            columnComments={columnComments}
             editable={editablePreview}
             onDirtyChange={reportDirty}
             onSaveEdits={(edits) => useApp.getState().saveResultEdits(tab.id, edits)}

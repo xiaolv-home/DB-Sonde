@@ -119,6 +119,8 @@ interface Props {
   onEditError?: (message: string) => void;
   /** 按列名给出能否为 NULL(来自表元数据)。决定清空单元格存 NULL 还是 ''。 */
   nullableColumns?: Record<string, boolean>;
+  /** 列注释(表定义里的 COMMENT)。有的话,鼠标停在表头上第一行就显示它。 */
+  columnComments?: Record<string, string>;
   onDirtyChange?: (dirty: boolean) => void;
   /** Current sort keys. An array preserves SQL precedence; a singleton remains
    *  accepted for query-result grids that sort locally. */
@@ -188,6 +190,7 @@ export default function ResultGrid({
   onSaveRowChanges,
   onEditError,
   nullableColumns,
+  columnComments,
   onDirtyChange,
   sort,
   onSortColumn,
@@ -981,7 +984,7 @@ export default function ResultGrid({
                 className={`gh-cell selectable ${sorted ? "sorted" : ""} ${colSelected(i) ? "colsel" : ""}`}
                 key={i}
                 style={{ width: widthOf(i) }}
-                title={`${col.name} · ${col.typeName}${sorted ? ` · ${t("data.sortPriority", { number: sortIndex + 1 })}` : ""}`}
+                title={`${columnComments?.[col.name] ? `${columnComments[col.name]}\n` : ""}${col.name} · ${col.typeName}${sorted ? ` · ${t("data.sortPriority", { number: sortIndex + 1 })}` : ""}`}
                 onMouseDown={(e) => onHeaderMouseDown(i, e)}
                 onMouseEnter={() => onHeaderMouseEnter(i)}
                 onContextMenu={(e) => {
