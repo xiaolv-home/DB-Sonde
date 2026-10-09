@@ -431,8 +431,15 @@ export default function ResultGrid({
   const lastRow = () => Math.max(0, rows.length - 1);
 
   // ---- cell selection gestures (single, range via shift, discontinuous via ⌘) ----
+  /* 双击的第一下按下时,选区会被收成这一格。双击选区里的某一格是想「从这格开始改,
+     改完整片一起填」,所以把按下前的多格选区记下来,双击时还原。 */
+  const beforeClickRef = useRef<{ ranges: Rect[]; anchor: Pos | null } | null>(null);
   const onCellMouseDown = (r: number, c: number, e: React.MouseEvent) => {
     if (e.button === 2) return;
+    if (e.detail === 1) {
+      const multi = ranges.length > 1 || ranges.some((rect) => rect.a.r !== rect.b.r || rect.a.c !== rect.b.c);
+      beforeClickRef.current = multi && !e.shiftKey && !e.metaKey && !e.ctrlKey ? { ranges, anchor: anchorRef.current } : null;
+    }
     if (e.shiftKey && anchorRef.current) {
       setRanges([{ a: anchorRef.current, b: { r, c } }]);
       setActive({ r, c });
@@ -1067,6 +1074,16 @@ export default function ResultGrid({
                     onMouseEnter={() => onCellMouseEnter(vr.index, ci)}
                     onDoubleClick={() => {
                       if (editable) {
+                        const before = beforeClickRef.current;
+                        const inside = before?.ranges.some((rect) => {
+                          const b = rectBounds(rect);
+                          return vr.index >= b.r0 && vr.index <= b.r1 && ci >= b.c0 && ci <= b.c1;
+                        });
+                        if (before && inside) {
+                          setRanges(before.ranges);
+                          anchorRef.current = before.anchor;
+                        }
+                        beforeClickRef.current = null;
                         setActive({ r: vr.index, c: ci });
                         setEditing({ r: vr.index, c: ci, value: text === "NULL" ? "" : text });
                       }
