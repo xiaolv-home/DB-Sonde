@@ -212,8 +212,6 @@ export default function ResultGrid({
   const [ranges, setRanges] = useState<Rect[]>([]);
   const [active, setActive] = useState<Pos | null>(null);
   const [editing, setEditing] = useState<{ r: number; c: number; value: string } | null>(null);
-  const editingRef = useRef(editing);
-  editingRef.current = editing;
   const [edits, setEdits] = useState<Map<string, Cell>>(new Map());
   const [colOps, setColOps] = useState<Map<number, Cell>>(new Map());
   const [cellMenu, setCellMenu] = useState<{ x: number; y: number; colName: string; value: Cell } | null>(null);
@@ -449,8 +447,7 @@ export default function ResultGrid({
     dragRef.current = "cell";
   };
   const onCellMouseEnter = (r: number, c: number) => {
-    // 正在改某一格时,鼠标划过别的格子不许改选区 —— 不然提交时会把值一起填进划到的格子
-    if (dragRef.current !== "cell" || editingRef.current) return;
+    if (dragRef.current !== "cell") return;
     setRanges((prev) =>
       prev.length ? [...prev.slice(0, -1), { a: prev[prev.length - 1].a, b: { r, c } }] : prev,
     );
@@ -1078,10 +1075,6 @@ export default function ResultGrid({
                         className="cell-editor"
                         value={editing.value}
                         autoFocus
-                        /* 在输入框里按下鼠标、拖着选文字时,鼠标难免划出这一格。这一下不能传给
-                           外面的格子:否则格子当成「开始拖选」,划到的邻格被一起选中,
-                           提交时值会填进邻格(实际把旁边那格改掉了)。 */
-                        onMouseDown={(event) => event.stopPropagation()}
                         onChange={(event) => setEditing({ ...editing, value: event.target.value })}
                         onBlur={() => {
                           if (commitGuardRef.current) {
