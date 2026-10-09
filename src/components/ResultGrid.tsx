@@ -447,7 +447,9 @@ export default function ResultGrid({
     dragRef.current = "cell";
   };
   const onCellMouseEnter = (r: number, c: number) => {
-    if (dragRef.current !== "cell") return;
+    // 正在改某一格(光标在闪)时,鼠标划过别的格子不改选区:在输入框里拖着选文字难免划出去,
+    // 划到的邻格若进了选区,回车会把值一起填进去,等于改坏了旁边的格子
+    if (dragRef.current !== "cell" || editing) return;
     setRanges((prev) =>
       prev.length ? [...prev.slice(0, -1), { a: prev[prev.length - 1].a, b: { r, c } }] : prev,
     );
