@@ -14,7 +14,6 @@ import type { Dataset } from "../features/datasets/domain";
 import type { DatasetQueryFilter } from "../features/dashboard/query";
 import { inTauri, mockApi } from "./mockBackend";
 
-export interface MonitorBounds { x: number; y: number; width: number; height: number }
 
 /** Typed wrappers around the Rust command layer.
  *  Outside Tauri (plain browser during UI dev) they fall back to a mock. */
@@ -22,13 +21,11 @@ export const api = {
   getRoutineDetails: (connId: string, database: string, schema: string, name: string, kind: string) => invoke<import("../types").RoutineDetails>("get_routine_details", { connId, database, schema, name, kind }),
   executeRoutine: (connId: string, database: string, schema: string, name: string, kind: string, values: (string | null)[]) => invoke<QueryResult>("execute_routine", { connId, database, schema, name, kind, values }),
   inspectEtlFiles: (request: {root:string;host?:string;username?:string;port?:number;password?:string}) => invoke<import("../features/etl/fileCatalog").FileInventory>("inspect_etl_files", { request }),
-  // 监控中心:主窗口里的子浏览器视图(见 src-tauri/src/monitor.rs)
-  monitorShow: (id: string, url: string, bounds: MonitorBounds) => invoke<void>("monitor_show", { id, url, bounds }),
-  monitorBounds: (id: string, bounds: MonitorBounds) => invoke<void>("monitor_bounds", { id, bounds }),
-  monitorHideAll: () => inTauri ? invoke<void>("monitor_hide_all") : Promise.resolve(),
-  monitorClose: (id: string) => inTauri ? invoke<void>("monitor_close", { id }) : Promise.resolve(),
-  monitorNav: (id: string, action: "back" | "forward" | "reload" | "home", home?: string) => invoke<void>("monitor_nav", { id, action, home }),
-  monitorCurrentUrl: (id: string) => invoke<string | null>("monitor_current_url", { id }),
+  // 监控中心(见 src-tauri/src/monitor.rs):先看页面准不准嵌入,不准就开独立窗口
+  monitorProbe: (url: string) => inTauri
+    ? invoke<{ embeddable: boolean; reason?: string | null }>("monitor_probe", { url })
+    : Promise.resolve({ embeddable: true, reason: null }),
+  monitorOpenWindow: (id: string, url: string, title: string) => invoke<void>("monitor_open_window", { id, url, title }),
   loadSemanticCatalog: () => inTauri ? invoke<unknown>("load_semantic_catalog") : Promise.resolve(null),
   listConnections: () =>
     inTauri ? invoke<ConnectionConfig[]>("list_connections") : mockApi.listConnections(),

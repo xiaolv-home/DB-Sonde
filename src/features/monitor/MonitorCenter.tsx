@@ -1,13 +1,11 @@
 /* 监控中心:把各系统的监控页面嵌进来,在软件里直接操作。
  *
- * 桌面版里,右边那块不是 iframe,是一个真正的浏览器视图(子 webview,见
- * src-tauri/src/monitor.rs),由这里量好占位框的位置和大小后叫它摆过去。
- * 它是原生视图、浮在网页之上,所以:
- *   · 占位框挪动 / 变大小时要跟着摆(浮层进场动画、窗口缩放);
- *   · 离开监控中心、关掉数据资产、弹出确认框时要把它藏起来,不然会盖住界面。
- * 浏览器里开发预览时退回 iframe(很多页面禁止被嵌,预览里可能是空白,桌面版不受影响)。 */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ExternalLink, Globe, Home, Pencil, Plus, RotateCw, Trash2 } from "lucide-react";
+ * 右边是普通 iframe。有些页面禁止被嵌(X-Frame-Options / CSP frame-ancestors),
+ * 嵌进来只会是一片空白 —— 所以切到一个页面时先让后端看一眼响应头(monitorProbe),
+ * 不让嵌就直接给「在独立窗口打开」:软件里开一个完整的浏览器窗口,功能一样不少。
+ * 不用「主窗口里再嵌原生视图」那条路:它会让 ⌘V / ⌘C / ⌘Z / ⌘S 全部失灵(见 src-tauri/src/monitor.rs)。 */
+import { useCallback, useEffect, useState } from "react";
+import { AppWindow, ExternalLink, Globe, Pencil, Plus, RotateCw, ShieldAlert, Trash2 } from "lucide-react";
 import AssetShell from "../assets/AssetShell";
 import { useConfirm } from "../../components/useConfirm";
 import { api } from "../../lib/api";
@@ -19,41 +17,17 @@ import { useMonitor } from "./monitorStore";
 import "./monitor.css";
 
 type Draft = { id: string | null; name: string; url: string; error?: string };
+/** checking: 还在看响应头;embed: 可以嵌;blocked: 对方不让嵌 */
+type Probe = { url: string; state: "checking" | "embed" | "blocked"; reason?: string | null };
 
 function openExternal(url: string) {
   void import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url)).catch(() => window.open(url, "_blank"));
 }
 
-/** 让原生浏览器视图贴住占位框。visible=false 时藏起来。 */
-function useNativeView(source: MonitorSource | null, visible: boolean, stage: HTMLElement | null) {
-  const last = useRef("");
-  useEffect(() => {
-    if (!inTauri) return;
-    if (!source || !visible || !stage) { last.current = ""; void api.monitorHideAll(); return; }
-    let alive = true;
-    let frame = 0;
-    const rect = () => {
-      const r = stage.getBoundingClientRect();
-      return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
-    };
-    const first = rect();
-    last.current = JSON.stringify(first);
-    api.monitorShow(source.id, source.url, first).catch((error) =>
-      useApp.getState().showToast({ kind: "error", text: String(error) }));
-    /* 每帧比一下位置;只有真变了才通知原生视图(浮层动画那几百毫秒、窗口缩放时)。 */
-    const tick = () => {
-      if (!alive) return;
-      const next = rect();
-      const key = JSON.stringify(next);
-      if (key !== last.current && next.width > 0 && next.height > 0) {
-        last.current = key;
-        void api.monitorBounds(source.id, next);
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => { alive = false; cancelAnimationFrame(frame); void api.monitorHideAll(); };
-  }, [source, visible, stage]);
+function openWindow(source: MonitorSource) {
+  if (!inTauri) { openExternal(source.url); return; }
+  api.monitorOpenWindow(source.id, source.url, source.name).catch((error) =>
+    useApp.getState().showToast({ kind: "error", text: String(error) }));
 }
 
 export default function MonitorCenter() {
@@ -62,22 +36,22 @@ export default function MonitorCenter() {
   const [sources, setSources] = useState<MonitorSource[]>(() => monitorRepository.load());
   const [activeId, setActiveId] = useState<string | null>(() => sources[0]?.id ?? null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [stage, setStage] = useState<HTMLDivElement | null>(null);
-  const [current, setCurrent] = useState<string | null>(null);
+  const [probe, setProbe] = useState<Probe | null>(null);
+  /** 换这个数字就让 iframe 重新挂一次(回到首页)(跨域 iframe 拿不到它的历史和当前地址) */
+  const [frameKey, setFrameKey] = useState(0);
   const active = sources.find((s) => s.id === activeId) ?? null;
+  const activeUrl = active?.url ?? null;
 
-  useNativeView(active, open && !confirming, stage);
-
-  // 页面里点来点去之后,工具栏上的地址跟着变
+  // 切到一个页面(或改了地址)时看一眼它让不让嵌
   useEffect(() => {
-    setCurrent(active?.url ?? null);
-    if (!inTauri || !active || !open) return;
-    const timer = window.setInterval(() => {
-      api.monitorCurrentUrl(active.id).then((u) => { if (u) setCurrent(u); }).catch(() => {});
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [active, open]);
+    if (!open || !activeUrl) return;
+    let alive = true;
+    setProbe({ url: activeUrl, state: "checking" });
+    api.monitorProbe(activeUrl)
+      .then((r) => { if (alive) setProbe({ url: activeUrl, state: r.embeddable ? "embed" : "blocked", reason: r.reason }); })
+      .catch(() => { if (alive) setProbe({ url: activeUrl, state: "embed" }); });
+    return () => { alive = false; };
+  }, [open, activeUrl]);
 
   const persist = useCallback((next: MonitorSource[]) => {
     try { monitorRepository.save(next); setSources(next); return true; }
@@ -90,12 +64,7 @@ export default function MonitorCenter() {
     if ("error" in checked) { setDraft({ ...draft, error: checked.error }); return; }
     const name = draft.name.trim() || defaultName(checked.url);
     if (draft.id) {
-      const before = sources.find((s) => s.id === draft.id);
-      if (persist(sources.map((s) => s.id === draft.id ? { ...s, name, url: checked.url } : s))) {
-        // 地址变了:旧的视图关掉,下一次显示时按新地址重开
-        if (before && before.url !== checked.url) void api.monitorClose(draft.id);
-        setDraft(null);
-      }
+      if (persist(sources.map((s) => s.id === draft.id ? { ...s, name, url: checked.url } : s))) setDraft(null);
     } else {
       const added = newSource(name, checked.url);
       if (persist([...sources, added])) { setActiveId(added.id); setDraft(null); }
@@ -103,30 +72,15 @@ export default function MonitorCenter() {
   };
 
   const remove = async (source: MonitorSource) => {
-    setConfirming(true);
     const ok = await askConfirm(`「${source.name}」会从监控中心移除(只是不再嵌进来,对方的页面和数据不受影响)。`, "移除这个监控页?", "移除");
-    setConfirming(false);
     if (!ok) return;
     if (persist(sources.filter((s) => s.id !== source.id))) {
-      void api.monitorClose(source.id);
       if (activeId === source.id) setActiveId(sources.find((s) => s.id !== source.id)?.id ?? null);
     }
   };
 
-  const nav = (action: "back" | "forward" | "reload" | "home") => {
-    if (!active) return;
-    if (!inTauri) {
-      const frame = stage?.querySelector("iframe");
-      if (frame && action === "reload") frame.src = frame.src;
-      if (frame && action === "home") frame.src = active.url;
-      return;
-    }
-    api.monitorNav(active.id, action, active.url).catch((error) =>
-      useApp.getState().showToast({ kind: "error", text: String(error) }));
-  };
-
   // 没选中监控中心就什么都不画 —— 外壳只有一个,各中心都往里投,不判断就会和别的中心摞在一起。
-  // 状态(列表、选中项)还在组件里,切回来原样;原生视图在占位框消失时由 useNativeView 藏起。
+  // 状态(列表、选中项)还在组件里,切回来原样。
   if (!open) return null;
 
   return (
@@ -176,15 +130,22 @@ export default function MonitorCenter() {
           {active ? (
             <>
               <div className="mon-bar">
-                <button className="icon-btn" title="后退" onClick={() => nav("back")}><ArrowLeft size={15} /></button>
-                <button className="icon-btn" title="前进" onClick={() => nav("forward")}><ArrowRight size={15} /></button>
-                <button className="icon-btn" title="刷新" onClick={() => nav("reload")}><RotateCw size={14} /></button>
-                <button className="icon-btn" title="回到首页" onClick={() => nav("home")}><Home size={14} /></button>
-                <span className="mon-url" title={current ?? active.url}>{current ?? active.url}</span>
-                <button className="icon-btn" title="在浏览器里打开" onClick={() => openExternal(current ?? active.url)}><ExternalLink size={14} /></button>
+                <button className="icon-btn" title="重新载入(回到首页)" onClick={() => setFrameKey((k) => k + 1)}><RotateCw size={14} /></button>
+                <span className="mon-url" title={active.url}>{active.url}</span>
+                <button className="icon-btn" title="在独立窗口打开" onClick={() => openWindow(active)}><AppWindow size={14} /></button>
+                <button className="icon-btn" title="在浏览器里打开" onClick={() => openExternal(active.url)}><ExternalLink size={14} /></button>
               </div>
-              <div className="mon-stage" ref={setStage}>
-                {!inTauri && <iframe title={active.name} src={active.url} />}
+              <div className="mon-stage">
+                {probe?.url === active.url && probe.state === "blocked" ? (
+                  <div className="mon-blocked">
+                    <ShieldAlert size={26} />
+                    <b>这个页面不允许被嵌入</b>
+                    <span>{probe.reason ?? "对方设置了禁止嵌入"}。在独立窗口里打开,登录、点击、筛选都和浏览器里一样。</span>
+                    <button className="btn primary" onClick={() => openWindow(active)}><AppWindow size={14} /> 在独立窗口打开</button>
+                  </div>
+                ) : probe?.url === active.url && probe.state === "embed" ? (
+                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={active.url} />
+                ) : null}
               </div>
             </>
           ) : (

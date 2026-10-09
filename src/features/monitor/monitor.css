@@ -1,5 +1,4 @@
-/* 监控中心。右边的 .mon-stage 只是占位框 —— 桌面版里真正的页面是一个原生浏览器视图,
-   按这个框的位置和大小贴上去;所以框里别放会被盖住的东西。 */
+/* 监控中心。右边的 .mon-stage 里是 iframe;对方不让嵌时换成 .mon-blocked 提示。 */
 .mon-body { flex: 1; min-height: 0; display: flex; }
 .mon-list {
   width: 230px;
@@ -90,3 +89,19 @@
 .mon-empty svg { color: var(--accent); }
 .mon-empty b { font-size: 16px; color: var(--text); }
 .mon-empty span { max-width: 420px; font-size: 13.5px; line-height: 1.6; }
+
+.mon-blocked {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-2);
+}
+.mon-blocked svg { color: var(--text-3); }
+.mon-blocked b { font-size: 15px; color: var(--text); }
+.mon-blocked span { max-width: 420px; font-size: 13px; line-height: 1.6; }

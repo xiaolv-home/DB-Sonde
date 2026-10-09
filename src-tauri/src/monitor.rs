@@ -1,34 +1,22 @@
-//! 监控中心:在主窗口里嵌真正的浏览器视图(子 webview)。
+//! 监控中心:把监控网页嵌进来(iframe),嵌不进来的开成软件里的独立窗口。
 //!
-//! 为什么不用 iframe:很多页面(包括自建的运行台)会发 `X-Frame-Options: DENY` /
-//! `frame-ancestors 'none'`,iframe 里只剩一片空白;就算对方放开,WKWebView 默认挡
-//! 第三方 Cookie,需要登录的页面在 iframe 里登不上。子 webview 是一个独立的浏览器
-//! 视图,不受这两条限制,用起来和在浏览器里打开没有区别。
-//!
-//! 安全:子 webview 加载的是远程页面。Tauri 的权限(capabilities)默认只给本地
-//! 应用页面,远程来源调不到任何命令 —— 嵌进来的网页碰不到连接、口令和本地文件。
-//!
-//! 坐标:前端量好占位框(CSS 像素 = 逻辑像素),这里按逻辑像素摆放。
-//! 命令都是 async 的:add_child 要回主线程建视图,同步命令本身就跑在主线程上,会死锁。
+//! 曾经用过「主窗口里再嵌一个原生浏览器视图」(Tauri 的 unstable 多 webview)。它让
+//! 主界面本身也变成了子视图,macOS 上 ⌘V / ⌘C / ⌘Z / ⌘S 这类组合键就到不了页面里的 JS
+//! (wry 只在单 webview 下修过这个),表格粘贴、编辑器保存全都失灵。所以退回单 webview:
+//!   · 页面允许被嵌入 → 前端直接 iframe;
+//!   · 页面禁止被嵌入(X-Frame-Options / CSP frame-ancestors)→ 开一个独立窗口,
+//!     那是一个完整的浏览器窗口,功能一样都不少。
+//! 远程页面在 iframe 和独立窗口里都拿不到应用命令(权限只给本地页面)。
 
-use serde::Deserialize;
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl};
+use serde::Serialize;
+use std::time::Duration;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-const PREFIX: &str = "monitor-";
-
-#[derive(Deserialize)]
-pub struct Bounds {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
-
-fn label_for(id: &str) -> Result<String, String> {
+fn window_label(id: &str) -> Result<String, String> {
     if id.is_empty() || id.len() > 64 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err("监控页编号无效".into());
     }
-    Ok(format!("{PREFIX}{id}"))
+    Ok(format!("monitor-win-{id}"))
 }
 
 /// 只认 http/https,不许把账号密码写在地址里(会明文留在配置和历史里)。
@@ -43,96 +31,81 @@ pub fn page_url(raw: &str) -> Result<tauri::Url, String> {
     Ok(url)
 }
 
-fn clamp(b: &Bounds) -> (LogicalPosition<f64>, LogicalSize<f64>) {
-    (
-        LogicalPosition::new(b.x.max(0.0), b.y.max(0.0)),
-        LogicalSize::new(b.width.max(1.0), b.height.max(1.0)),
-    )
+const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Embeddability {
+    embeddable: bool,
+    reason: Option<String>,
 }
 
-/// 显示某个监控页:没有就建,有就挪到位置上再显示;地址变了就跳过去。
-/// 同一时间只显示一个,其余的藏起来(不关 —— 登录状态、滚动位置都留着)。
-#[tauri::command]
-pub async fn monitor_show(app: tauri::AppHandle, id: String, url: String, bounds: Bounds) -> Result<(), String> {
-    let label = label_for(&id)?;
-    let target = page_url(&url)?;
-    let (pos, size) = clamp(&bounds);
-    for (other, view) in app.webviews() {
-        if other.starts_with(PREFIX) && other != label {
-            let _ = view.hide();
+/// 按响应头判断这个页面准不准被嵌入。只看 X-Frame-Options 和 CSP 的 frame-ancestors:
+/// 浏览器就是按这两个决定 iframe 显示还是一片空白。
+pub fn judge_headers(x_frame: Option<&str>, csp: Option<&str>) -> Embeddability {
+    if let Some(x) = x_frame.map(|v| v.trim().to_ascii_lowercase()) {
+        if x == "deny" || x == "sameorigin" {
+            return Embeddability { embeddable: false, reason: Some(format!("页面设置了 X-Frame-Options: {}", x.to_uppercase())) };
         }
     }
-    if let Some(view) = app.get_webview(&label) {
-        view.set_position(pos).map_err(|e| e.to_string())?;
-        view.set_size(size).map_err(|e| e.to_string())?;
-        view.show().map_err(|e| e.to_string())?;
+    if let Some(policy) = csp {
+        for directive in policy.split(';') {
+            let mut parts = directive.split_whitespace();
+            if parts.next().is_some_and(|name| name.eq_ignore_ascii_case("frame-ancestors")) {
+                let sources: Vec<String> = parts.map(|s| s.to_ascii_lowercase()).collect();
+                let allows_app = sources.iter().any(|s| s == "*" || s == "tauri:" || s.starts_with("tauri://") || s.contains("tauri.localhost"));
+                if !allows_app {
+                    return Embeddability { embeddable: false, reason: Some(format!("页面的 frame-ancestors 只允许 {}", if sources.is_empty() { "'none'".into() } else { sources.join(" ") })) };
+                }
+            }
+        }
+    }
+    Embeddability { embeddable: true, reason: None }
+}
+
+/// 打开前先看一眼对方允不允许被嵌入,不允许就让界面直接给「在独立窗口打开」,
+/// 而不是嵌出一片空白让人以为坏了。连不上时按「可以嵌」处理,由 iframe 自己显示错误。
+#[tauri::command]
+pub async fn monitor_probe(url: String) -> Result<Embeddability, String> {
+    let target = page_url(&url)?;
+    // 带上浏览器的 User-Agent:有些站对「不像浏览器」的请求直接回 403、不带这些头,会被误判成能嵌
+    let client = reqwest::Client::builder()
+        .user_agent(BROWSER_UA)
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    match client.get(target).header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8").send().await {
+        Ok(resp) => {
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
+            Ok(judge_headers(header("x-frame-options").as_deref(), header("content-security-policy").as_deref()))
+        }
+        Err(_) => Ok(Embeddability { embeddable: true, reason: None }),
+    }
+}
+
+/// 在软件里开一个独立窗口打开这个页面;已经开着就把它拿到前面。
+#[tauri::command]
+pub async fn monitor_open_window(app: tauri::AppHandle, id: String, url: String, title: String) -> Result<(), String> {
+    let label = window_label(&id)?;
+    let target = page_url(&url)?;
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.unminimize();
+        window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
-    let window = app.get_window("main").ok_or("找不到主窗口")?;
-    window
-        .add_child(WebviewBuilder::new(&label, WebviewUrl::External(target)), pos, size)
-        .map_err(|e| format!("打开监控页失败:{e}"))?;
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(target))
+        .title(format!("{title} · DB Sonde 监控中心"))
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(640.0, 420.0)
+        .build()
+        .map_err(|e| format!("打开窗口失败:{e}"))?;
     Ok(())
-}
-
-/// 占位框挪了 / 变了大小(窗口缩放、浮层动画)时跟着走。
-#[tauri::command]
-pub async fn monitor_bounds(app: tauri::AppHandle, id: String, bounds: Bounds) -> Result<(), String> {
-    let label = label_for(&id)?;
-    if let Some(view) = app.get_webview(&label) {
-        let (pos, size) = clamp(&bounds);
-        view.set_position(pos).map_err(|e| e.to_string())?;
-        view.set_size(size).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// 藏起所有监控页(切走、关掉数据资产、弹确认框时)。
-#[tauri::command]
-pub async fn monitor_hide_all(app: tauri::AppHandle) -> Result<(), String> {
-    for (label, view) in app.webviews() {
-        if label.starts_with(PREFIX) {
-            let _ = view.hide();
-        }
-    }
-    Ok(())
-}
-
-/// 删掉某个监控页的视图(删除这一项、或改了地址要重开)。
-#[tauri::command]
-pub async fn monitor_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let label = label_for(&id)?;
-    if let Some(view) = app.get_webview(&label) {
-        view.close().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// 后退 / 前进 / 刷新 / 回到首页。
-#[tauri::command]
-pub async fn monitor_nav(app: tauri::AppHandle, id: String, action: String, home: Option<String>) -> Result<(), String> {
-    let label = label_for(&id)?;
-    let view = app.get_webview(&label).ok_or("这个页面还没打开")?;
-    match action.as_str() {
-        "back" => view.eval("history.back()"),
-        "forward" => view.eval("history.forward()"),
-        "reload" => view.eval("location.reload()"),
-        "home" => view.navigate(page_url(home.as_deref().unwrap_or(""))?),
-        _ => return Err("不支持的操作".into()),
-    }
-    .map_err(|e| e.to_string())
-}
-
-/// 当前页面地址(用户在页面里点来点去之后,工具栏显示的地址跟着变)。
-#[tauri::command]
-pub async fn monitor_current_url(app: tauri::AppHandle, id: String) -> Result<Option<String>, String> {
-    let label = label_for(&id)?;
-    Ok(app.get_webview(&label).and_then(|v| v.url().ok()).map(|u| u.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{label_for, page_url};
+    use super::{judge_headers, page_url, window_label};
 
     #[test]
     fn only_plain_http_pages_are_accepted() {
@@ -144,11 +117,22 @@ mod tests {
     }
 
     #[test]
-    fn labels_cannot_escape_the_monitor_namespace() {
-        assert_eq!(label_for("abc_1-2").unwrap(), "monitor-abc_1-2");
-        for bad in ["", "main", "../x", "a b", "a/b"] {
-            if bad == "main" { assert_eq!(label_for(bad).unwrap(), "monitor-main"); continue; }
-            assert!(label_for(bad).is_err(), "{bad} 应该被拒");
+    fn window_labels_cannot_escape_the_monitor_namespace() {
+        assert_eq!(window_label("abc_1-2").unwrap(), "monitor-win-abc_1-2");
+        for bad in ["", "../x", "a b", "a/b"] {
+            assert!(window_label(bad).is_err(), "{bad} 应该被拒");
         }
+    }
+
+    #[test]
+    fn embedding_is_judged_like_a_browser_would() {
+        assert!(judge_headers(None, None).embeddable);
+        assert!(!judge_headers(Some("DENY"), None).embeddable);
+        assert!(!judge_headers(Some("sameorigin"), None).embeddable);
+        assert!(!judge_headers(None, Some("default-src 'self'; frame-ancestors 'none'")).embeddable);
+        assert!(!judge_headers(None, Some("frame-ancestors 'self' https://a.example")).embeddable);
+        assert!(judge_headers(None, Some("default-src 'self'; frame-ancestors 'self' tauri://localhost http://tauri.localhost")).embeddable);
+        assert!(judge_headers(None, Some("frame-ancestors *")).embeddable);
+        assert!(judge_headers(None, Some("default-src 'self'")).embeddable, "没写 frame-ancestors 就不限制");
     }
 }
