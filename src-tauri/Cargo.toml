@@ -33,6 +33,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # HTTP client for scheduler integrations (DolphinScheduler / Airflow / … ). The
 # frontend calls schedulers through a Rust proxy command to dodge webview CORS
 # and handle self-signed TLS. rustls only, to match sqlx (no OpenSSL).
+base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 # 运行时下载的 SHA256 校验(哈希写死在 python.rs,见那里的注释)
 sha2 = "0.10"

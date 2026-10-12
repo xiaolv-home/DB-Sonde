@@ -2,6 +2,8 @@
  *
  * 画布库用 React Flow(拖动、缩放、连线、框选、改大小都现成)。
  * 这里只管:形状长什么样、改动怎么进撤销栈、什么时候算「未保存」、怎么存。
+ * 对齐 / 等距 / 自动排版 / 吸附 / 分层上色这些「算位置、算颜色」的事都在 canvasModel 里(纯函数,有测试),
+ * 导出图片在 canvasExport 里。
  *
  * 状态以 React Flow 的 nodes/edges 为准(选中、拖动都在它身上),
  * 存盘、撤销时换算成 canvasModel 里的纯数据。 */
@@ -9,38 +11,50 @@ import "@xyflow/react/dist/style.css";
 import "./canvas.css";
 import {
   createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState,
-  type CSSProperties, type DragEvent as ReactDragEvent,
+  type CSSProperties, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, Handle, Position,
-  NodeResizer, MarkerType, ConnectionMode, SelectionMode, applyNodeChanges, applyEdgeChanges, useReactFlow,
-  type Node, type Edge, type NodeProps, type NodeChange, type EdgeChange, type Connection,
+  NodeResizer, MarkerType, ConnectionMode, SelectionMode, ViewportPortal, applyNodeChanges, applyEdgeChanges,
+  reconnectEdge, useReactFlow, useViewport,
+  type Node, type Edge, type NodeProps, type NodeChange, type EdgeChange, type Connection, type FinalConnectionState,
 } from "@xyflow/react";
 import {
-  ArrowLeft, Bold, Copy, Database, GitFork, Plus, Redo2, Save, Search, Trash2, Undo2, Pencil, Link2,
+  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
+  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
+  BringToFront, ChevronDown, ClipboardPaste, Copy, Database, Download, GitFork, ImageDown, Network, Paintbrush,
+  Palette, Pencil, Plus, Redo2, Save, Scissors, Search, SendToBack, Trash2, Undo2, Link2,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
 import { useConfirm } from "../../../components/useConfirm";
+import { api } from "../../../lib/api";
+import { inTauri } from "../../../lib/mockBackend";
 import type { Graph } from "../lineageModel";
 import {
-  ARROWS, COLORS, COLOR_LABEL, COLOR_VALUE, FONT_SIZES, LINE_TYPES, SHAPES, SHAPE_LABEL,
-  contentKey, duplicate, findFreeSpot, fromLineage, newCanvas, newEdge, newNode, nextName,
-  type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode, type ColorKey, type LineType, type ShapeKind,
+  ARROWS, COLOR_LABEL, COLOR_VALUE, FILLS, FILL_LABEL, FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES,
+  LINE_WIDTHS, PALETTE_ORDER, SHAPES, SHAPE_LABEL, STROKE_PX,
+  alignBoxes, autoLayout, contentKey, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor,
+  markerSize, newCanvas, newEdge, newNode, nextName, snapToGuides,
+  type AlignKind, type ArrowKind, type Box, type CanvasDoc, type CanvasEdge, type CanvasNode, type ColorKey,
+  type FillKind, type Guide, type LayoutDir, type LineType, type Pos, type ShapeKind,
 } from "./canvasModel";
+import { blobToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
 import { canvasRepository } from "./canvasRepository";
 
 type ShapeData = CanvasNode & Record<string, unknown>;
 type EdgeData = CanvasEdge & Record<string, unknown>;
 type FlowNode = Node<ShapeData, "shape">;
 type FlowEdge = Edge<EdgeData>;
+type Side = "top" | "right" | "bottom" | "left";
 
 /* ---------- 纯数据 <-> 画布对象 ---------- */
+// 分组框垫在最底下,不挡住框里的东西;其余按叠放次序
+const zOf = (n: Pick<CanvasNode, "shape" | "z">) => (n.shape === "group" ? -1000 : 0) + (n.z ?? 0);
 const toFlowNode = (n: CanvasNode): FlowNode => ({
   id: n.id, type: "shape", position: { x: n.x, y: n.y }, width: n.w, height: n.h,
   data: { ...n } as ShapeData,
-  // 分组框垫在最底下,不挡住框里的东西
-  zIndex: n.shape === "group" ? -1 : 0,
+  zIndex: zOf(n),
 });
 const fromFlowNode = (n: FlowNode): CanvasNode => {
   const { x: _x, y: _y, w: _w, h: _h, ...rest } = n.data;
@@ -51,28 +65,40 @@ const fromFlowNode = (n: FlowNode): CanvasNode => {
     w: Math.round(n.width ?? n.measured?.width ?? 120), h: Math.round(n.height ?? n.measured?.height ?? 48),
   };
 };
-const EDGE_TYPE: Record<LineType, string> = { smooth: "default", step: "smoothstep", straight: "straight" };
+const boxOf = (n: FlowNode): Box => ({
+  id: n.id, x: n.position.x, y: n.position.y,
+  w: n.width ?? n.measured?.width ?? 120, h: n.height ?? n.measured?.height ?? 48,
+});
+const EDGE_TYPE: Record<LineType, string> = { smooth: "default", step: "smoothstep", sharp: "step", straight: "straight" };
 const toFlowEdge = (e: CanvasEdge, selected = false): FlowEdge => {
   const color = COLOR_VALUE[e.color];
-  const marker = { type: MarkerType.ArrowClosed, color, width: 18, height: 18 };
+  const sw = (STROKE_PX[e.width ?? 1] ?? 1.6) + (selected ? 0.8 : 0);
+  const size = markerSize(sw);
+  const marker = { type: MarkerType.ArrowClosed, color, width: size, height: size };
   return {
     id: e.id, source: e.from, target: e.to, sourceHandle: e.fromHandle, targetHandle: e.toHandle,
     type: EDGE_TYPE[e.line], label: e.label || undefined, selected,
     animated: !!e.flow,
     data: { ...e } as EdgeData,
-    style: { stroke: color, strokeWidth: selected ? 2.4 : 1.6, strokeDasharray: e.dashed && !e.flow ? "6 4" : undefined },
+    style: { stroke: color, strokeWidth: sw, strokeDasharray: e.dashed && !e.flow ? "6 4" : undefined },
     markerEnd: e.arrow === "none" ? undefined : marker,
     markerStart: e.arrow === "both" ? marker : undefined,
-    labelStyle: { fill: "var(--text-2)", fontSize: 12 },
-    labelBgStyle: { fill: "var(--surface)" },
-    labelBgPadding: [6, 3],
-    labelBgBorderRadius: 4,
+    labelStyle: { fill: "var(--text-2)", fontSize: 12, fontWeight: 500 },
+    labelBgStyle: { fill: "var(--surface)", stroke: "var(--border-2)", strokeWidth: 1 },
+    labelBgPadding: [7, 4],
+    labelBgBorderRadius: 5,
   };
 };
 const fromFlowEdge = (e: FlowEdge): CanvasEdge => ({
   ...(e.data as CanvasEdge), from: e.source, to: e.target,
   fromHandle: e.sourceHandle ?? undefined, toHandle: e.targetHandle ?? undefined,
 });
+
+/* 剪贴板放在模块里:在一张画布 ⌘C,换到另一张画布 ⌘V 也能贴 */
+let clipboard: { docId: string; nodes: CanvasNode[]; edges: CanvasEdge[]; pastes: number } | null = null;
+/* 格式刷带走的样式 */
+type NodeStyle = Pick<CanvasNode, "color" | "fill" | "dashed" | "fontSize" | "bold">;
+const styleOf = (n: CanvasNode): NodeStyle => ({ color: n.color, fill: n.fill, dashed: n.dashed, fontSize: n.fontSize, bold: n.bold });
 
 /* ---------- 形状节点 ---------- */
 interface ShapeCtx {
@@ -103,8 +129,12 @@ const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodeProps<Flow
   const [draft, setDraft] = useState(data.text);
   useEffect(() => { if (editing) setDraft(data.text); }, [editing, data.text]);
   const style = { "--c": COLOR_VALUE[data.color], fontSize: data.fontSize, fontWeight: data.bold ? 650 : undefined } as CSSProperties;
+  const cls = [
+    "cv-node", `cv-${data.shape}`, `cv-fill-${data.fill ?? "soft"}`,
+    data.dashed ? "cv-dashed" : "", selected ? "is-selected" : "",
+  ].filter(Boolean).join(" ");
   return (
-    <div className={`cv-node cv-${data.shape}${selected ? " is-selected" : ""}`} style={style} onDoubleClick={() => ctx.startEdit(id)}>
+    <div className={cls} style={style} onDoubleClick={() => ctx.startEdit(id)}>
       <NodeResizer isVisible={selected && !editing} minWidth={40} minHeight={24} onResizeStart={ctx.beginChange}
         lineClassName="cv-resize-line" handleClassName="cv-resize-handle" />
       <ShapeOutline shape={data.shape} />
@@ -135,6 +165,22 @@ const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodeProps<Flow
 });
 const nodeTypes = { shape: ShapeNode };
 
+/* 拖动时的对齐参考线(画在画布坐标里,线宽按缩放反算,永远是 1 像素) */
+function GuideLines({ guides }: { guides: Guide[] }) {
+  const { zoom } = useViewport();
+  if (!guides.length) return null;
+  const t = 1 / zoom;
+  return (
+    <ViewportPortal>
+      {guides.map((g, i) => (
+        <div key={i} className="cv-guide" style={g.axis === "x"
+          ? { left: g.at - t / 2, top: g.from - 12, width: t, height: g.to - g.from + 24 }
+          : { top: g.at - t / 2, left: g.from - 12, height: t, width: g.to - g.from + 24 }} />
+      ))}
+    </ViewportPortal>
+  );
+}
+
 /* ---------- 形状图标(左侧工具栏用) ---------- */
 function ShapeIcon({ shape }: { shape: ShapeKind }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.6 };
@@ -153,9 +199,32 @@ function ShapeIcon({ shape }: { shape: ShapeKind }) {
   );
 }
 
+/* 顶栏上的下拉菜单 */
+function Menu({ label, icon, title, children }: { label: string; icon: ReactNode; title?: string; children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as globalThis.Node)) setOpen(false); };
+    window.addEventListener("mousedown", off);
+    return () => window.removeEventListener("mousedown", off);
+  }, [open]);
+  return (
+    <div className="cv-menu-wrap" ref={ref}>
+      <button className={`btn sm ${open ? "on" : ""}`} title={title} onClick={() => setOpen((v) => !v)}>{icon} {label} <ChevronDown size={12} /></button>
+      {open && <div className="cv-menu">{children(() => setOpen(false))}</div>}
+    </div>
+  );
+}
+
 /* ---------- 历史(撤销/重做) ---------- */
 interface Snapshot { nodes: CanvasNode[]; edges: CanvasEdge[]; }
 const HISTORY_LIMIT = 100;
+const ALIGN_ICON: Record<AlignKind, [ReactNode, string]> = {
+  left: [<AlignStartVertical size={14} />, "左对齐"], hcenter: [<AlignCenterVertical size={14} />, "水平居中"],
+  right: [<AlignEndVertical size={14} />, "右对齐"], top: [<AlignStartHorizontal size={14} />, "顶对齐"],
+  vmiddle: [<AlignCenterHorizontal size={14} />, "垂直居中"], bottom: [<AlignEndHorizontal size={14} />, "底对齐"],
+};
 
 function Editor({ doc, graph, onSave, onDirty }: {
   doc: CanvasDoc;
@@ -165,7 +234,9 @@ function Editor({ doc, graph, onSave, onDirty }: {
 }) {
   const flow = useReactFlow<FlowNode, FlowEdge>();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const labelInputRef = useRef<HTMLInputElement>(null);
   const theme = useApp((s) => s.theme);
+  const toast = useApp((s) => s.showToast);
   const [nodes, setNodes] = useState<FlowNode[]>(() => doc.nodes.map(toFlowNode));
   const [edges, setEdges] = useState<FlowEdge[]>(() => doc.edges.map((e) => toFlowEdge(e)));
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -174,9 +245,19 @@ function Editor({ doc, graph, onSave, onDirty }: {
   const futureRef = useRef<Snapshot[]>([]);
   const [, setHistoryTick] = useState(0);
   const bump = () => setHistoryTick((t) => t + 1);
-  const [savedKey, setSavedKey] = useState(() => contentKey({ name: "", nodes: doc.nodes, edges: doc.edges }));
-  const [lineDefault, setLineDefault] = useState<LineType>("smooth");
+  // 用「换算过一遍」的数据算基准,字段顺序和后面比较时一致,刚打开不会误报「未保存」
+  const [savedKey, setSavedKey] = useState(() => contentKey({
+    name: "", nodes: doc.nodes.map((n) => fromFlowNode(toFlowNode(n))), edges: doc.edges.map((e) => fromFlowEdge(toFlowEdge(e))),
+  }));
+  /** 新连线用上一次改过的线型 / 颜色 / 粗细 / 箭头,连一串线不用每根都改 */
+  const [edgeStyle, setEdgeStyle] = useState<Pick<CanvasEdge, "line" | "color" | "width" | "arrow">>({ line: "smooth", color: "gray", width: 1, arrow: "end" });
   const [picker, setPicker] = useState(false);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [painter, setPainter] = useState<NodeStyle | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge" } | null>(null);
+  const nudgeAt = useRef(0);
+  /** 正在拖线的一头改连:这时松在空白处什么都不做(React Flow 也会走 onConnectEnd) */
+  const reconnecting = useRef(false);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const edgesRef = useRef(edges); edgesRef.current = edges;
@@ -227,8 +308,23 @@ function Editor({ doc, graph, onSave, onDirty }: {
 
   /* ---------- React Flow 回调 ---------- */
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
+    // 只拖一个形状时,靠近别的形状的边 / 中线就吸过去,并画参考线(拖一批时不吸,免得整批乱跳)
+    const moving = changes.filter((c): c is NodeChange<FlowNode> & { type: "position" } => c.type === "position" && !!c.dragging && !!c.position);
+    if (moving.length === 1) {
+      const c = moving[0];
+      const me = nodesRef.current.find((n) => n.id === c.id);
+      if (me && c.position) {
+        const b = boxOf(me);
+        const others = nodesRef.current.filter((n) => n.id !== me.id).map(boxOf);
+        const r = snapToGuides({ x: c.position.x, y: c.position.y, w: b.w, h: b.h }, others, 6 / flow.getZoom());
+        c.position = { x: r.x, y: r.y };
+        setGuides(r.guides);
+      }
+    } else if (changes.some((c) => c.type === "position" && c.dragging === false)) {
+      setGuides([]);
+    }
     setNodes((ns) => applyNodeChanges(changes, ns));
-  }, []);
+  }, [flow]);
   const onEdgesChange = useCallback((changes: EdgeChange<FlowEdge>[]) => {
     setEdges((es) => {
       const next = applyEdgeChanges(changes, es);
@@ -236,12 +332,54 @@ function Editor({ doc, graph, onSave, onDirty }: {
       return changes.some((c) => c.type === "select") ? next.map((e) => toFlowEdge(e.data as CanvasEdge, !!e.selected)) : next;
     });
   }, []);
+  const connect = useCallback((from: string, to: string, fromHandle?: string, toHandle?: string) => {
+    const edge = newEdge(from, to, { fromHandle, toHandle, ...edgeStyle });
+    setEdges((es) => [...es, toFlowEdge(edge)]);
+  }, [edgeStyle]);
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return;
     beginChange();
-    const edge = newEdge(c.source, c.target, { fromHandle: c.sourceHandle ?? undefined, toHandle: c.targetHandle ?? undefined, line: lineDefault });
-    setEdges((es) => [...es, toFlowEdge(edge)]);
-  }, [beginChange, lineDefault]);
+    connect(c.source, c.target, c.sourceHandle ?? undefined, c.targetHandle ?? undefined);
+  }, [beginChange, connect]);
+  /* 从连接点拖出去松在空白处:就地长出一个同样式的形状并连上,接着打字;
+     松在别的形状身上(没对准小圆点):直接连到它朝向这边的那条边 */
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    if (state.isValid || !state.fromNode || reconnecting.current) return;
+    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+    if (!point) return;
+    const at = flow.screenToFlowPosition({ x: point.clientX, y: point.clientY });
+    const src = nodesRef.current.find((n) => n.id === state.fromNode!.id);
+    if (!src) return;
+    const srcBox = boxOf(src);
+    // 松在自己身上(只是手抖拖了一下):不算
+    if (at.x >= srcBox.x && at.x <= srcBox.x + srcBox.w && at.y >= srcBox.y && at.y <= srcBox.y + srcBox.h) return;
+    const hit = [...nodesRef.current].reverse().find((n) => {
+      if (n.id === src.id || n.data.shape === "group") return false;
+      const b = boxOf(n);
+      return at.x >= b.x && at.x <= b.x + b.w && at.y >= b.y && at.y <= b.y + b.h;
+    });
+    beginChange();
+    if (hit) {
+      const sides = facingSides(srcBox, boxOf(hit));
+      connect(src.id, hit.id, state.fromHandle?.id ?? sides.fromHandle, sides.toHandle);
+      return;
+    }
+    const base = src.data;
+    const shape: ShapeKind = base.shape === "group" || base.shape === "text" || base.shape === "note" ? "rounded" : base.shape;
+    const n = newNode(shape, 0, 0, { color: base.color, fill: base.fill, dashed: base.dashed, fontSize: base.fontSize, text: "" });
+    n.w = Math.round(srcBox.w); n.h = Math.round(srcBox.h);
+    n.x = Math.round((at.x - n.w / 2) / 8) * 8; n.y = Math.round((at.y - n.h / 2) / 8) * 8;
+    const sides = facingSides(srcBox, n);
+    setNodes((ns) => [...ns.map((x) => x.selected ? { ...x, selected: false } : x), { ...toFlowNode(n), selected: true }]);
+    connect(src.id, n.id, state.fromHandle?.id ?? sides.fromHandle, sides.toHandle);
+    setEditingId(n.id);
+  }, [beginChange, connect, flow]);
+  /* 把线的一头拖到别的形状上:改连 */
+  const onReconnect = useCallback((old: FlowEdge, c: Connection) => {
+    if (!c.source || !c.target || c.source === c.target) return;
+    beginChange();
+    setEdges((es) => reconnectEdge(old, c, es, { shouldReplaceId: false }).map((e) => e.id === old.id ? toFlowEdge(fromFlowEdge(e), !!e.selected) : e));
+  }, [beginChange]);
 
   /* ---------- 文字编辑 ---------- */
   const commitText = useCallback((id: string, text: string) => {
@@ -269,11 +407,11 @@ function Editor({ doc, graph, onSave, onDirty }: {
     if (addedEdges.length) {
       setEdges((es) => {
         const have = new Set(es.map((e) => `${e.source}>${e.target}`));
-        return [...es, ...addedEdges.filter((e) => !have.has(`${e.from}>${e.to}`)).map((e) => toFlowEdge(e))];
+        return [...es.map((e) => e.selected ? toFlowEdge(e.data as CanvasEdge) : e), ...addedEdges.filter((e) => !have.has(`${e.from}>${e.to}`)).map((e) => toFlowEdge(e))];
       });
     }
   }, [beginChange]);
-  const addShape = useCallback((shape: ShapeKind, at?: { x: number; y: number }) => {
+  const addShape = useCallback((shape: ShapeKind, at?: { x: number; y: number }, edit = false) => {
     const n = newNode(shape, 0, 0);
     if (at) {
       // 拖到哪就放哪(以落点为中心)
@@ -285,6 +423,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
       n.x = spot.x; n.y = spot.y;
     }
     addNodes([n]);
+    if (edit) setEditingId(n.id);
   }, [addNodes, centerPoint]);
   const onDrop = useCallback((e: ReactDragEvent) => {
     const shape = e.dataTransfer.getData("application/x-sonde-shape") as ShapeKind;
@@ -300,14 +439,60 @@ function Editor({ doc, graph, onSave, onDirty }: {
     beginChange();
     setNodes((ns) => ns.map((n) => {
       if (!n.selected) return n;
-      const next = { ...n, data: { ...n.data, ...patch } };
-      return patch.shape ? { ...next, zIndex: patch.shape === "group" ? -1 : 0 } : next;
+      const data = { ...n.data, ...patch };
+      return { ...n, data, zIndex: zOf(data) };
     }));
   };
   const patchEdges = (patch: Partial<CanvasEdge>) => {
     beginChange();
-    if (patch.line) setLineDefault(patch.line);
+    const remembered = (["line", "color", "width", "arrow"] as const).filter((k) => k in patch);
+    if (remembered.length) setEdgeStyle((s) => ({ ...s, ...Object.fromEntries(remembered.map((k) => [k, patch[k]])) }));
     setEdges((es) => es.map((e) => e.selected ? toFlowEdge({ ...(e.data as CanvasEdge), ...fromFlowEdge(e), ...patch }, true) : e));
+  };
+  /** 一批位置改动(对齐、等距、自动排版)只记一步撤销 */
+  const moveNodes = useCallback((pos: Pos, handles?: Map<string, { fromHandle: Side; toHandle: Side }>) => {
+    if (!pos.size) return;
+    beginChange();
+    setNodes((ns) => ns.map((n) => pos.has(n.id) ? { ...n, position: pos.get(n.id)! } : n));
+    if (handles?.size) setEdges((es) => es.map((e) => {
+      const h = handles.get(e.id);
+      return h ? toFlowEdge({ ...fromFlowEdge(e), ...h }, !!e.selected) : e;
+    }));
+  }, [beginChange]);
+  const align = (mode: AlignKind) => moveNodes(alignBoxes(nodesRef.current.filter((n) => n.selected).map(boxOf), mode));
+  const distribute = (axis: "h" | "v") => moveNodes(distributeBoxes(nodesRef.current.filter((n) => n.selected).map(boxOf), axis));
+  const layout = (dir: LayoutDir) => {
+    const sel = nodesRef.current.filter((n) => n.selected);
+    const scope = sel.length >= 2 ? sel : nodesRef.current;
+    const snap = snapshot();
+    const ids = new Set(scope.map((n) => n.id));
+    const out = autoLayout(snap.nodes.filter((n) => ids.has(n.id)), snap.edges, dir);
+    if (!out.positions.size) { toast({ kind: "info", text: "要有连线的形状才能自动排版" }); return; }
+    moveNodes(out.positions, out.handles);
+    if (sel.length < 2) window.setTimeout(() => flow.fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 30);
+  };
+  const colorByLayer = () => {
+    const sel = nodesRef.current.filter((n) => n.selected);
+    const scope = new Set((sel.length ? sel : nodesRef.current).map((n) => n.id));
+    const hits = nodesRef.current.filter((n) => scope.has(n.id) && n.data.shape !== "text" && layerColor(n.data.text));
+    if (!hits.length) { toast({ kind: "info", text: "没有找到 ods / dim / dwd / dws / ads 开头的形状" }); return; }
+    beginChange();
+    const color = new Map(hits.map((n) => [n.id, layerColor(n.data.text)!]));
+    setNodes((ns) => ns.map((n) => color.has(n.id) ? { ...n, data: { ...n.data, color: color.get(n.id)! } } : n));
+    toast({ kind: "success", text: `按分层给 ${hits.length} 个形状上了色:ods 灰 · dim 紫 · dwd 蓝 · dws 绿 · ads 橙` });
+  };
+  const restack = (dir: "front" | "back") => {
+    const zs = nodesRef.current.filter((n) => !n.selected).map((n) => n.data.z ?? 0);
+    const z = dir === "front" ? hi([0, ...zs]) + 1 : lo([0, ...zs]) - 1;
+    patchNodes({ z });
+  };
+  const reverseEdges = () => {
+    beginChange();
+    setEdges((es) => es.map((e) => {
+      if (!e.selected) return e;
+      const d = fromFlowEdge(e);
+      return toFlowEdge({ ...d, from: d.to, to: d.from, fromHandle: d.toHandle, toHandle: d.fromHandle }, true);
+    }));
   };
   const deleteSelected = useCallback(() => {
     const ns = nodesRef.current.filter((n) => n.selected).map((n) => n.id);
@@ -325,6 +510,72 @@ function Editor({ doc, graph, onSave, onDirty }: {
     const copy = duplicate(snap.nodes, snap.edges, ids);
     addNodes(copy.nodes, copy.edges);
   }, [addNodes, snapshot]);
+  const copySelected = useCallback(() => {
+    const ids = new Set(nodesRef.current.filter((n) => n.selected).map((n) => n.id));
+    if (!ids.size) return false;
+    const snap = snapshot();
+    clipboard = {
+      docId: doc.id, pastes: 0,
+      nodes: snap.nodes.filter((n) => ids.has(n.id)),
+      edges: snap.edges.filter((e) => ids.has(e.from) && ids.has(e.to)),
+    };
+    return true;
+  }, [doc.id, snapshot]);
+  const paste = useCallback(() => {
+    if (!clipboard?.nodes.length) return false;
+    clipboard.pastes += 1;
+    const all = new Set(clipboard.nodes.map((n) => n.id));
+    let copy = duplicate(clipboard.nodes, clipboard.edges, all, 24 * clipboard.pastes);
+    if (clipboard.docId !== doc.id) {
+      // 贴到另一张画布:整批放到画面正中
+      copy = duplicate(clipboard.nodes, clipboard.edges, all, 0);
+      const c = centerPoint();
+      const minX = lo(copy.nodes.map((n) => n.x)), maxX = hi(copy.nodes.map((n) => n.x + n.w));
+      const minY = lo(copy.nodes.map((n) => n.y)), maxY = hi(copy.nodes.map((n) => n.y + n.h));
+      const dx = Math.round((c.x - (minX + maxX) / 2) / 8) * 8, dy = Math.round((c.y - (minY + maxY) / 2) / 8) * 8;
+      copy.nodes = copy.nodes.map((n) => ({ ...n, x: n.x + dx, y: n.y + dy }));
+    }
+    addNodes(copy.nodes, copy.edges);
+    return true;
+  }, [addNodes, centerPoint, doc.id]);
+  const nudge = useCallback((dx: number, dy: number) => {
+    if (!nodesRef.current.some((n) => n.selected)) return false;
+    // 连着按方向键只记一步撤销
+    const now = Date.now();
+    if (now - nudgeAt.current > 600) beginChange();
+    nudgeAt.current = now;
+    setNodes((ns) => ns.map((n) => n.selected ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n));
+    return true;
+  }, [beginChange]);
+
+  /* ---------- 格式刷:拿起选中形状的样式,点别的形状就刷上 ---------- */
+  const pickStyle = () => { const one = nodesRef.current.find((n) => n.selected); if (one) setPainter(styleOf(one.data)); };
+  const onNodeClick = useCallback((_: ReactMouseEvent, node: FlowNode) => {
+    if (!painter) return;
+    beginChange();
+    setNodes((ns) => ns.map((n) => n.id === node.id ? { ...n, data: { ...n.data, ...painter } } : n));
+  }, [beginChange, painter]);
+
+  /* ---------- 导出 ---------- */
+  const exportImage = async (kind: "png" | "svg" | "clipboard") => {
+    const snap = snapshot();
+    const out = canvasToSvg(snap.nodes, snap.edges, canvasMeasure());
+    if (!out) { toast({ kind: "info", text: "画布是空的" }); return; }
+    try {
+      if (kind === "clipboard") {
+        const png = svgToPng(out.svg, out.width, out.height);
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+        toast({ kind: "success", text: "已复制为图片,可以直接粘贴到 PPT / 微信 / 文档里" });
+        return;
+      }
+      if (!inTauri) throw new Error("浏览器预览里不能存文件,请用桌面版");
+      const content = kind === "svg" ? out.svg : await blobToBase64(await svgToPng(out.svg, out.width, out.height));
+      const path = await api.saveExport(doc.name || "链路画布", kind, content);
+      toast({ kind: "success", text: `已导出到 ${path}` });
+    } catch (error) {
+      toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
+    }
+  };
 
   /* ---------- 快捷键 ----------
      挂在 window 的捕获阶段并截住:主界面也有 ⌘S(保存 SQL 标签)等快捷键,
@@ -335,13 +586,27 @@ function Editor({ doc, graph, onSave, onDirty }: {
     if (target?.closest?.("input, textarea, select, [contenteditable=true]")) return;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+    const step = e.shiftKey ? 16 : 1;
     let handled = true;
     if (mod && key === "z") { if (e.shiftKey) redo(); else undo(); }
     else if (mod && key === "y") redo();
     else if (mod && key === "s") save();
     else if (mod && key === "d") duplicateSelected();
+    else if (mod && e.altKey && e.code === "KeyC") pickStyle();   // ⌥ 会把 c 变成 ç,按物理键认
+    else if (mod && key === "c") handled = copySelected();
+    else if (mod && key === "x") { handled = copySelected(); if (handled) deleteSelected(); }
+    else if (mod && key === "v") handled = paste();
     else if (mod && key === "a") setNodes((ns) => ns.map((n) => ({ ...n, selected: true })));
-    else if (e.key === "Enter" && !mod) {
+    else if (e.key === "ArrowUp" && !mod) handled = nudge(0, -step);
+    else if (e.key === "ArrowDown" && !mod) handled = nudge(0, step);
+    else if (e.key === "ArrowLeft" && !mod) handled = nudge(-step, 0);
+    else if (e.key === "ArrowRight" && !mod) handled = nudge(step, 0);
+    else if (e.key === "Escape") {
+      if (menu) setMenu(null);
+      else if (painter) setPainter(null);
+      else if (picker) setPicker(false);
+      else handled = false;
+    } else if (e.key === "Enter" && !mod) {
       const sel = nodesRef.current.filter((n) => n.selected);
       if (sel.length === 1) setEditingId(sel[0].id); else handled = false;
     } else handled = false;
@@ -353,6 +618,24 @@ function Editor({ doc, graph, onSave, onDirty }: {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
+  /* 右键菜单:右键的东西没选中就先只选它 */
+  const openMenu = (e: ReactMouseEvent, kind: "node" | "edge", id: string) => {
+    e.preventDefault();
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    if (kind === "node" && !nodesRef.current.find((n) => n.id === id)?.selected) {
+      setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === id })));
+      setEdges((es) => es.map((x) => x.selected ? toFlowEdge(x.data as CanvasEdge) : x));
+    }
+    if (kind === "edge" && !edgesRef.current.find((x) => x.id === id)?.selected) {
+      setNodes((ns) => ns.map((n) => n.selected ? { ...n, selected: false } : n));
+      setEdges((es) => es.map((x) => toFlowEdge(x.data as CanvasEdge, x.id === id)));
+    }
+    setMenu({ x: Math.min(e.clientX - rect.left, rect.width - 190), y: Math.min(e.clientY - rect.top, rect.height - 300), kind });
+  };
+  const run = (fn: () => void) => () => { setMenu(null); fn(); };
+  const focusLabel = () => window.setTimeout(() => labelInputRef.current?.focus(), 30);
+
   const one = selNodes[0]?.data;
   const oneEdge = selEdges[0]?.data as CanvasEdge | undefined;
 
@@ -363,49 +646,28 @@ function Editor({ doc, graph, onSave, onDirty }: {
           <button className="btn sm" onClick={undo} disabled={!pastRef.current.length} title="撤销 (⌘Z)"><Undo2 size={14} /> 撤销</button>
           <button className="btn sm" onClick={redo} disabled={!futureRef.current.length} title="重做 (⇧⌘Z)"><Redo2 size={14} /> 重做</button>
           <span className="cv-sep" />
-          <button className="btn sm" onClick={() => setPicker((v) => !v)} title="把血缘里的表 / 指标 / 作业拉进画布">
+          <button className={`btn sm ${picker ? "on" : ""}`} onClick={() => setPicker((v) => !v)} title="把血缘里的表 / 指标 / 作业拉进画布">
             <GitFork size={14} /> 从血缘添加
           </button>
+          <Menu label="自动排版" icon={<Network size={14} />} title="按连线把形状一层层排整齐(选中 2 个以上就只排选中的)">
+            {(close) => LAYOUT_DIRS.map((d) => (
+              <button key={d} className="cv-menu-item" onClick={() => { close(); layout(d); }}>{LAYOUT_LABEL[d]}</button>
+            ))}
+          </Menu>
+          <button className="btn sm" onClick={colorByLayer} title="按名字前缀上色:ods 灰 · dim 紫 · dwd 蓝 · dws 绿 · ads 橙(选中了就只改选中的)">
+            <Palette size={14} /> 按分层上色
+          </button>
           <div className="toolbar-spacer" />
+          <Menu label="导出" icon={<ImageDown size={14} />} title="导出成图片,放进 PPT / 文档">
+            {(close) => <>
+              <button className="cv-menu-item" onClick={() => { close(); void exportImage("clipboard"); }}><Copy size={13} /> 复制为图片<small>直接粘进 PPT、微信</small></button>
+              <button className="cv-menu-item" onClick={() => { close(); void exportImage("png"); }}><Download size={13} /> 导出 PNG<small>存到「下载」</small></button>
+              <button className="cv-menu-item" onClick={() => { close(); void exportImage("svg"); }}><Download size={13} /> 导出 SVG<small>矢量,PPT 里放大不糊</small></button>
+            </>}
+          </Menu>
           <span className={`cv-dirty ${dirty ? "on" : ""}`}>{dirty ? "未保存" : "已保存"}</span>
           <button className="btn sm primary" onClick={save} disabled={!dirty} title="保存 (⌘S)"><Save size={14} /> 保存</button>
         </div>
-
-        {(selNodes.length > 0 || selEdges.length > 0) && (
-          <div className="cv-props">
-            {selNodes.length > 0 && one && (
-              <>
-                <span className="cv-props-label">{selNodes.length > 1 ? `${selNodes.length} 个形状` : SHAPE_LABEL[one.shape]}</span>
-                <Swatches value={one.color} onPick={(color) => patchNodes({ color })} />
-                <select className="cv-select" value={one.shape} onChange={(e) => patchNodes({ shape: e.target.value as ShapeKind })} title="形状">
-                  {SHAPES.map((s) => <option key={s} value={s}>{SHAPE_LABEL[s]}</option>)}
-                </select>
-                <select className="cv-select" value={one.fontSize} onChange={(e) => patchNodes({ fontSize: Number(e.target.value) })} title="字号">
-                  {FONT_SIZES.map((s) => <option key={s} value={s}>{s}px</option>)}
-                </select>
-                <button className={`icon-btn ${one.bold ? "on" : ""}`} title="加粗" onClick={() => patchNodes({ bold: !one.bold })}><Bold size={14} /></button>
-                {selNodes.length === 1 && <button className="icon-btn" title="改文字 (回车 / 双击)" onClick={() => setEditingId(selNodes[0].id)}><Pencil size={14} /></button>}
-                <button className="icon-btn" title="复制 (⌘D)" onClick={duplicateSelected}><Copy size={14} /></button>
-              </>
-            )}
-            {selNodes.length === 0 && oneEdge && (
-              <>
-                <span className="cv-props-label">{selEdges.length > 1 ? `${selEdges.length} 条连线` : "连线"}</span>
-                <Swatches value={oneEdge.color} onPick={(color) => patchEdges({ color })} />
-                <Seg value={oneEdge.line} options={LINE_TYPES} labels={{ smooth: "曲线", step: "折线", straight: "直线" }} onPick={(line) => patchEdges({ line })} />
-                <Seg value={oneEdge.arrow} options={ARROWS} labels={{ end: "单向", both: "双向", none: "无箭头" }} onPick={(arrow: ArrowKind) => patchEdges({ arrow })} />
-                <button className={`btn xs ${oneEdge.dashed ? "on" : ""}`} onClick={() => patchEdges({ dashed: !oneEdge.dashed })}>虚线</button>
-                <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} onClick={() => patchEdges({ flow: !oneEdge.flow })} title="让线动起来,表示数据从这儿流过">流动</button>
-                {selEdges.length === 1 && (
-                  <input key={oneEdge.id} className="cv-label-input" placeholder="线上的文字" defaultValue={oneEdge.label}
-                    onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); }}
-                    onBlur={(e) => { if (e.target.value !== oneEdge.label) patchEdges({ label: e.target.value }); }} />
-                )}
-              </>
-            )}
-            <button className="icon-btn danger" title="删除 (Delete)" onClick={deleteSelected}><Trash2 size={14} /></button>
-          </div>
-        )}
 
         <div className="cv-stage">
           <div className="cv-palette" aria-label="形状">
@@ -418,7 +680,13 @@ function Editor({ doc, graph, onSave, onDirty }: {
               </button>
             ))}
           </div>
-          <div className="cv-flow" ref={wrapRef} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }} onDrop={onDrop}>
+          <div className={`cv-flow ${painter ? "is-painting" : ""}`} ref={wrapRef}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }} onDrop={onDrop}
+            onDoubleClick={(e) => {
+              // 双击空白处:就地放一个圆角框,直接打字
+              if (!(e.target as HTMLElement).classList.contains("react-flow__pane")) return;
+              addShape("rounded", flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }), true);
+            }}>
             <ReactFlow<FlowNode, FlowEdge>
               nodes={nodes}
               edges={edges}
@@ -426,9 +694,24 @@ function Editor({ doc, graph, onSave, onDirty }: {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onConnectEnd={onConnectEnd}
+              onReconnect={onReconnect}
+              onReconnectStart={() => { reconnecting.current = true; }}
+              onReconnectEnd={() => { reconnecting.current = false; }}
+              onNodeClick={onNodeClick}
+              onNodeContextMenu={(e, n) => openMenu(e, "node", n.id)}
+              onEdgeContextMenu={(e, x) => openMenu(e, "edge", x.id)}
+              onEdgeDoubleClick={(_, x) => {
+                setNodes((ns) => ns.map((n) => n.selected ? { ...n, selected: false } : n));
+                setEdges((es) => es.map((y) => toFlowEdge(y.data as CanvasEdge, y.id === x.id)));
+                focusLabel();
+              }}
+              onPaneClick={() => { setMenu(null); setPainter(null); }}
+              onMoveStart={() => setMenu(null)}
               // 按 Delete 删一批东西(形状 + 连着它的线)只记一步撤销
               onBeforeDelete={async () => { beginChange(); return true; }}
               onNodeDragStart={beginChange}
+              onNodeDragStop={() => setGuides([])}
               onSelectionDragStart={beginChange}
               connectionMode={ConnectionMode.Loose}
               colorMode={theme}
@@ -439,6 +722,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
               panOnDrag={[1, 2]}
               panOnScroll
               zoomOnPinch
+              zoomOnDoubleClick={false}
               deleteKeyCode={["Backspace", "Delete"]}
               multiSelectionKeyCode={["Meta", "Shift", "Control"]}
               fitView
@@ -452,11 +736,93 @@ function Editor({ doc, graph, onSave, onDirty }: {
               <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
               <Controls showInteractive={false} position="bottom-right" />
               <MiniMap pannable zoomable position="bottom-left" nodeColor={(n) => COLOR_VALUE[(n.data as ShapeData).color]} />
+              <GuideLines guides={guides} />
             </ReactFlow>
+
+            {(selNodes.length > 0 || selEdges.length > 0) && !picker && (
+              <div className="cv-props" onMouseDown={(e) => e.stopPropagation()}>
+                {selNodes.length > 0 && one && (
+                  <>
+                    <span className="cv-props-label">{selNodes.length > 1 ? `${selNodes.length} 个形状` : SHAPE_LABEL[one.shape]}</span>
+                    <Swatches value={one.color} onPick={(color) => patchNodes({ color })} />
+                    <span className="cv-sep" />
+                    <Seg value={one.fill ?? "soft"} options={FILLS} labels={FILL_LABEL} onPick={(fill: FillKind) => patchNodes({ fill: fill === "soft" ? undefined : fill })} />
+                    <button className={`btn xs ${one.dashed ? "on" : ""}`} onClick={() => patchNodes({ dashed: !one.dashed || undefined })} title="边框画成虚线">虚线框</button>
+                    <select className="cv-select" value={one.shape} onChange={(e) => patchNodes({ shape: e.target.value as ShapeKind })} title="形状">
+                      {SHAPES.map((s) => <option key={s} value={s}>{SHAPE_LABEL[s]}</option>)}
+                    </select>
+                    <select className="cv-select" value={one.fontSize} onChange={(e) => patchNodes({ fontSize: Number(e.target.value) })} title="字号">
+                      {FONT_SIZES.map((s) => <option key={s} value={s}>{s}px</option>)}
+                    </select>
+                    <button className={`icon-btn ${one.bold ? "on" : ""}`} title="加粗" onClick={() => patchNodes({ bold: !one.bold })}><Bold size={14} /></button>
+                    {selNodes.length === 1 && <button className="icon-btn" title="改文字 (回车 / 双击)" onClick={() => setEditingId(selNodes[0].id)}><Pencil size={14} /></button>}
+                    <button className={`icon-btn ${painter ? "on" : ""}`} title="格式刷 (⌥⌘C):拿起这个样式,再点别的形状就刷上;Esc 放下"
+                      onClick={() => painter ? setPainter(null) : pickStyle()}><Paintbrush size={14} /></button>
+                    {selNodes.length > 1 && (
+                      <>
+                        <span className="cv-sep" />
+                        {(Object.keys(ALIGN_ICON) as AlignKind[]).map((k) => (
+                          <button key={k} className="icon-btn" title={ALIGN_ICON[k][1]} onClick={() => align(k)}>{ALIGN_ICON[k][0]}</button>
+                        ))}
+                        <button className="icon-btn" title="横向等距(至少 3 个)" disabled={selNodes.length < 3} onClick={() => distribute("h")}><AlignHorizontalDistributeCenter size={14} /></button>
+                        <button className="icon-btn" title="纵向等距(至少 3 个)" disabled={selNodes.length < 3} onClick={() => distribute("v")}><AlignVerticalDistributeCenter size={14} /></button>
+                      </>
+                    )}
+                    <span className="cv-sep" />
+                    <button className="icon-btn" title="复制一份 (⌘D)" onClick={duplicateSelected}><Copy size={14} /></button>
+                  </>
+                )}
+                {selNodes.length === 0 && oneEdge && (
+                  <>
+                    <span className="cv-props-label">{selEdges.length > 1 ? `${selEdges.length} 条连线` : "连线"}</span>
+                    <Swatches value={oneEdge.color} onPick={(color) => patchEdges({ color })} />
+                    <span className="cv-sep" />
+                    <Seg value={oneEdge.line} options={LINE_TYPES} labels={LINE_LABEL} onPick={(line) => patchEdges({ line })} />
+                    <Seg value={String(oneEdge.width ?? 1)} options={LINE_WIDTHS.map(String)} labels={{ 1: "细", 2: "中", 3: "粗" }} onPick={(w) => patchEdges({ width: Number(w) === 1 ? undefined : Number(w) })} />
+                    <Seg value={oneEdge.arrow} options={ARROWS} labels={{ end: "单向", both: "双向", none: "无箭头" }} onPick={(arrow: ArrowKind) => patchEdges({ arrow })} />
+                    <button className={`btn xs ${oneEdge.dashed ? "on" : ""}`} onClick={() => patchEdges({ dashed: !oneEdge.dashed })}>虚线</button>
+                    <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} onClick={() => patchEdges({ flow: !oneEdge.flow })} title="让线动起来,表示数据从这儿流过">流动</button>
+                    <button className="icon-btn" title="反转方向" onClick={reverseEdges}><ArrowLeftRight size={14} /></button>
+                    {selEdges.length === 1 && (
+                      <input key={oneEdge.id} ref={labelInputRef} className="cv-label-input" placeholder="线上的文字(双击线也能改)" defaultValue={oneEdge.label}
+                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }}
+                        onBlur={(e) => { if (e.target.value !== oneEdge.label) patchEdges({ label: e.target.value }); }} />
+                    )}
+                  </>
+                )}
+                <button className="icon-btn danger" title="删除 (Delete)" onClick={deleteSelected}><Trash2 size={14} /></button>
+              </div>
+            )}
+            {painter && <div className="cv-painter-tip"><Paintbrush size={13} /> 格式刷:点形状刷上样式 · 点空白或 Esc 放下</div>}
+
+            {menu && (
+              <div className="cv-ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+                {menu.kind === "node" ? <>
+                  {selNodes.length === 1 && <button onClick={run(() => setEditingId(selNodes[0].id))}><Pencil size={13} /> 改文字<kbd>↩</kbd></button>}
+                  <button onClick={run(() => { copySelected(); })}><Copy size={13} /> 复制<kbd>⌘C</kbd></button>
+                  <button onClick={run(() => { if (copySelected()) deleteSelected(); })}><Scissors size={13} /> 剪切<kbd>⌘X</kbd></button>
+                  <button disabled={!clipboard} onClick={run(() => { paste(); })}><ClipboardPaste size={13} /> 粘贴<kbd>⌘V</kbd></button>
+                  <button onClick={run(duplicateSelected)}><Copy size={13} /> 原地复制一份<kbd>⌘D</kbd></button>
+                  <hr />
+                  <button onClick={run(pickStyle)}><Paintbrush size={13} /> 格式刷<kbd>⌥⌘C</kbd></button>
+                  <button onClick={run(() => restack("front"))}><BringToFront size={13} /> 置于顶层</button>
+                  <button onClick={run(() => restack("back"))}><SendToBack size={13} /> 置于底层</button>
+                  <hr />
+                  <button className="danger" onClick={run(deleteSelected)}><Trash2 size={13} /> 删除<kbd>⌫</kbd></button>
+                </> : <>
+                  <button onClick={run(focusLabel)}><Pencil size={13} /> 改线上的文字</button>
+                  <button onClick={run(reverseEdges)}><ArrowLeftRight size={13} /> 反转方向</button>
+                  <hr />
+                  <button className="danger" onClick={run(deleteSelected)}><Trash2 size={13} /> 删除<kbd>⌫</kbd></button>
+                </>}
+              </div>
+            )}
+
             {nodes.length === 0 && (
               <div className="cv-empty">
                 <b>从左边拿一个形状开始</b>
-                <span>点一下放到中间,或者直接拖到画布上。形状边上的小圆点拖出去就是连线。</span>
+                <span>点一下放到中间、拖到画布上,或者直接双击空白处。</span>
+                <span>形状边上的小圆点拖出去就是连线,松在空白处会接着长出一个新形状。</span>
                 <span>也可以「从血缘添加」,把已有的表连同上下游一起拉进来。</span>
               </div>
             )}
@@ -465,7 +831,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
                 onClose={() => setPicker(false)}
                 onPick={(id, withNeighbors) => {
                   const out = fromLineage(graph, id, centerPoint(), nodesRef.current.map(fromFlowNode), withNeighbors);
-                  if (!out.nodes.length && !out.edges.length) useApp.getState().showToast({ kind: "info", text: "它已经在画布上了" });
+                  if (!out.nodes.length && !out.edges.length) toast({ kind: "info", text: "它已经在画布上了" });
                   addNodes(out.nodes, out.edges);
                   setPicker(false);
                 }} />
@@ -473,7 +839,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
           </div>
         </div>
         <div className="cv-hint">
-          拖空白处框选 · 右键或中键拖动平移 · 滚轮平移、捏合缩放 · 双击改文字 · ⌘Z 撤销 · ⌘D 复制 · Delete 删除
+          双击空白处加框 · 从小圆点拖出去连线(松在空白处接着长新框) · 拖空白处框选 · 右键菜单 · 方向键微调(⇧ 大步) · ⌘C / ⌘V 复制粘贴 · ⌘Z 撤销 · Delete 删除
         </div>
       </div>
     </Ctx.Provider>
@@ -483,7 +849,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
 function Swatches({ value, onPick }: { value: ColorKey; onPick: (c: ColorKey) => void }) {
   return (
     <div className="cv-swatches" role="radiogroup" aria-label="颜色">
-      {COLORS.map((c) => (
+      {PALETTE_ORDER.map((c) => (
         <button key={c} className={`cv-swatch ${c === value ? "on" : ""}`} style={{ "--c": COLOR_VALUE[c] } as CSSProperties}
           title={COLOR_LABEL[c]} aria-checked={c === value} role="radio" onClick={() => onPick(c)} />
       ))}

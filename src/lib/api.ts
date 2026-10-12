@@ -186,7 +186,7 @@ export const api = {
   rollbackSession: (connId: string) =>
     inTauri ? invoke<void>("rollback_session", { connId }) : Promise.resolve(),
 
-  saveExport: (suggestedName: string, format: "csv" | "json", content: string) =>
+  saveExport: (suggestedName: string, format: "csv" | "json" | "svg" | "png", content: string) =>
     invoke<string>("save_export", { suggestedName, format, content }),
 
   createDemo: () =>

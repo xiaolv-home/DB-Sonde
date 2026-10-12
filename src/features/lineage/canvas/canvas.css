@@ -91,20 +91,33 @@
 .cv-dirty { font-size: 13px; color: var(--text-3); margin-right: 4px; }
 .cv-dirty.on { color: var(--amber, #d9a514); }
 
-/* 选中东西后出现的属性条 */
+/* 选中东西后浮在画布上方的属性条 —— 浮着不占行,选中 / 取消选中时画布不会上下跳 */
 .cv-props {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  width: max-content;            /* 不写的话绝对定位 + left:50% 只肯占一半宽,早早就折行 */
+  max-width: calc(100% - 24px);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--header);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.06);
 }
-.cv-props-label { font-size: 13px; color: var(--text-2); font-weight: 600; min-width: 48px; }
+.cv-props .cv-sep { margin: 0 2px; }
+.cv-props-label { font-size: 13px; color: var(--text-2); font-weight: 600; min-width: 40px; }
 .cv-props .icon-btn { width: 28px; height: 28px; }
 .cv-props .icon-btn.on { background: var(--accent-soft); color: var(--accent); }
+.cv-props .icon-btn:disabled { opacity: 0.35; }
 .cv-select {
   height: 26px;
   border: 1px solid var(--border-2);
@@ -115,16 +128,19 @@
   font-size: 13px;
   padding: 0 4px;
 }
-.cv-swatches { display: flex; gap: 4px; }
+.cv-swatches { display: flex; gap: 3px; }
 .cv-swatch {
   width: 18px;
   height: 18px;
+  padding: 0;
   border-radius: 50%;
   border: 2px solid transparent;
   background: var(--c);
-  box-shadow: inset 0 0 0 2px var(--header);
+  box-shadow: inset 0 0 0 2px var(--surface);
   cursor: default;
+  transition: transform 0.1s;
 }
+.cv-swatch:hover { transform: scale(1.15); }
 .cv-swatch.on { border-color: var(--c); }
 .cv-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
 .cv-seg button {
@@ -141,7 +157,7 @@
 .cv-overlay .btn.on { background: var(--accent-soft); border-color: var(--accent-border, var(--accent)); color: var(--accent); }
 .cv-label-input {
   height: 26px;
-  width: 160px;
+  width: 190px;
   padding: 0 8px;
   border: 1px solid var(--border-2);
   border-radius: 6px;
@@ -181,6 +197,7 @@
 .cv-tool:active { cursor: grabbing; }
 
 .cv-flow { position: relative; flex: 1; min-width: 0; }
+.cv-flow.is-painting .react-flow__node { cursor: copy; }
 .cv-flow .react-flow { --xy-background-color: var(--bg); --xy-background-pattern-color: var(--border-2); }
 .cv-flow .react-flow__controls { box-shadow: var(--shadow-sm); border-radius: 8px; overflow: hidden; }
 .cv-flow .react-flow__minimap { border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); }
@@ -266,6 +283,18 @@
   font-weight: 650;
   color: var(--c);
 }
+/* 填充:实色底白字 / 只有边框 */
+.cv-node.cv-fill-solid:not(.cv-text):not(.cv-group) { background: var(--c); color: #fff; }
+.cv-fill-solid .cv-svg polygon, .cv-fill-solid .cv-svg path { fill: var(--c); }
+.cv-fill-solid .cv-svg .cv-svg-rim { fill: none; stroke: rgba(255, 255, 255, 0.55); }
+.cv-cylinder.cv-fill-solid, .cv-diamond.cv-fill-solid { color: #fff; }
+.cv-node.cv-fill-outline:not(.cv-text):not(.cv-group) { background: var(--surface); }
+.cv-fill-outline .cv-svg polygon, .cv-fill-outline .cv-svg path { fill: var(--surface); }
+.cv-group.cv-fill-solid { background: color-mix(in srgb, var(--c) 16%, transparent); }
+.cv-group.cv-fill-outline { background: transparent; }
+.cv-node.cv-dashed { border-style: dashed; }
+.cv-dashed .cv-svg polygon, .cv-dashed .cv-svg path { stroke-dasharray: 6 4; }
+.cv-node:not(.cv-text):not(.cv-group):not(.cv-diamond):not(.cv-cylinder) { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 .cv-node.is-selected:not(.cv-diamond):not(.cv-cylinder) { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .cv-diamond.is-selected .cv-svg, .cv-cylinder.is-selected .cv-svg { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 70%, transparent)); }
 
@@ -329,3 +358,77 @@
 .cv-picker-row:hover { background: var(--surface-2); }
 .cv-picker-kind { flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--surface-2); color: var(--text-3); }
 .cv-picker-name { flex: 1; min-width: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- 拖动时的对齐参考线 ---- */
+.cv-guide { position: absolute; z-index: 1000; pointer-events: none; background: #ff3b7f; }
+
+/* ---- 顶栏下拉 ---- */
+.cv-menu-wrap { position: relative; }
+.cv-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.55);
+}
+.cv-topbar .cv-menu-wrap:last-of-type .cv-menu { left: auto; right: 0; }
+.cv-menu-item, .cv-ctx button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+.cv-menu-item:hover, .cv-ctx button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.cv-menu-item small { margin-left: auto; padding-left: 14px; color: var(--text-3); font-size: 11.5px; }
+
+/* ---- 右键菜单 ---- */
+.cv-ctx {
+  position: absolute;
+  z-index: 30;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.55);
+}
+.cv-ctx button:disabled { color: var(--text-3); }
+.cv-ctx button.danger:hover { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.cv-ctx kbd { margin-left: auto; padding-left: 16px; font: inherit; font-size: 11.5px; color: var(--text-3); }
+.cv-ctx hr { margin: 4px 6px; border: 0; border-top: 1px solid var(--border); }
+
+.cv-painter-tip {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  pointer-events: none;
+}

@@ -983,6 +983,7 @@ dependencies = [
 name = "db-sonde"
 version = "0.51.29"
 dependencies = [
+ "base64 0.22.1",
  "bigdecimal",
  "chrono",
  "futures-util",
