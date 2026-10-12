@@ -63,7 +63,7 @@ function AssetChrome({ section, slotRef }: { section: AssetSection; slotRef: (no
      用户在两个地方看到的是一件东西,而不是两种各自发明的高亮。 */
   const { trackProps, pillProps } = useGlassPill(section);
   return (
-    <div className="asset-overlay" onMouseDown={closeAssets}>
+    <div className="asset-overlay" role="dialog" aria-modal="true" onMouseDown={closeAssets}>
       <div className="asset-panel" onMouseDown={(e) => e.stopPropagation()}>
         <nav className="asset-rail pill-track" {...trackProps}>
           <span {...pillProps} />

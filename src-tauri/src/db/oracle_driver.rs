@@ -190,9 +190,140 @@ pub async fn update_cell(conn: &OracleConn, request: UpdateCellRequest) -> AppRe
 // ===========================================================================
 // Thin mode — pure-Rust `oracle-rs`
 // ===========================================================================
-mod thin {
-    use super::{esc, format_oracle_type, quote_ident, rows_error, OracleConn};
+/// 表 / 视图 / 字段元数据:SQL 和「一行结果 → 结构体」只写一份,thin 和 thick 两种驱动共用,
+/// 各自只管把查询跑起来、把每行转成 `Vec<Option<String>>`。
+/// 注释来自 ALL_TAB_COMMENTS / ALL_COL_COMMENTS(COMMENT ON TABLE / COLUMN 写进去的)。
+mod meta {
+    use super::{esc, format_oracle_type};
+    use crate::models::{ColumnInfo, TableInfo};
     use std::collections::HashSet;
+
+    pub type Row = [Option<String>];
+
+    pub fn tables_sql(owner: &str) -> String {
+        let o = esc(owner);
+        format!(
+            "SELECT t.table_name, t.num_rows, c.comments FROM all_tables t \
+             LEFT JOIN all_tab_comments c ON c.owner = t.owner AND c.table_name = t.table_name \
+             WHERE t.owner = '{o}' ORDER BY t.table_name"
+        )
+    }
+
+    pub fn views_sql(owner: &str) -> String {
+        let o = esc(owner);
+        format!(
+            "SELECT v.view_name, c.comments FROM all_views v \
+             LEFT JOIN all_tab_comments c ON c.owner = v.owner AND c.table_name = v.view_name \
+             WHERE v.owner = '{o}' ORDER BY v.view_name"
+        )
+    }
+
+    pub fn primary_key_sql(owner: &str, table: &str) -> String {
+        let (o, tb) = (esc(owner), esc(table));
+        format!(
+            "SELECT cc.column_name FROM all_constraints c \
+             JOIN all_cons_columns cc ON c.owner = cc.owner AND c.constraint_name = cc.constraint_name \
+             WHERE c.constraint_type = 'P' AND c.owner = '{o}' AND c.table_name = '{tb}'"
+        )
+    }
+
+    pub fn columns_sql(owner: &str, table: &str) -> String {
+        let (o, tb) = (esc(owner), esc(table));
+        format!(
+            "SELECT c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale, \
+                    c.nullable, c.column_id, m.comments \
+             FROM all_tab_columns c \
+             LEFT JOIN all_col_comments m ON m.owner = c.owner AND m.table_name = c.table_name \
+               AND m.column_name = c.column_name \
+             WHERE c.owner = '{o}' AND c.table_name = '{tb}' ORDER BY c.column_id"
+        )
+    }
+
+    fn cell(row: &Row, i: usize) -> Option<String> {
+        row.get(i).cloned().flatten()
+    }
+    /// 空串当没有注释
+    fn comment(row: &Row, i: usize) -> Option<String> {
+        cell(row, i).filter(|s| !s.trim().is_empty())
+    }
+
+    pub fn table_from(row: &Row) -> Option<TableInfo> {
+        Some(TableInfo {
+            name: cell(row, 0)?,
+            kind: "table".into(),
+            engine: None,
+            estimated_rows: cell(row, 1).and_then(|s| s.parse::<i64>().ok()),
+            data_size: None,
+            comment: comment(row, 2),
+            collation: None,
+        })
+    }
+
+    pub fn view_from(row: &Row) -> Option<TableInfo> {
+        Some(TableInfo {
+            name: cell(row, 0)?,
+            kind: "view".into(),
+            engine: None,
+            estimated_rows: None,
+            data_size: None,
+            comment: comment(row, 1),
+            collation: None,
+        })
+    }
+
+    pub fn primary_keys(rows: &[Vec<Option<String>>]) -> HashSet<String> {
+        rows.iter().filter_map(|r| cell(r, 0)).collect()
+    }
+
+    pub fn column_from(row: &Row, pks: &HashSet<String>) -> Option<ColumnInfo> {
+        let name = cell(row, 0)?;
+        let num = |i: usize| cell(row, i).and_then(|s| s.parse().ok());
+        Some(ColumnInfo {
+            is_primary_key: pks.contains(&name),
+            data_type: format_oracle_type(&cell(row, 1).unwrap_or_default(), num(2), num(3), num(4)),
+            nullable: cell(row, 5).map(|s| s.eq_ignore_ascii_case("Y")).unwrap_or(true),
+            default_value: None,
+            ordinal_position: num(6),
+            auto_increment: false,
+            generated: false,
+            comment: comment(row, 7),
+            name,
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        fn row(cells: &[Option<&str>]) -> Vec<Option<String>> {
+            cells.iter().map(|c| c.map(str::to_string)).collect()
+        }
+
+        #[test]
+        fn comments_are_read_and_blank_ones_dropped() {
+            let t = table_from(&row(&[Some("QH_STORE"), Some("42"), Some("门店")])).unwrap();
+            assert_eq!((t.name.as_str(), t.estimated_rows, t.comment.as_deref()), ("QH_STORE", Some(42), Some("门店")));
+            assert_eq!(table_from(&row(&[Some("T"), None, Some("  ")])).unwrap().comment, None, "空注释当没有");
+            assert_eq!(view_from(&row(&[Some("V"), Some("视图说明")])).unwrap().comment.as_deref(), Some("视图说明"));
+            let pks = primary_keys(&[row(&[Some("STORE_ID")])]);
+            let c = column_from(&row(&[Some("STORE_ID"), Some("NUMBER"), Some("22"), Some("10"), Some("0"), Some("N"), Some("1"), Some("门店ID,主键")]), &pks).unwrap();
+            assert!(c.is_primary_key && !c.nullable);
+            assert_eq!(c.comment.as_deref(), Some("门店ID,主键"));
+            assert_eq!(c.ordinal_position, Some(1));
+            assert!(column_from(&row(&[None]), &pks).is_none(), "没有列名的行跳过");
+        }
+
+        #[test]
+        fn metadata_sql_joins_comments_and_escapes_names() {
+            assert!(tables_sql("QH").contains("all_tab_comments"));
+            assert!(views_sql("QH").contains("all_tab_comments"));
+            assert!(columns_sql("QH", "T").contains("all_col_comments"));
+            assert!(columns_sql("O'X", "T'Y").contains("'O''X'") && columns_sql("O'X", "T'Y").contains("'T''Y'"), "单引号要转义");
+        }
+    }
+}
+
+mod thin {
+    use super::{esc, meta, quote_ident, rows_error, OracleConn};
     use std::sync::Arc;
     use std::time::Instant;
 
@@ -368,105 +499,22 @@ mod thin {
         Ok(result.rows.iter().filter_map(|r| cell_str(r, 0)).collect())
     }
 
-    pub async fn list_tables(handle: &Handle, owner: &str) -> AppResult<Vec<TableInfo>> {
-        let o = esc(owner);
-        let (tables, _) = query_all(
-            handle,
-            &format!("SELECT table_name, num_rows FROM all_tables WHERE owner = '{o}' ORDER BY table_name"),
-            100_000,
-        )
-        .await?;
-        let mut out: Vec<TableInfo> = tables
-            .rows
-            .iter()
-            .filter_map(|r| {
-                let name = cell_str(r, 0)?;
-                let est = cell_str(r, 1).and_then(|s| s.parse::<i64>().ok());
-                Some(TableInfo {
-                    name,
-                    kind: "table".into(),
-                    engine: None,
-                    estimated_rows: est,
-                    data_size: None,
-                    comment: None,
-                    collation: None,
-                })
-            })
-            .collect();
+    /// 一次查询的结果转成「每行若干个可能为空的字符串」,交给 super::meta 去认
+    async fn string_rows(handle: &Handle, sql: &str) -> AppResult<Vec<Vec<Option<String>>>> {
+        let (result, _) = query_all(handle, sql, 100_000).await?;
+        let n = result.columns.len();
+        Ok(result.rows.iter().map(|r| (0..n).map(|i| cell_str(r, i)).collect()).collect())
+    }
 
-        let (views, _) = query_all(
-            handle,
-            &format!("SELECT view_name FROM all_views WHERE owner = '{o}' ORDER BY view_name"),
-            100_000,
-        )
-        .await?;
-        for r in &views.rows {
-            if let Some(name) = cell_str(r, 0) {
-                out.push(TableInfo {
-                    name,
-                    kind: "view".into(),
-                    engine: None,
-                    estimated_rows: None,
-                    data_size: None,
-                    comment: None,
-                    collation: None,
-                });
-            }
-        }
+    pub async fn list_tables(handle: &Handle, owner: &str) -> AppResult<Vec<TableInfo>> {
+        let mut out: Vec<TableInfo> = string_rows(handle, &meta::tables_sql(owner)).await?.iter().filter_map(|r| meta::table_from(r)).collect();
+        out.extend(string_rows(handle, &meta::views_sql(owner)).await?.iter().filter_map(|r| meta::view_from(r)));
         Ok(out)
     }
 
     pub async fn list_columns(handle: &Handle, owner: &str, table: &str) -> AppResult<Vec<ColumnInfo>> {
-        let o = esc(owner);
-        let tb = esc(table);
-        let (pk_rows, _) = query_all(
-            handle,
-            &format!(
-                "SELECT cc.column_name FROM all_constraints c \
-                 JOIN all_cons_columns cc ON c.owner = cc.owner \
-                   AND c.constraint_name = cc.constraint_name \
-                 WHERE c.constraint_type = 'P' AND c.owner = '{o}' AND c.table_name = '{tb}'"
-            ),
-            10_000,
-        )
-        .await?;
-        let pks: HashSet<String> = pk_rows.rows.iter().filter_map(|r| cell_str(r, 0)).collect();
-
-        let (rows, _) = query_all(
-            handle,
-            &format!(
-                "SELECT column_name, data_type, data_length, data_precision, data_scale, \
-                        nullable, column_id \
-                 FROM all_tab_columns WHERE owner = '{o}' AND table_name = '{tb}' \
-                 ORDER BY column_id"
-            ),
-            100_000,
-        )
-        .await?;
-        Ok(rows
-            .rows
-            .iter()
-            .filter_map(|r| {
-                let name = cell_str(r, 0)?;
-                let dtype = cell_str(r, 1).unwrap_or_default();
-                let length = cell_str(r, 2).and_then(|s| s.parse().ok());
-                let precision = cell_str(r, 3).and_then(|s| s.parse().ok());
-                let scale = cell_str(r, 4).and_then(|s| s.parse().ok());
-                let nullable = cell_str(r, 5).map(|s| s.eq_ignore_ascii_case("Y")).unwrap_or(true);
-                let ordinal = cell_str(r, 6).and_then(|s| s.parse().ok());
-                Some(ColumnInfo {
-                    is_primary_key: pks.contains(&name),
-                    name,
-                    data_type: format_oracle_type(&dtype, length, precision, scale),
-                    nullable,
-                    default_value: None,
-                    ordinal_position: ordinal,
-                    auto_increment: false,
-                    generated: false,
-                    comment: None,
-                })
-            })
-            .collect())
+        let pks = meta::primary_keys(&string_rows(handle, &meta::primary_key_sql(owner, table)).await?);
+        Ok(string_rows(handle, &meta::columns_sql(owner, table)).await?.iter().filter_map(|r| meta::column_from(r, &pks)).collect())
     }
 
     pub async fn list_routines(handle: &Handle, owner: &str) -> AppResult<Vec<RoutineInfo>> {
@@ -601,8 +649,7 @@ mod thin {
 // Thick mode — ODPI-C `oracle` crate (Instant Client)
 // ===========================================================================
 mod thick {
-    use super::{esc, format_oracle_type, quote_ident, rows_error, OracleConn};
-    use std::collections::HashSet;
+    use super::{esc, meta, quote_ident, rows_error, OracleConn};
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
 
@@ -775,45 +822,8 @@ mod thick {
         let owner = owner.to_string();
         tokio::task::spawn_blocking(move || {
             let conn = h.lock().map_err(|_| AppError::msg("oracle connection busy"))?;
-            let o = esc(&owner);
-            let table_rows = fetch_strings(
-                &conn,
-                &format!("SELECT table_name, num_rows FROM all_tables WHERE owner = '{o}' ORDER BY table_name"),
-            )?;
-            let mut out: Vec<TableInfo> = table_rows
-                .iter()
-                .filter_map(|r| {
-                    let name = r.first().and_then(|v| v.clone())?;
-                    let est = r.get(1).and_then(|v| v.clone()).and_then(|s| s.parse::<i64>().ok());
-                    Some(TableInfo {
-                        name,
-                        kind: "table".into(),
-                        engine: None,
-                        estimated_rows: est,
-                        data_size: None,
-                        comment: None,
-                        collation: None,
-                    })
-                })
-                .collect();
-
-            let view_rows = fetch_strings(
-                &conn,
-                &format!("SELECT view_name FROM all_views WHERE owner = '{o}' ORDER BY view_name"),
-            )?;
-            for r in view_rows {
-                if let Some(name) = r.into_iter().next().flatten() {
-                    out.push(TableInfo {
-                        name,
-                        kind: "view".into(),
-                        engine: None,
-                        estimated_rows: None,
-                        data_size: None,
-                        comment: None,
-                        collation: None,
-                    });
-                }
-            }
+            let mut out: Vec<TableInfo> = fetch_strings(&conn, &meta::tables_sql(&owner))?.iter().filter_map(|r| meta::table_from(r)).collect();
+            out.extend(fetch_strings(&conn, &meta::views_sql(&owner))?.iter().filter_map(|r| meta::view_from(r)));
             Ok(out)
         })
         .await
@@ -822,63 +832,11 @@ mod thick {
 
     pub async fn list_columns(handle: &Handle, owner: &str, table: &str) -> AppResult<Vec<ColumnInfo>> {
         let h = handle.clone();
-        let owner = owner.to_string();
-        let table = table.to_string();
+        let (owner, table) = (owner.to_string(), table.to_string());
         tokio::task::spawn_blocking(move || {
             let conn = h.lock().map_err(|_| AppError::msg("oracle connection busy"))?;
-            let o = esc(&owner);
-            let tb = esc(&table);
-
-            let pk_rows = fetch_strings(
-                &conn,
-                &format!(
-                    "SELECT cc.column_name FROM all_constraints c \
-                     JOIN all_cons_columns cc ON c.owner = cc.owner \
-                       AND c.constraint_name = cc.constraint_name \
-                     WHERE c.constraint_type = 'P' AND c.owner = '{o}' AND c.table_name = '{tb}'"
-                ),
-            )?;
-            let pks: HashSet<String> = pk_rows
-                .into_iter()
-                .filter_map(|r| r.into_iter().next().flatten())
-                .collect();
-
-            let rows = fetch_strings(
-                &conn,
-                &format!(
-                    "SELECT column_name, data_type, data_length, data_precision, data_scale, \
-                            nullable, column_id \
-                     FROM all_tab_columns WHERE owner = '{o}' AND table_name = '{tb}' \
-                     ORDER BY column_id"
-                ),
-            )?;
-            Ok(rows
-                .iter()
-                .filter_map(|r| {
-                    let name = r.first().and_then(|v| v.clone())?;
-                    let dtype = r.get(1).and_then(|v| v.clone()).unwrap_or_default();
-                    let length = r.get(2).and_then(|v| v.clone()).and_then(|s| s.parse().ok());
-                    let precision = r.get(3).and_then(|v| v.clone()).and_then(|s| s.parse().ok());
-                    let scale = r.get(4).and_then(|v| v.clone()).and_then(|s| s.parse().ok());
-                    let nullable = r
-                        .get(5)
-                        .and_then(|v| v.clone())
-                        .map(|s| s.eq_ignore_ascii_case("Y"))
-                        .unwrap_or(true);
-                    let ordinal = r.get(6).and_then(|v| v.clone()).and_then(|s| s.parse().ok());
-                    Some(ColumnInfo {
-                        is_primary_key: pks.contains(&name),
-                        name,
-                        data_type: format_oracle_type(&dtype, length, precision, scale),
-                        nullable,
-                        default_value: None,
-                        ordinal_position: ordinal,
-                        auto_increment: false,
-                        generated: false,
-                        comment: None,
-                    })
-                })
-                .collect())
+            let pks = meta::primary_keys(&fetch_strings(&conn, &meta::primary_key_sql(&owner, &table))?);
+            Ok(fetch_strings(&conn, &meta::columns_sql(&owner, &table))?.iter().filter_map(|r| meta::column_from(r, &pks)).collect())
         })
         .await
         .map_err(|e| AppError::msg(format!("oracle task failed: {e}")))?
@@ -1143,5 +1101,34 @@ mod semicolon_tests {
         let sql = "-- build it\nBEGIN NULL; END;";
         assert!(is_plsql(sql));
         assert_eq!(strip_trailing_semicolon(sql), sql);
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    /// 连真 Oracle 看表 / 字段注释读不读得出来(默认跳过):
+    /// SONDE_ORACLE_TEST='{"host":"127.0.0.1","port":1521,"database":"FREEPDB1","username":"qh","password":"…","owner":"QH"}' \
+    ///   cargo test --lib oracle_comments -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn oracle_comments_come_back_from_a_real_server() {
+        let Ok(raw) = std::env::var("SONDE_ORACLE_TEST") else { return };
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("SONDE_ORACLE_TEST 不是 JSON");
+        let cfg: crate::models::ConnectionConfig = serde_json::from_value(serde_json::json!({
+            "id": "live", "name": "live", "kind": "oracle",
+            "host": v["host"], "port": v["port"], "username": v["username"], "database": v["database"],
+            "oracleThick": false,
+        }))
+        .expect("连接配置");
+        let info = super::connect(&cfg, v["password"].as_str()).await.expect("连不上");
+        let crate::db::DbPool::Oracle(conn) = info.pool else { panic!("不是 Oracle 连接") };
+        let owner = v["owner"].as_str().unwrap_or("QH");
+        let tables = super::list_tables(&conn, owner).await.expect("读表");
+        let with_comment = tables.iter().filter(|t| t.comment.is_some()).count();
+        assert!(with_comment > 0, "{owner} 下没有一张表读出注释");
+        let first = tables.iter().find(|t| t.comment.is_some()).unwrap();
+        let cols = super::list_columns(&conn, owner, &first.name).await.expect("读字段");
+        assert!(cols.iter().any(|c| c.comment.is_some()), "{} 的字段没读出注释", first.name);
+        println!("{} 张表里 {with_comment} 张有注释;{} 第一列注释:{:?}", tables.len(), first.name, cols.iter().find_map(|c| c.comment.clone()));
     }
 }

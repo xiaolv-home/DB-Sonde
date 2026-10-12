@@ -1,4 +1,5 @@
 mod ai;
+mod app_menu;
 mod etl_files;
 mod monitor;
 mod commands;
@@ -19,13 +20,22 @@ mod persistence;
 use commands::AppState;
 use tauri::Manager;
 
+/// macOS 菜单栏:中文 + 「全选 / 查找」交给页面处理(见 app_menu.rs)。
+/// 别的系统默认没有菜单栏,不加 —— 加了 Windows 窗口顶上会多出一条菜单。
+fn with_app_menu(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu::build);
+    builder
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    with_app_menu(tauri::Builder::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         // 剪贴板:WKWebView 里 navigator.clipboard.readText() 会被拒,读剪贴板必须走原生插件。
         .plugin(tauri_plugin_clipboard_manager::init())
+        .on_menu_event(|app, event| app_menu::on_event(app, event.id().as_ref()))
         .manage(AppState::default())
         .manage(workspace_lifecycle::ExitGuard::default())
         .on_window_event(|window, event| {

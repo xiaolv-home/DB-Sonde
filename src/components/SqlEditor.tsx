@@ -26,8 +26,7 @@ import type { DbKind } from "../types";
 import type { CompletionCatalog } from "../types";
 import type { SQLNamespace } from "@codemirror/lang-sql";
 import { scanSql, sqlScanState } from "../lib/sql";
-import { editorClickGuard } from "../lib/editorClickGuard";
-import { editorSearch } from "./editorSearch";
+import { editorKit } from "./editorKit";
 
 
 type Edit = { from: number; to: number; insert: string };
@@ -295,8 +294,7 @@ export default function SqlEditor({
         editorTheme,
         syntaxHighlighting(highlight),
         EditorView.lineWrapping,
-        editorClickGuard,
-        editorSearch(),
+        editorKit(),
         EditorView.updateListener.of((update) => {
           if (!update.selectionSet && !update.docChanged) return;
           const range = update.state.selection.main;

@@ -187,6 +187,9 @@ const openReplace = (view: EditorView) => {
   return true;
 };
 
+/** 查找条对外的命令。快捷键路由、菜单栏都只认这几个,不碰面板内部。 */
+export const searchCommands = { find: openSearchPanel, replace: openReplace, findNext, findPrevious } as const;
+
 /** 放进编辑器的 extensions 里;basicSetup 里要关掉 searchKeymap,免得冒出 CodeMirror 自带的英文面板。 */
 export function editorSearch(): Extension {
   return [

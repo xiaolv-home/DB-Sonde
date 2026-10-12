@@ -1,7 +1,7 @@
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { editorSearch } from "./editorSearch";
+import { editorKit } from "./editorKit";
 import { missingModule, pipNameFor } from "../lib/pyMissingModule";
 import { python } from "@codemirror/lang-python";
 import { syntaxHighlighting } from "@codemirror/language";
@@ -148,7 +148,7 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
       editorTheme,
       syntaxHighlighting(highlight),
       autocompletion({ override: [pySource], activateOnTyping: true, icons: true }),
-      editorSearch(),
+      editorKit(),
     ];
   }, []);
 

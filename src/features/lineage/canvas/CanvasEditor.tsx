@@ -1066,7 +1066,7 @@ export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClos
   const close = async () => { if (await guard()) onClose(); };
 
   return createPortal(
-    <div className="cv-overlay" role="dialog" aria-label="链路画布">
+    <div className="cv-overlay" role="dialog" aria-modal="true" aria-label="链路画布">
       <aside className="cv-side">
         <div className="cv-side-head">
           <button className="icon-btn" title="返回血缘" onClick={close}><ArrowLeft size={16} /></button>
