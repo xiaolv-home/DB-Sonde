@@ -73,8 +73,9 @@ opt-level = 1
 # oracle-rs 0.1.7 sends TNS marker packets with a 16-bit length field even on
 # large-SDU connections, so the server never answers the RESET and every
 # server-side SQL error reaches us as a bogus "temporary LOB" message on a dead
-# connection. Patched locally until the fix is upstream — see
-# third_party/oracle-rs/VENDORED.md.
+# connection. It also misreads SQL that starts with a comment, which Oracle 23ai+
+# rejects as a malformed packet and then drops the session (ORA-03137/03138).
+# Patched locally until the fixes are upstream — see third_party/oracle-rs/VENDORED.md.
 [patch.crates-io]
 oracle-rs = { path = "third_party/oracle-rs" }
 

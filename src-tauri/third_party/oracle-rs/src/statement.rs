@@ -552,7 +552,11 @@ impl Statement {
     /// Parse the SQL to determine statement type and extract bind names
     fn parse(&mut self) {
         let sql_upper = self.sql.to_uppercase();
-        let trimmed = sql_upper.trim_start();
+        // sonde local change: skip leading `--` / `/* */` comments before reading the
+        // first keyword. Without this a commented query is typed Unknown, executed with
+        // the wrong options, and Oracle 23ai+ rejects the call as a malformed TTC packet
+        // (ORA-03137 [kpoal8Check-5]) and may then drop the session (ORA-03138).
+        let trimmed = skip_leading_comments(&sql_upper);
 
         // Determine statement type from first keyword
         if let Some(first_word) = trimmed.split_whitespace().next() {
@@ -805,9 +809,38 @@ impl Statement {
     }
 }
 
+/// Strip leading whitespace and `--` / `/* */` comments (sonde local change).
+fn skip_leading_comments(mut sql: &str) -> &str {
+    loop {
+        let t = sql.trim_start();
+        if let Some(rest) = t.strip_prefix("--") {
+            match rest.find('\n') {
+                Some(i) => sql = &rest[i + 1..],
+                None => return "",
+            }
+        } else if let Some(rest) = t.strip_prefix("/*") {
+            match rest.find("*/") {
+                Some(i) => sql = &rest[i + 2..],
+                None => return "",
+            }
+        } else {
+            return t;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_statement_type_detection_skips_leading_comments() {
+        assert_eq!(Statement::new("/* sonde:q1 */ SELECT 1 FROM dual").statement_type(), StatementType::Query);
+        assert_eq!(Statement::new("-- 查用户\nSELECT * FROM all_users").statement_type(), StatementType::Query);
+        assert_eq!(Statement::new("  /* a */ -- b\n /* c */ WITH x AS (SELECT 1 FROM dual) SELECT * FROM x").statement_type(), StatementType::Query);
+        assert_eq!(Statement::new("/* x */ BEGIN NULL; END;").statement_type(), StatementType::PlSql);
+        assert_eq!(Statement::new("-- only a comment").statement_type(), StatementType::Unknown);
+    }
 
     #[test]
     fn test_statement_type_detection() {

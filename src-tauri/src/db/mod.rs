@@ -561,6 +561,12 @@ pub(crate) fn strip_leading_noise(sql: &str) -> &str {
 /// 编辑器每条语句前加的标记 `/* sonde:<run_id> */`。「停止」按钮靠它在服务器的
 /// 运行列表里找到这一条(MySQL 的 PROCESSLIST.INFO、PostgreSQL 的 pg_stat_activity.query
 /// 都保留注释原文)。run_id 只许字母数字和 `-`:不会提前结束注释,也不是 LIKE 通配符。
+/// 哪些库能按标记取消正在跑的语句(和 cancel_marked_query 的分支保持一致)。
+pub fn cancel_supported(kind: crate::models::DbKind) -> bool {
+    use crate::models::DbKind;
+    matches!(kind, DbKind::Mysql | DbKind::Mariadb | DbKind::Postgres)
+}
+
 pub fn run_marker(run_id: &str) -> Option<String> {
     let ok = !run_id.is_empty() && run_id.len() <= 64 && run_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
     ok.then(|| format!("sonde:{run_id}"))
@@ -983,6 +989,18 @@ mod statement_shape_tests {
 #[cfg(test)]
 mod cancel_tests {
     use super::*;
+
+    #[test]
+    fn markers_only_go_to_databases_that_can_cancel_by_marker() {
+        use crate::models::DbKind;
+        for kind in [DbKind::Mysql, DbKind::Mariadb, DbKind::Postgres] {
+            assert!(cancel_supported(kind), "{kind:?} 能按标记取消");
+        }
+        // Oracle 的 thin 驱动遇到开头的注释会发畸形包被服务端掐线;SQLite / ClickHouse 不支持按标记取消
+        for kind in [DbKind::Oracle, DbKind::Sqlite, DbKind::Clickhouse] {
+            assert!(!cancel_supported(kind), "{kind:?} 不该加标记");
+        }
+    }
 
     #[test]
     fn run_markers_cannot_break_out_of_the_comment_or_widen_the_match() {

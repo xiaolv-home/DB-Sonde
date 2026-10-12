@@ -384,10 +384,13 @@ pub async fn run_query(
     max_rows: Option<usize>,
     run_id: Option<String>,
 ) -> AppResult<QueryResult> {
-    // 带上编号标记,「停止」按钮才能在服务器的运行列表里找到这一条
+    // 带上编号标记,「停止」按钮才能在服务器的运行列表里找到这一条。
+    // 只给能按标记取消的库加(MySQL / MariaDB / PostgreSQL):别的库用不上,
+    // 而 Oracle 的 thin 驱动看到开头是注释会认错语句类型、发出畸形包,服务端直接掐断连接(ORA-03137/03138)。
+    let kind = state.conns.read().await.get(&conn_id).map(|active| active.kind);
     let sql = match run_id.as_deref().and_then(db::run_marker) {
-        Some(marker) => format!("/* {marker} */ {sql}"),
-        None => sql,
+        Some(marker) if kind.is_some_and(db::cancel_supported) => format!("/* {marker} */ {sql}"),
+        _ => sql,
     };
     let target = requested_database(&state, &conn_id, database.as_deref()).await?;
     if let Some(cell) = state.sessions.read().await.get(&conn_id).cloned() {
