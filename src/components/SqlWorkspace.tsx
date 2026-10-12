@@ -18,6 +18,10 @@ import type { QueryTab } from "../store/appTypes";
 import QueryResults from "./QueryResults";
 import SqlEditor, { type EditorAiContext } from "./SqlEditor";
 
+/** 工具栏上的执行 / 停止 / 保存按下时不抢编辑器的焦点:选区和光标原地不动,
+ *  执行完接着点编辑器、按 ⌘↩ 都不用先「找回焦点」(WebKit 找回焦点时会滚回旧选区,见 editorClickGuard)。 */
+const keepEditorFocus = (e: React.MouseEvent) => e.preventDefault();
+
 export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
   const { t } = useI18n();
   const tabId = tab.id;
@@ -53,12 +57,13 @@ export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
           {tab.running ? (
             /* 跑着的时候这个位置就是「停止」:MySQL / PostgreSQL 让数据库真的取消这条语句,
                其余库停止等待;脚本里剩下的语句不再执行。 */
-            <button className="btn danger sm" onClick={() => void useApp.getState().stopTab(tab.id)} title="停止正在执行的 SQL">
+            <button className="btn danger sm" onMouseDown={keepEditorFocus} onClick={() => void useApp.getState().stopTab(tab.id)} title="停止正在执行的 SQL">
               <Loader2 size={14} className="spin" /> 停止
             </button>
           ) : (
             <button
               className="btn primary sm"
+              onMouseDown={keepEditorFocus}
               onClick={() => useApp.getState().runTab(tab.id)}
               disabled={tab.savingEdits || !connected}
               title={t("query.runTitle")}
@@ -67,7 +72,7 @@ export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
               {tab.selectedSql?.trim() ? t("query.runSelection") : t("query.run")}
             </button>
           )}
-          <button className="btn sm" title="保存 SQL 脚本 (⌘S / Ctrl+S)" onClick={() => useApp.getState().saveTab(tab.id)}><Save size={14} />保存</button>
+          <button className="btn sm" title="保存 SQL 脚本 (⌘S / Ctrl+S)" onMouseDown={keepEditorFocus} onClick={() => useApp.getState().saveTab(tab.id)}><Save size={14} />保存</button>
           <span className="conn-pill">
             <span className="dot" style={{ background: connected ? "var(--green)" : "var(--text-3)" }} />
             {tab.connName}
