@@ -255,6 +255,28 @@ try {
     ok('导出 SVG:文字转义、线 / 箭头 / 虚线 / 叠放 / 实色白字都对,长文字折行');
   }
 
+  // ── 流动效果 ───────────────────────────────────────────────────────────
+  {
+    const a = m.newNode('rect', 0, 0), b = m.newNode('rect', 300, 0);
+    const e = m.newEdge(a.id, b.id, { flow: true });
+    assert(m.isCanvasEdge(e), '老的流动线(只有 flow: true)照认');
+    for (const flowStyle of m.FLOW_STYLES) assert(m.isCanvasEdge({ ...e, flowStyle, flowSpeed: 3, flowColor: 'cyan' }));
+    assert(!m.isCanvasEdge({ ...e, flowStyle: 'laser' }), '未知流动效果必须拒绝');
+    assert(!m.isCanvasEdge({ ...e, flowSpeed: 9 }), '没有第 9 档流速');
+    assert(!m.isCanvasEdge({ ...e, flowColor: 'gold' }), '未知流动颜色必须拒绝');
+    assert(m.travelSeconds(1400, 2) === 2 * m.travelSeconds(700, 2), '线长一倍,跑一趟的时间也一倍(流速一样)');
+    assert(m.travelSeconds(700, 3) < m.travelSeconds(700, 1), '快档更快');
+    assert.equal(m.travelSeconds(5, 3), 0.6, '再短的线也不至于一闪而过');
+    assert.equal(m.dotCount(40), 1); assert.equal(m.dotCount(5000), 6);
+    assert.equal(m.cometLength(10), 24); assert.equal(m.cometLength(10000), 90);
+    const measure = (t, size) => t.length * size * 0.6;
+    const svgOf = (extra) => x.canvasToSvg([a, b], [{ ...e, ...extra }], measure).svg;
+    assert(svgOf({}).includes('stroke-dasharray="6 5"'), '虚线流动导出成虚线');
+    assert(!svgOf({ flowStyle: 'comet' }).includes('stroke-dasharray'), '彗星导出成实线');
+    assert(svgOf({ flowStyle: 'dot', dashed: true }).includes('stroke-dasharray="6 4"'), '光点 + 用户自己设的虚线:导出虚线');
+    ok('流动效果:四种样式 / 三档流速 / 单独颜色都认,时长按线长算,导出静态图合理');
+  }
+
   console.log(`lineage canvas: ${n} 项通过`);
 } finally {
   rmSync(dir, { recursive: true, force: true });

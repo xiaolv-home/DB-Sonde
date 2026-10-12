@@ -64,16 +64,22 @@ function anchor(n: CanvasNode, side: Side) {
 }
 const asSide = (h: string | undefined): Side => (h && h in SIDE_POS ? h as Side : "top");
 
+export interface PathArgs { sourceX: number; sourceY: number; sourcePosition: Position; targetX: number; targetY: number; targetPosition: Position }
+/** 按线型算路径:画布上的流动线和导出图片都用它,和 React Flow 自带的线一模一样。 */
+export function linePath(line: CanvasEdge["line"], args: PathArgs): [path: string, labelX: number, labelY: number] {
+  const [path, labelX, labelY] =
+    line === "straight" ? getStraightPath(args)
+    : line === "step" ? getSmoothStepPath(args)
+    : line === "sharp" ? getSmoothStepPath({ ...args, borderRadius: 0 })
+    : getBezierPath(args);
+  return [path, labelX, labelY];
+}
+
 /** 一条线的路径和标签位置 —— 和画布上同一套算法。 */
 export function edgeGeometry(e: CanvasEdge, from: CanvasNode, to: CanvasNode): { path: string; labelX: number; labelY: number } {
   const fs = asSide(e.fromHandle), ts = asSide(e.toHandle);
   const s = anchor(from, fs), t = anchor(to, ts);
-  const args = { sourceX: s.x, sourceY: s.y, sourcePosition: SIDE_POS[fs], targetX: t.x, targetY: t.y, targetPosition: SIDE_POS[ts] };
-  const [path, labelX, labelY] =
-    e.line === "straight" ? getStraightPath(args)
-    : e.line === "step" ? getSmoothStepPath(args)
-    : e.line === "sharp" ? getSmoothStepPath({ ...args, borderRadius: 0 })
-    : getBezierPath(args);
+  const [path, labelX, labelY] = linePath(e.line, { sourceX: s.x, sourceY: s.y, sourcePosition: SIDE_POS[fs], targetX: t.x, targetY: t.y, targetPosition: SIDE_POS[ts] });
   return { path, labelX, labelY };
 }
 
@@ -151,7 +157,9 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
     const sw = STROKE_PX[e.width ?? 1] ?? 1.5;
     const m = e.arrow === "none" ? "" : ` marker-end="url(#${marker(color, sw)})"`;
     const ms = e.arrow === "both" ? ` marker-start="url(#${marker(color, sw)})"` : "";
-    const dash = e.flow ? ` stroke-dasharray="5 5"` : e.dashed ? ` stroke-dasharray="6 4"` : "";
+    // 图片是静止的:虚线流动画成虚线,光点 / 彗星 / 呼吸就画成线本身(用户设了虚线就虚线)
+    const flowDash = e.flow && (e.flowStyle ?? "dash") === "dash";
+    const dash = flowDash ? ` stroke-dasharray="6 5"` : e.dashed ? ` stroke-dasharray="6 4"` : "";
     edgeParts.push(`<path d="${g.path}" fill="none" stroke="${color}" stroke-width="${sw}"${dash}${m}${ms}/>`);
     if (e.label) {
       const w = measure(e.label, 12, false) + 12;

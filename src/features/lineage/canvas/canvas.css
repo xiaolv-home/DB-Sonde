@@ -432,3 +432,12 @@
   font-size: 12.5px;
   pointer-events: none;
 }
+
+/* ---- 流动的线 ---- */
+@keyframes cv-flow-dash { to { stroke-dashoffset: -11; } }
+.cv-flowfx { pointer-events: none; }
+/* 属性条里流动设置单独占一行 */
+.cv-props-row { flex-basis: 100%; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+@media (prefers-reduced-motion: reduce) {
+  .cv-flow .react-flow__edge-path { animation: none !important; }
+}

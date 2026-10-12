@@ -50,6 +50,18 @@ export type LineType = (typeof LINE_TYPES)[number];
 export const LINE_LABEL: Record<(typeof LINE_TYPES)[number], string> = { smooth: "曲线", step: "圆角折线", sharp: "直角折线", straight: "直线" };
 export const ARROWS = ["end", "both", "none"] as const;
 export type ArrowKind = (typeof ARROWS)[number];
+/** 流动效果:虚线往前走 / 光点沿线跑 / 彗星拖尾 / 整根线呼吸发光 */
+export const FLOW_STYLES = ["dash", "dot", "comet", "pulse"] as const;
+export type FlowStyle = (typeof FLOW_STYLES)[number];
+export const FLOW_LABEL: Record<FlowStyle, string> = { dash: "虚线", dot: "光点", comet: "彗星", pulse: "呼吸" };
+/** 流速档位:慢 / 中 / 快。不写 = 中(和最早的流动虚线一样快) */
+export const FLOW_SPEEDS = [1, 2, 3] as const;
+export const FLOW_SPEED_LABEL: Record<number, string> = { 1: "慢", 2: "中", 3: "快" };
+/** 每秒走多少像素:虚线走得慢才看得清纹路,光点 / 彗星要快一些才有「在流」的感觉 */
+export const DASH_PX_PER_S: Record<number, number> = { 1: 10, 2: 20, 3: 45 };
+export const TRAVEL_PX_PER_S: Record<number, number> = { 1: 70, 2: 140, 3: 280 };
+export const PULSE_SECONDS: Record<number, number> = { 1: 2.4, 2: 1.6, 3: 0.9 };
+
 /** 线宽档位:细 / 中 / 粗 */
 export const LINE_WIDTHS = [1, 2, 3] as const;
 export const STROKE_PX: Record<number, number> = { 1: 1.6, 2: 2.4, 3: 3.4 };
@@ -91,6 +103,12 @@ export interface CanvasEdge {
   flow?: boolean;
   /** 线宽档位 1/2/3,不写 = 1 */
   width?: number;
+  /** 流动效果,不写 = 虚线 */
+  flowStyle?: FlowStyle;
+  /** 流速 1/2/3,不写 = 2 */
+  flowSpeed?: number;
+  /** 流动的颜色,不写 = 跟线一个颜色 */
+  flowColor?: ColorKey;
 }
 export interface CanvasDoc {
   id: string;
@@ -120,7 +138,10 @@ export function isCanvasEdge(v: unknown): v is CanvasEdge {
     && isText(v.label) && oneOf(COLORS, v.color) && oneOf(LINE_TYPES, v.line) && oneOf(ARROWS, v.arrow)
     && (v.dashed === undefined || typeof v.dashed === "boolean")
     && (v.flow === undefined || typeof v.flow === "boolean")
-    && (v.width === undefined || (LINE_WIDTHS as readonly number[]).includes(v.width as number));
+    && (v.width === undefined || (LINE_WIDTHS as readonly number[]).includes(v.width as number))
+    && (v.flowStyle === undefined || oneOf(FLOW_STYLES, v.flowStyle))
+    && (v.flowSpeed === undefined || (FLOW_SPEEDS as readonly number[]).includes(v.flowSpeed as number))
+    && (v.flowColor === undefined || oneOf(COLORS, v.flowColor));
 }
 export function isCanvasDoc(v: unknown): v is CanvasDoc {
   if (!isRecord(v) || !isNonEmptyText(v.id) || !isText(v.name) || !finite(v.createdAt) || !finite(v.updatedAt)) return false;
@@ -527,3 +548,15 @@ export function snapToGuides(moving: Omit<Box, "id">, others: Omit<Box, "id">[],
     : { axis: "y", at: b.at, from: Math.min(x, b.other.x), to: Math.max(x + moving.w, b.other.x + b.other.w) });
   return { x, y, guides };
 }
+
+/**
+ * 光点 / 彗星沿线跑一趟要多久(秒):按线的长度算,长线短线流速看起来一样。
+ * 太短的线也至少 0.6 秒,不然一闪而过。
+ */
+export function travelSeconds(length: number, speed = 2): number {
+  return Math.max(0.6, length / (TRAVEL_PX_PER_S[speed] ?? TRAVEL_PX_PER_S[2]));
+}
+/** 一根线上放几个光点:大约每 160px 一个,1 ~ 6 个 */
+export const dotCount = (length: number) => Math.min(6, Math.max(1, Math.round(length / 160)));
+/** 彗星多长:线长的 35%,但不超过 90px、不短于 24px */
+export const cometLength = (length: number) => Math.min(90, Math.max(24, length * 0.35));

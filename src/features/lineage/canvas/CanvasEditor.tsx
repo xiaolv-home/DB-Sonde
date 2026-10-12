@@ -10,15 +10,15 @@
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
 import {
-  createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState,
+  createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type CSSProperties, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, Handle, Position,
+  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, BaseEdge, Controls, EdgeText, MiniMap, Handle, Position,
   NodeResizer, MarkerType, ConnectionMode, SelectionMode, ViewportPortal, applyNodeChanges, applyEdgeChanges,
   reconnectEdge, useReactFlow, useViewport,
-  type Node, type Edge, type NodeProps, type NodeChange, type EdgeChange, type Connection, type FinalConnectionState,
+  type Node, type Edge, type EdgeProps, type NodeProps, type NodeChange, type EdgeChange, type Connection, type FinalConnectionState,
 } from "@xyflow/react";
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
@@ -32,14 +32,15 @@ import { api } from "../../../lib/api";
 import { inTauri } from "../../../lib/mockBackend";
 import type { Graph } from "../lineageModel";
 import {
-  ARROWS, COLOR_LABEL, COLOR_VALUE, FILLS, FILL_LABEL, FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES,
+  ARROWS, COLOR_LABEL, COLOR_VALUE, DASH_PX_PER_S, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
+  FONT_SIZES, PULSE_SECONDS, cometLength, dotCount, travelSeconds, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES,
   LINE_WIDTHS, PALETTE_ORDER, SHAPES, SHAPE_LABEL, STROKE_PX,
   alignBoxes, autoLayout, contentKey, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor,
   markerSize, newCanvas, newEdge, newNode, nextName, snapToGuides,
   type AlignKind, type ArrowKind, type Box, type CanvasDoc, type CanvasEdge, type CanvasNode, type ColorKey,
-  type FillKind, type Guide, type LayoutDir, type LineType, type Pos, type ShapeKind,
+  type FillKind, type FlowStyle, type Guide, type LayoutDir, type LineType, type Pos, type ShapeKind,
 } from "./canvasModel";
-import { blobToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
+import { blobToBase64, canvasMeasure, canvasToSvg, linePath, svgToPng } from "./canvasExport";
 import { canvasRepository } from "./canvasRepository";
 
 type ShapeData = CanvasNode & Record<string, unknown>;
@@ -77,10 +78,10 @@ const toFlowEdge = (e: CanvasEdge, selected = false): FlowEdge => {
   const marker = { type: MarkerType.ArrowClosed, color, width: size, height: size };
   return {
     id: e.id, source: e.from, target: e.to, sourceHandle: e.fromHandle, targetHandle: e.toHandle,
-    type: EDGE_TYPE[e.line], label: e.label || undefined, selected,
-    animated: !!e.flow,
+    // 流动的线走自己的画法(光点、彗星、呼吸),不流动的用 React Flow 自带的
+    type: e.flow ? "flowfx" : EDGE_TYPE[e.line], label: e.label || undefined, selected,
     data: { ...e } as EdgeData,
-    style: { stroke: color, strokeWidth: sw, strokeDasharray: e.dashed && !e.flow ? "6 4" : undefined },
+    style: { stroke: color, strokeWidth: sw, strokeDasharray: e.dashed ? "6 4" : undefined },
     markerEnd: e.arrow === "none" ? undefined : marker,
     markerStart: e.arrow === "both" ? marker : undefined,
     labelStyle: { fill: "var(--text-2)", fontSize: 12, fontWeight: 500 },
@@ -164,6 +165,96 @@ const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodeProps<Flow
   );
 });
 const nodeTypes = { shape: ShapeNode };
+
+/* ---------- 流动的线 ----------
+   底下照常是一根线(带箭头、标签、点击区域),上面叠一层动效:
+   · 虚线:线本身变成虚线往前走;
+   · 光点:几个带光晕的小圆点沿线跑(SVG 的 animateMotion,跟着线的形状拐弯);
+   · 彗星:一段亮头 + 渐隐的拖尾沿线划过;
+   · 呼吸:整根线外面一圈光,一明一暗。
+   动效都按线的实际长度算时长,长线短线看起来流速一样。动效层不接鼠标,点线还是点在底下那根上。 */
+const FlowFxEdge = memo(function FlowFxEdge(props: EdgeProps<FlowEdge>) {
+  const { id, data, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, markerStart,
+    label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, interactionWidth } = props;
+  const e = data as CanvasEdge;
+  const [path, labelX, labelY] = linePath(e.line, { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const measureRef = useRef<SVGPathElement>(null);
+  const [len, setLen] = useState(0);
+  // 线一变形就重量长度;差得不多就不动,免得拖动时每一帧都重设动画
+  useLayoutEffect(() => {
+    const l = measureRef.current?.getTotalLength() ?? 0;
+    if (Math.abs(l - len) > 6) setLen(l);
+  }, [path, len]);
+  const kind: FlowStyle = e.flowStyle ?? "dash";
+  const speed = e.flowSpeed ?? 2;
+  const fc = COLOR_VALUE[e.flowColor ?? e.color];
+  const sw = Number((style as CSSProperties | undefined)?.strokeWidth ?? 1.6);
+  const base: CSSProperties = { ...style };
+  if (kind === "dash") {
+    // 虚线一格 11px(6 实 5 空),一秒走 DASH_PX_PER_S 像素
+    Object.assign(base, { strokeDasharray: "6 5", animation: `cv-flow-dash ${(11 / DASH_PX_PER_S[speed]).toFixed(3)}s linear infinite` });
+    if (e.flowColor) base.stroke = fc;
+  }
+  const pid = `cvf-${id}`;
+  let fx: ReactNode = null;
+  if (len > 1 && kind === "dot") {
+    const dur = Number(travelSeconds(len, speed).toFixed(3));
+    const n = dotCount(len);
+    const r = sw * 0.9 + 1.4;
+    fx = Array.from({ length: n }, (_, i) => (
+      <g key={i}>
+        <circle r={r * 2.6} fill={fc} opacity={0.22}>
+          <animateMotion dur={`${dur}s`} repeatCount="indefinite" begin={`${(-i * dur / n).toFixed(3)}s`}><mpath href={`#${pid}`} /></animateMotion>
+        </circle>
+        <circle r={r} fill={fc}>
+          <animateMotion dur={`${dur}s`} repeatCount="indefinite" begin={`${(-i * dur / n).toFixed(3)}s`}><mpath href={`#${pid}`} /></animateMotion>
+        </circle>
+        <circle r={r * 0.45} fill="#fff" opacity={0.85}>
+          <animateMotion dur={`${dur}s`} repeatCount="indefinite" begin={`${(-i * dur / n).toFixed(3)}s`}><mpath href={`#${pid}`} /></animateMotion>
+        </circle>
+      </g>
+    ));
+  }
+  if (len > 1 && kind === "comet") {
+    const c = cometLength(len);
+    const head = c * 0.3;
+    const dur = `${travelSeconds(len + c, speed).toFixed(3)}s`;
+    // 一段长 c 的实线、后面空出整根线那么长:一次只露一颗彗星。dashoffset 从 c 走到 -len,正好从起点外划到终点外
+    const seg = (w: number, length: number, opacity: number, from: number, to: number, color = fc) => (
+      <path d={path} fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" opacity={opacity} strokeDasharray={`${length} ${len + c}`}>
+        <animate attributeName="stroke-dashoffset" from={from} to={to} dur={dur} repeatCount="indefinite" />
+      </path>
+    );
+    fx = <>
+      {seg(sw + 7, c, 0.12, c, -len)}
+      {seg(sw + 2.5, c, 0.45, c, -len)}
+      {seg(sw + 3, head, 0.95, head, -len - (c - head))}
+      {seg(Math.max(1, sw * 0.6), head * 0.6, 0.9, head * 0.6, -len - (c - head * 0.6), "#fff")}
+    </>;
+  }
+  if (kind === "pulse") {
+    const dur = `${PULSE_SECONDS[speed]}s`;
+    fx = <>
+      <path d={path} fill="none" stroke={fc} strokeWidth={sw + 8} strokeLinecap="round" opacity={0}>
+        <animate attributeName="opacity" values="0;0.28;0" dur={dur} repeatCount="indefinite" />
+      </path>
+      <path d={path} fill="none" stroke={fc} strokeWidth={sw + 2.5} strokeLinecap="round" opacity={0}>
+        <animate attributeName="opacity" values="0;0.7;0" dur={dur} repeatCount="indefinite" />
+      </path>
+    </>;
+  }
+  return (
+    <>
+      <BaseEdge id={id} path={path} style={base} markerEnd={markerEnd} markerStart={markerStart} interactionWidth={interactionWidth} />
+      <path ref={measureRef} id={pid} d={path} fill="none" stroke="none" />
+      {fx && <g className="cv-flowfx" pointerEvents="none">{fx}</g>}
+      {/* 文字最后画,光点、彗星从底下穿过去,不会盖住字 */}
+      {label && <EdgeText x={labelX} y={labelY} label={label} labelStyle={labelStyle} labelBgStyle={labelBgStyle}
+        labelBgPadding={labelBgPadding} labelBgBorderRadius={labelBgBorderRadius} />}
+    </>
+  );
+});
+const edgeTypes = { flowfx: FlowFxEdge };
 
 /* 拖动时的对齐参考线(画在画布坐标里,线宽按缩放反算,永远是 1 像素) */
 function GuideLines({ guides }: { guides: Guide[] }) {
@@ -256,6 +347,8 @@ function Editor({ doc, graph, onSave, onDirty }: {
   const [painter, setPainter] = useState<NodeStyle | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge" } | null>(null);
   const nudgeAt = useRef(0);
+  /** 上一次挑的流动效果:给下一根打开「流动」的线直接用上 */
+  const lastFlow = useRef<Pick<CanvasEdge, "flowStyle" | "flowSpeed" | "flowColor">>({});
   /** 正在拖线的一头改连:这时松在空白处什么都不做(React Flow 也会走 onConnectEnd) */
   const reconnecting = useRef(false);
 
@@ -448,6 +541,10 @@ function Editor({ doc, graph, onSave, onDirty }: {
     const remembered = (["line", "color", "width", "arrow"] as const).filter((k) => k in patch);
     if (remembered.length) setEdgeStyle((s) => ({ ...s, ...Object.fromEntries(remembered.map((k) => [k, patch[k]])) }));
     setEdges((es) => es.map((e) => e.selected ? toFlowEdge({ ...(e.data as CanvasEdge), ...fromFlowEdge(e), ...patch }, true) : e));
+  };
+  const patchFlow = (patch: Pick<CanvasEdge, "flowStyle" | "flowSpeed" | "flowColor">) => {
+    lastFlow.current = { ...lastFlow.current, ...patch };
+    patchEdges(patch);
   };
   /** 一批位置改动(对齐、等距、自动排版)只记一步撤销 */
   const moveNodes = useCallback((pos: Pos, handles?: Map<string, { fromHandle: Side; toHandle: Side }>) => {
@@ -691,6 +788,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -781,7 +879,8 @@ function Editor({ doc, graph, onSave, onDirty }: {
                     <Seg value={String(oneEdge.width ?? 1)} options={LINE_WIDTHS.map(String)} labels={{ 1: "细", 2: "中", 3: "粗" }} onPick={(w) => patchEdges({ width: Number(w) === 1 ? undefined : Number(w) })} />
                     <Seg value={oneEdge.arrow} options={ARROWS} labels={{ end: "单向", both: "双向", none: "无箭头" }} onPick={(arrow: ArrowKind) => patchEdges({ arrow })} />
                     <button className={`btn xs ${oneEdge.dashed ? "on" : ""}`} onClick={() => patchEdges({ dashed: !oneEdge.dashed })}>虚线</button>
-                    <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} onClick={() => patchEdges({ flow: !oneEdge.flow })} title="让线动起来,表示数据从这儿流过">流动</button>
+                    <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} title="让线动起来,表示数据从这儿流过"
+                      onClick={() => patchEdges(oneEdge.flow ? { flow: false } : { flow: true, flowStyle: oneEdge.flowStyle ?? lastFlow.current.flowStyle, flowSpeed: oneEdge.flowSpeed ?? lastFlow.current.flowSpeed, flowColor: oneEdge.flowColor ?? lastFlow.current.flowColor })}>流动</button>
                     <button className="icon-btn" title="反转方向" onClick={reverseEdges}><ArrowLeftRight size={14} /></button>
                     {selEdges.length === 1 && (
                       <input key={oneEdge.id} ref={labelInputRef} className="cv-label-input" placeholder="线上的文字(双击线也能改)" defaultValue={oneEdge.label}
@@ -791,6 +890,15 @@ function Editor({ doc, graph, onSave, onDirty }: {
                   </>
                 )}
                 <button className="icon-btn danger" title="删除 (Delete)" onClick={deleteSelected}><Trash2 size={14} /></button>
+                    {selNodes.length === 0 && oneEdge?.flow && (
+                      <div className="cv-props-row">
+                        <span className="cv-props-label">流动</span>
+                        <Seg value={oneEdge.flowStyle ?? "dash"} options={FLOW_STYLES} labels={FLOW_LABEL} onPick={(flowStyle: FlowStyle) => patchFlow({ flowStyle: flowStyle === "dash" ? undefined : flowStyle })} />
+                        <Seg value={String(oneEdge.flowSpeed ?? 2)} options={FLOW_SPEEDS.map(String)} labels={FLOW_SPEED_LABEL} onPick={(v) => patchFlow({ flowSpeed: Number(v) === 2 ? undefined : Number(v) })} />
+                        <button className={`btn xs ${oneEdge.flowColor ? "" : "on"}`} title="流动用线本身的颜色" onClick={() => patchFlow({ flowColor: undefined })}>同线色</button>
+                        <Swatches value={oneEdge.flowColor ?? null} onPick={(flowColor) => patchFlow({ flowColor })} />
+                      </div>
+                    )}
               </div>
             )}
             {painter && <div className="cv-painter-tip"><Paintbrush size={13} /> 格式刷:点形状刷上样式 · 点空白或 Esc 放下</div>}
@@ -846,7 +954,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
   );
 }
 
-function Swatches({ value, onPick }: { value: ColorKey; onPick: (c: ColorKey) => void }) {
+function Swatches({ value, onPick }: { value: ColorKey | null; onPick: (c: ColorKey) => void }) {
   return (
     <div className="cv-swatches" role="radiogroup" aria-label="颜色">
       {PALETTE_ORDER.map((c) => (
