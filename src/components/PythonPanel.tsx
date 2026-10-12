@@ -1,6 +1,8 @@
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
+import { editorSearch } from "./editorSearch";
+import { missingModule, pipNameFor } from "../lib/pyMissingModule";
 import { python } from "@codemirror/lang-python";
 import { syntaxHighlighting } from "@codemirror/language";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
@@ -34,6 +36,18 @@ interface OutLine {
 }
 
 const IMG_RE = /⟦SONDE_IMG⟧(.+?)⟦\/IMG⟧/;
+
+/** 报错里写着「No module named 'x'」时,在那一行后面给个「安装 x」的按钮 */
+function MissingModuleAction({ text, onInstall }: { text: string; onInstall: (pkg: string) => void }) {
+  const mod = missingModule(text);
+  if (!mod) return null;
+  const pkg = pipNameFor(mod);
+  return (
+    <button className="py-missing" onClick={() => onInstall(pkg)} title={`pip install ${pkg}(清华镜像)`}>
+      <Package size={12} /> 安装 {pkg}
+    </button>
+  );
+}
 
 /** jedi type → CodeMirror completion type (drives the little icon). */
 function mapKind(k: string): string {
@@ -93,6 +107,8 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
   const { lines: out, push: pushOut, flush: flushOut, reset: resetOut } = useBatchedLines<OutLine>();
   const [aiMenu, setAiMenu] = useState(false);
   const [pkgOpen, setPkgOpen] = useState(false);
+  /** 打开装包窗口时预先填好的包(从「缺包」提示点进来) */
+  const [pkgInitial, setPkgInitial] = useState<string | undefined>();
   const outHeight = useApp((s) => s.pyOutputHeight);
   const outCollapsed = useApp((s) => s.pyOutputCollapsed);
   const outResizer = useDrag("y", {
@@ -132,6 +148,7 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
       editorTheme,
       syntaxHighlighting(highlight),
       autocompletion({ override: [pySource], activateOnTyping: true, icons: true }),
+      editorSearch(),
     ];
   }, []);
 
@@ -344,7 +361,7 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
             </>
           )}
         </div>
-        <button className="btn sm" onClick={() => setPkgOpen(true)} title="安装第三方包">
+        <button className="btn sm" onClick={() => { setPkgInitial(undefined); setPkgOpen(true); }} title="安装第三方包">
           <Package size={13} /> 装包
         </button>
         <span className="py-file">{tab.title}.py</span>
@@ -415,6 +432,8 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
                 closeBrackets: true,
                 indentOnInput: true,
                 autocompletion: false,
+                // 用我们自己的查找 / 替换条(editorSearch),不要 CodeMirror 自带的英文面板
+                searchKeymap: false,
               }}
             />
           </div>
@@ -464,6 +483,7 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
               ) : (
                 <div key={i} className={`py-line ${l.kind}`}>
                   {l.text.replace(/\n$/, "")}
+                  {l.kind === "err" && <MissingModuleAction text={l.text} onInstall={(pkg) => { setPkgInitial(pkg); setPkgOpen(true); }} />}
                 </div>
               ),
             )
@@ -471,7 +491,7 @@ export default function PythonPanel({ tab }: { tab: PythonTab }) {
         </div>
       </div>
 
-      {pkgOpen && <PyPackages onClose={() => setPkgOpen(false)} />}
+      {pkgOpen && <PyPackages initial={pkgInitial} onClose={() => { setPkgOpen(false); setPkgInitial(undefined); }} />}
     </div>
   );
 }

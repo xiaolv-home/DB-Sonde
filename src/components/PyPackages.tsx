@@ -6,6 +6,9 @@ import { useBatchedLines } from "../hooks/useBatchedLines";
 
 /** Common data-work packages not in the bundled core — one click to install. */
 const CURATED: { pkg: string; label: string; note: string }[] = [
+  { pkg: "oracledb", label: "oracledb", note: "连 Oracle(默认 thin,不用装 Instant Client)" },
+  { pkg: "PyMySQL", label: "PyMySQL", note: "连 MySQL" },
+  { pkg: "psycopg[binary]", label: "psycopg", note: "连 PostgreSQL" },
   { pkg: "scikit-learn", label: "scikit-learn", note: "机器学习" },
   { pkg: "scipy", label: "scipy", note: "科学计算" },
   { pkg: "seaborn", label: "seaborn", note: "统计图" },
@@ -19,9 +22,10 @@ const CURATED: { pkg: string; label: string; note: string }[] = [
 
 type Line = { kind: "out" | "err" | "exit" | "sys"; text: string };
 
-export default function PyPackages({ onClose }: { onClose: () => void }) {
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [custom, setCustom] = useState("");
+export default function PyPackages({ onClose, initial }: { onClose: () => void; initial?: string }) {
+  // 从「缺包」那里点进来时,直接勾上 / 填好缺的那个
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(initial && CURATED.some((c) => c.pkg === initial) ? [initial] : []));
+  const [custom, setCustom] = useState(() => (initial && !CURATED.some((c) => c.pkg === initial) ? initial : ""));
   const [running, setRunning] = useState(false);
   /* pip 的输出也是一行行来的,同样攒批 —— 装个大包能刷出上千行。 */
   const { lines: out, push: pushOut, flush: flushOut, reset: resetOut } = useBatchedLines<Line>();

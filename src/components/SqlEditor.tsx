@@ -27,6 +27,7 @@ import type { CompletionCatalog } from "../types";
 import type { SQLNamespace } from "@codemirror/lang-sql";
 import { scanSql, sqlScanState } from "../lib/sql";
 import { editorClickGuard } from "../lib/editorClickGuard";
+import { editorSearch } from "./editorSearch";
 
 
 type Edit = { from: number; to: number; insert: string };
@@ -295,6 +296,7 @@ export default function SqlEditor({
         syntaxHighlighting(highlight),
         EditorView.lineWrapping,
         editorClickGuard,
+        editorSearch(),
         EditorView.updateListener.of((update) => {
           if (!update.selectionSet && !update.docChanged) return;
           const range = update.state.selection.main;
@@ -357,6 +359,8 @@ export default function SqlEditor({
           // We supply our own autocompletion (schema-boosted) + completionKeymap
           // in `extensions`, so disable basicSetup's default to avoid a conflict.
           autocompletion: false,
+          // 用我们自己的查找 / 替换条(editorSearch),不要 CodeMirror 自带的英文面板
+          searchKeymap: false,
           bracketMatching: true,
           closeBrackets: true,
           indentOnInput: true,

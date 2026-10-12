@@ -734,6 +734,24 @@ button {
 .py-line.err {
   color: var(--red);
 }
+/* 缺包时报错行后面的「安装 xxx」按钮 */
+.py-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+  vertical-align: 1px;
+}
+.py-missing:hover { background: var(--accent); color: #fff; }
 .py-line.sys {
   color: var(--accent);
   font-weight: 600;
