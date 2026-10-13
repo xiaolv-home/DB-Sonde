@@ -26,6 +26,7 @@ import type { DbKind } from "../types";
 import type { CompletionCatalog } from "../types";
 import type { SQLNamespace } from "@codemirror/lang-sql";
 import { keywordUpperEdits, type Edit } from "../lib/keywordCase";
+import { asciiPunctuationFor } from "../lib/sqlPunctuation";
 import { editorKit } from "./editorKit";
 
 
@@ -44,6 +45,23 @@ function keywordUpperCase(dialect: SQLDialect, kind: DbKind | undefined) {
     });
     if (!edits.length) return tr;
     return [tr, { changes: edits, sequential: true }];
+  });
+}
+
+/** 代码里敲出全角分号「;」→ 直接换成英文分号(中文输入法下句末老忘切),规则在 lib/sqlPunctuation.ts。
+ *  用 inputHandler 在字符进文档之前换掉:不打断输入法,撤销时也没有多出来的一步。 */
+function asciiSemicolon(kind: DbKind | undefined) {
+  return EditorView.inputHandler.of((view, from, to, text) => {
+    // 输入法还在拼(组字中)时不动它,免得把输入法搅乱;句末单敲的「;」是直接上屏的,不在组字里
+    if (view.composing) return false;
+    const replacement = asciiPunctuationFor(text, view.state.sliceDoc(0, from), kind);
+    if (replacement == null) return false;
+    view.dispatch({
+      changes: { from, to, insert: replacement },
+      selection: { anchor: from + replacement.length },
+      userEvent: "input.type",
+    });
+    return true;
   });
 }
 
@@ -248,6 +266,7 @@ export default function SqlEditor({
           autocompletion({ override: [fromColumns, boostedSchema, keywordCompletionSource(dialect, true)] }),
         ),
         keywordUpperCase(dialect, kind),
+        asciiSemicolon(kind),
         editorTheme,
         syntaxHighlighting(highlight),
         EditorView.lineWrapping,
