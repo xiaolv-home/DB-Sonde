@@ -1,17 +1,16 @@
-/* SQL 编辑器里把代码中敲出的全角标点换成英文的(规则在 lib/sqlPunctuation.ts)。两条路:
+/* SQL 编辑器接上 lib/sqlPunctuation.ts 的规则。两条路:
  *
  * 1. 直接上屏的标点(句末单敲一个「;」):inputHandler 在字符进文档之前就换掉,
  *    不多一步撤销;换出来的括号、引号交给自动配对(insertBracket),和敲英文的手感一样。
  * 2. 跟着拼音一起组字的(敲「e。」再回车,输入法把 e。 原样一次上屏):组字过程中不碰,
  *    免得把输入法搅乱;等上屏结束(compositionend)再看刚上屏的那一段,把落在代码里的换掉。
  *    被符号顶上屏的(e。 再按 shift+8,输入法上屏「额。」再跟 *)在代码里退回拼音原文
- *    (规则在 lib/imeCommit.ts:数字 / 空格选的汉字保留)。 */
+ *    (数字 / 空格选的汉字保留)。 */
 import type { Extension } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { insertBracket } from "@codemirror/autocomplete";
 import type { DbKind } from "../types";
-import { asciiPunctuationFor, inCodeAt } from "../lib/sqlPunctuation";
-import { revertSymbolCommit } from "../lib/imeCommit";
+import { asciiPunctuationFor, inCodeAt, revertSymbolCommit } from "../lib/sqlPunctuation";
 
 /** 上屏后等这么久再收尾:CodeMirror 收尾组字在事件之后,顶上屏的那个符号也紧跟着进来 */
 const SETTLE_MS = 50;

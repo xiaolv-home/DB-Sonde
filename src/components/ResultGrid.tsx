@@ -1,4 +1,5 @@
 import type { FilterOp, FilterCond, GridSort } from "../lib/queryResultView";
+import { useFloatingCorner } from "../hooks/useDrag";
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -75,6 +76,8 @@ export const FILTER_OPS: { op: FilterOp; label: string }[] = [
   { op: "<=", label: "≤" },
   { op: "like", label: "包含" },
 ];
+const AGG_DEFAULT_POS = { right: 16, bottom: 14 };
+
 export type AggFn = "sum" | "avg" | "median" | "min" | "max" | "count";
 
 function aggregate(values: number[], fn: AggFn): number {
@@ -244,6 +247,8 @@ export default function ResultGrid({
     return stored ?? "sum";
   });
 
+  // 求和条可以拖开,免得挡住数据
+  const aggFloat = useFloatingCorner("sonde.aggInfoPos", AGG_DEFAULT_POS);
   const dirtyCount = edits.size + colOps.size + inserts.length + deletes.size;
   useEffect(() => {
     onDirtyChange?.(dirtyCount > 0 || editing !== null);
@@ -1128,7 +1133,8 @@ export default function ResultGrid({
       )}
 
       {aggValues && !editing && (
-        <div className="agg-info">
+        <div className="agg-info" style={aggFloat.style}>
+          <span className="agg-grip" title="拖动换位置 · 双击回到右下角" {...aggFloat.handleProps} />
           <select
             className="agg-fn"
             value={aggFn}

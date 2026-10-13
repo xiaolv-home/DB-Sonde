@@ -44,3 +44,49 @@ export function useDrag(
 
   return { active, onPointerDown };
 }
+
+/**
+ * 浮在容器角上的小条(比如结果区右下角的求和条)拖到别处,免得挡住数据。
+ * 位置按「离容器右边、下边多远」存,本机记住(localStorage 读写失败就用默认);双击把手回到默认。
+ * 渲染时用 CSS min() 夹在容器里,容器变小了也不会跑出去。
+ */
+export function useFloatingCorner(storageKey: string, defaults: { right: number; bottom: number }) {
+  const [pos, setPos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+      if (saved && Number.isFinite(saved.right) && Number.isFinite(saved.bottom)) return saved as typeof defaults;
+    } catch { /* 读不到就用默认 */ }
+    return defaults;
+  });
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const panel = e.currentTarget.parentElement;
+    const box = panel?.offsetParent?.getBoundingClientRect();
+    if (!panel || !box) return;
+    const { width, height } = panel.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, ...pos };
+    let latest = pos;
+    const clamp = (v: number, max: number) => Math.max(4, Math.min(v, max));
+    const onMove = (ev: PointerEvent) => {
+      latest = {
+        right: clamp(start.right - (ev.clientX - start.x), box.width - width - 4),
+        bottom: clamp(start.bottom - (ev.clientY - start.y), box.height - height - 4),
+      };
+      setPos(latest);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", up);
+      try { localStorage.setItem(storageKey, JSON.stringify(latest)); } catch { /* 记不住就算了 */ }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", up);
+  }, [pos, storageKey]);
+  const reset = useCallback(() => {
+    setPos(defaults);
+    try { localStorage.removeItem(storageKey); } catch { /* 无所谓 */ }
+  }, [defaults, storageKey]);
+  const style = { right: `min(${pos.right}px, calc(100% - 120px))`, bottom: `min(${pos.bottom}px, calc(100% - 40px))` };
+  return { style, handleProps: { onPointerDown, onDoubleClick: reset } };
+}

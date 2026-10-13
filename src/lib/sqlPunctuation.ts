@@ -1,18 +1,24 @@
-/* 中文输入法下打 SQL,顺手敲出的是全角标点「;」「,」「(」「)」「。」和弯引号「“”‘’」,SQL 不认。
- * 在代码里(不在字符串、带引号的标识符、注释里)敲出这几个时,直接换成英文的。
- * 字符串和注释里的原样保留 —— 那里本来就可能要中文标点。
- * 输入法可能一次上屏好几个字(比如「完成;」「“你好,世界”」),所以一个字一个字往后看语境,
- * 每次都按「已经换过的」文字算:前面的“换成 " 之后,后面的,就在字符串里了,不该再换;
- * 而结尾的”是在把这个串关上,要换。
- * 语境用 lib/sql.ts 拆语句的同一份扫描器判断。 */
+/* 中文输入法在 SQL 代码里打出来的东西,怎么纠正成英文。两件事,同一个出发点:
+ *
+ * 1. 全角标点:「;」「,」「(」「)」「。」、弯引号「“”‘’」、shift+减号打出的「——」,SQL 都不认。
+ *    在代码里(不在字符串、带引号的标识符、注释里)换成英文的;字符串、注释里的原样保留。
+ *    一次上屏好几个字(「“你好,世界”」)时一个字一个字往后看语境,每次按「已经换过的」文字算:
+ *    前面的“换成 " 之后,后面的,就在字符串里了不再换;结尾的”是在把串关上,要换。
+ * 2. 被符号顶上屏:拼音状态下敲 e、。 再按 shift+8,输入法先把首选「额。」上屏再跟上 *,成了「额.*」,
+ *    本意是 e.*。上屏内容后面紧跟着符号、组字框里是拼音原文时,退回拼音原文 + 那个符号;
+ *    用数字 / 空格选字(后面不跟符号)的汉字照常保留。
+ *
+ * 语境用 lib/sql.ts 拆语句的同一份扫描器判断。编辑器怎么接这两条见 components/sqlPunctuationInput.ts。 */
 import type { DbKind } from "../types";
 import { scanSql, sqlScanState, type SqlScanState } from "./sql";
 
-/** 全角 → 英文。只收 SQL 里一定是标点的几个 */
+/** 全角 → 英文。只收 SQL 里一定是标点的几个。「——」(两个破折号)整体换成一个 _ */
 const ASCII_OF: Record<string, string> = {
   "；": ";", "，": ",", "（": "(", "）": ")", "。": ".",
   "“": "\"", "”": "\"", "‘": "'", "’": "'",
+  "—": "_",
 };
+const DASH = "—";
 
 /** 中文引号属于哪种英文引号 */
 const QUOTE_FAMILY: Record<string, "'" | "\""> = { "“": "\"", "”": "\"", "‘": "'", "’": "'" };
@@ -34,15 +40,18 @@ function shouldConvert(ch: string, prefix: string, kind: DbKind | undefined, bef
 
 /** 在 textBefore 之后输入 typed:把落在代码里的全角标点换成英文的。没有要换的返回 null。 */
 export function asciiPunctuationFor(typed: string, textBefore: string, kind: DbKind | undefined): string | null {
-  if (!typed.split("").some((ch) => ch in ASCII_OF)) return null;
+  // 按 UTF-16 码元切(和 scanSql 的下标一致;表情这类代理对拆开再拼回去不变)
+  const chars = typed.split("");
+  if (!chars.some((ch) => ch in ASCII_OF)) return null;
   const before = sqlScanState(textBefore, kind);
   let out = "";
   let changed = false;
-  // 按 UTF-16 码元切(和 scanSql 的下标一致;表情这类代理对拆开再拼回去不变)
-  for (const ch of typed.split("")) {
+  for (let i = 0; i < chars.length; i += 1) {
+    const ch = chars[i];
     if (ch in ASCII_OF && shouldConvert(ch, out, kind, before)) {
       out += ASCII_OF[ch];
       changed = true;
+      if (ch === DASH && chars[i + 1] === DASH) i += 1; // 「——」是一个下划线
     } else {
       out += ch;
     }
@@ -53,4 +62,33 @@ export function asciiPunctuationFor(typed: string, textBefore: string, kind: DbK
 /** textBefore 之后的位置是不是在代码里(不在字符串、带引号的标识符、注释里) */
 export function inCodeAt(textBefore: string, kind: DbKind | undefined): boolean {
   return codeAfter("", kind, sqlScanState(textBefore, kind));
+}
+
+const HAN = /\p{Script=Han}/u;
+/** 组字框里拼音和标点之间可能夹着空格、分词用的 ' */
+const SEPARATORS = /[\s']/g;
+/** 拼音原文:字母开头,后面只跟标点(含全角标点),没有汉字和数字 */
+const PINYIN_LIKE = /^[A-Za-z]+[^\sA-Za-z0-9\p{Script=Han}]*$/u;
+/** ASCII 标点 / 符号(不是字母、数字、空白) */
+const ASCII_SYMBOL = /^[!-/:-@[-`{-~]$/;
+
+/** 上屏内容末尾那个「把它顶上屏」的符号:ASCII 符号,或会被换成英文的全角标点(「——」算一个) */
+function trailingTrigger(committed: string): string | null {
+  if (committed.endsWith(DASH + DASH)) return DASH + DASH;
+  const last = committed.slice(-1);
+  return ASCII_SYMBOL.test(last) || last in ASCII_OF ? last : null;
+}
+
+/**
+ * committed:这次上屏后落到文档里的文字;marked:上屏前组字框里最后的样子。
+ * 是「被符号顶上屏」就返回拼音原文 + 那个符号(之后再走 asciiPunctuationFor),否则返回 null(原样保留)。
+ * 只该用在代码里 —— 调用方先用 inCodeAt 判断。
+ */
+export function revertSymbolCommit(committed: string, marked: string): string | null {
+  if (!HAN.test(committed)) return null;
+  const trigger = trailingTrigger(committed);
+  if (!trigger || committed.length <= trigger.length) return null;
+  const raw = marked.replace(SEPARATORS, "");
+  if (!PINYIN_LIKE.test(raw) || raw.endsWith(trigger)) return null;
+  return raw + trigger;
 }

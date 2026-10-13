@@ -2723,7 +2723,7 @@ button {
 /* aggregation footer (bottom-right): sum / avg / median / min / max / count */
 .agg-info {
   position: absolute;
-  bottom: 14px;
+  bottom: 14px; /* 实际位置由 useFloatingCorner 给(可拖动) */
   right: 16px;
   z-index: 6;
   display: flex;
@@ -2736,6 +2736,19 @@ button {
   box-shadow: var(--shadow-sm);
   font-size: 14px;
 }
+.agg-info .agg-grip {
+  width: 8px;
+  align-self: stretch;
+  margin: -2px 0 -2px -2px;
+  border-radius: 3px;
+  background-image: radial-gradient(var(--text-3) 1px, transparent 1.2px);
+  background-size: 4px 4px;
+  opacity: 0.6;
+  cursor: grab;
+  touch-action: none;
+}
+.agg-info .agg-grip:hover { opacity: 1; }
+.agg-info .agg-grip:active { cursor: grabbing; }
 .agg-info .agg-fn {
   height: 24px;
   border: 1px solid var(--border-2);

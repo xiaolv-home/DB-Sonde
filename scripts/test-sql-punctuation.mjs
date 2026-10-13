@@ -1,4 +1,4 @@
-// 全角分号:代码里换成英文分号,字符串和注释里不动。
+// 中文输入法在 SQL 代码里打出的东西:全角标点换英文、被符号顶上屏退回拼音原文;字符串和注释里不动。
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -47,7 +47,30 @@ try {
   assert.equal(m.asciiPunctuationFor("'好；'；", 'SELECT ', 'mysql'), "'好；';", '引号里的留着,引号外的换掉');
   assert.equal(m.asciiPunctuationFor('完成；', 'SELECT 1 -- ', 'mysql'), null, '整段都在注释里');
   assert.equal(m.asciiPunctuationFor("'😀'；", 'SELECT ', 'mysql'), "'😀';", '前面有表情也不错位');
-  console.log('sql punctuation: 分号 逗号 括号 句号 引号 × 代码 / 字符串 / 注释 / 标识符 全部通过');
+  // 「——」(中文输入法 shift+减号)→ 下划线
+  assert.equal(m.asciiPunctuationFor('——', 'SELECT order', 'mysql'), '_', '「——」整体换成一个 _');
+  assert.equal(m.asciiPunctuationFor('—', 'SELECT order', 'mysql'), '_', '单个破折号也换');
+  assert.equal(m.asciiPunctuationFor('——', "SELECT '说明", 'mysql'), null, '字符串里的破折号保留');
+  assert.equal(m.asciiPunctuationFor('——', 'SELECT 1 -- 注释', 'mysql'), null, '注释里的破折号保留');
+
+  // 被符号顶上屏:退回拼音原文
+  const r = m.revertSymbolCommit;
+  assert.equal(r('额。*', 'e 。'), 'e。*', 'e。 再按 shift+8:退回 e。*(之后标点转换成 e.*)');
+  assert.equal(r('额。*', 'e。'), 'e。*', '组字框里没空格也一样');
+  assert.equal(r('表*', 'biao'), 'biao*', '拼音后直接按符号');
+  assert.equal(r("西安*", "xi'an"), 'xian*', '分词的 \' 去掉');
+  assert.equal(r('哦的——', 'order'), 'order——', '中文模式打 order_:被「——」顶上屏,退回 order——(之后换成 order_)');
+  assert.equal(m.asciiPunctuationFor(r('哦的——', 'order'), 'SELECT ', 'mysql'), 'order_');
+  assert.equal(r('额', 'e'), null, '数字 / 空格选字:只有汉字,保留');
+  assert.equal(r('额。', 'e 。'), null, '没被符号顶:保留');
+  assert.equal(r('e。*', 'e 。'), null, '回车上屏的原文里没有汉字:不用退');
+  assert.equal(r('额1', 'e'), null, '后面跟数字不算符号');
+  assert.equal(r('销售额*', '销售额'), null, '组字框里本来就是汉字(不是拼音)');
+  assert.equal(r('额。*', 'e1'), null, '组字框里有数字,不像拼音');
+  assert.equal(m.inCodeAt('SELECT ', 'mysql'), true);
+  assert.equal(m.inCodeAt("SELECT '", 'mysql'), false);
+
+  console.log('sql punctuation: 全角标点 / 引号 / 下划线 / 符号顶上屏 × 代码 / 字符串 / 注释 全部通过');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
