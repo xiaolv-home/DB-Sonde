@@ -49,7 +49,7 @@ function keywordUpperCase(dialect: SQLDialect, kind: DbKind | undefined) {
   });
 }
 
-/** 代码里敲出全角的「;」「,」「(」「)」→ 直接换成英文的(中文输入法下老忘切),规则在 lib/sqlPunctuation.ts。
+/** 代码里敲出全角的「;」「,」「(」「)」「。」→ 直接换成英文的(中文输入法下老忘切),规则在 lib/sqlPunctuation.ts。
  *  用 inputHandler 在字符进文档之前换掉:不打断输入法,撤销时也没有多出来的一步。
  *  换出来的单个括号交给自动配对(insertBracket):和直接敲英文括号一样会补右括号 / 跳过已补的右括号。 */
 function asciiPunctuation(kind: DbKind | undefined) {

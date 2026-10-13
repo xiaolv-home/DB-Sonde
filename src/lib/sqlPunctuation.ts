@@ -1,4 +1,4 @@
-/* 中文输入法下打 SQL,顺手敲出的是全角标点「;」「,」「(」「)」,SQL 不认。
+/* 中文输入法下打 SQL,顺手敲出的是全角标点「;」「,」「(」「)」「。」,SQL 不认。
  * 在代码里(不在字符串、带引号的标识符、注释里)敲出这几个时,直接换成英文的。
  * 字符串和注释里的原样保留 —— 那里本来就可能要中文标点。
  * 输入法可能一次上屏好几个字(比如「完成;」),所以一段里每个全角标点各自看语境。
@@ -7,7 +7,7 @@ import type { DbKind } from "../types";
 import { scanSql, sqlScanState } from "./sql";
 
 /** 全角 → 英文。只收 SQL 里一定是标点的几个 */
-const ASCII_OF: Record<string, string> = { "；": ";", "，": ",", "（": "(", "）": ")" };
+const ASCII_OF: Record<string, string> = { "；": ";", "，": ",", "（": "(", "）": ")", "。": "." };
 
 /** 在 textBefore 之后输入 typed:把落在代码里的全角标点换成英文的。没有要换的返回 null。 */
 export function asciiPunctuationFor(typed: string, textBefore: string, kind: DbKind | undefined): string | null {
