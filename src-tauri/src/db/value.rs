@@ -85,6 +85,17 @@ macro_rules! decode_chain {
     }};
 }
 
+/// 和 MySQL 自己显示的一样:-12:34:56、08:05:00、838:59:59、01:02:03.500000
+fn mysql_time_text(t: &sqlx::mysql::types::MySqlTime) -> String {
+    // 别用 t.is_negative():sqlx 0.8.6 里它返回的恰好相反(sign 明明是 Negative 却报 false),直接看 sign
+    let sign = if matches!(t.sign(), sqlx::mysql::types::MySqlTimeSign::Negative) { "-" } else { "" };
+    let mut out = format!("{sign}{:02}:{:02}:{:02}", t.hours(), t.minutes(), t.seconds());
+    if t.microseconds() != 0 {
+        out.push_str(&format!(".{:06}", t.microseconds()));
+    }
+    out
+}
+
 pub fn mysql_value(row: &sqlx::mysql::MySqlRow, i: usize) -> Value {
     // sqlx also accepts VARCHAR/TEXT when decoding JSON. Trying JSON before
     // String would turn text IDs, "null", "true", or JSON-looking text into
@@ -104,7 +115,9 @@ pub fn mysql_value(row: &sqlx::mysql::MySqlRow, i: usize) -> Value {
         DateTime<Utc> => |v: DateTime<Utc>| Value::String(v.format("%Y-%m-%d %H:%M:%S%.f").to_string()),
         NaiveDateTime => |v: NaiveDateTime| Value::String(v.format("%Y-%m-%d %H:%M:%S%.f").to_string()),
         NaiveDate => |v: NaiveDate| Value::String(v.to_string()),
-        NaiveTime => |v: NaiveTime| Value::String(v.to_string()),
+        // MySQL 的 TIME 是「时长」:可以是负的、可以超过 24 小时(-12:34:56、838:59:59)。
+        // 按「一天里的时刻」(NaiveTime)读会丢掉负号或直接读不出,要用专门的 MySqlTime
+        sqlx::mysql::types::MySqlTime => |v: sqlx::mysql::types::MySqlTime| Value::String(mysql_time_text(&v)),
         String => |v: String| Value::String(v),
         Vec<u8> => |v: Vec<u8>| bytes_to_value(v),
     )

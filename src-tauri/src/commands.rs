@@ -271,6 +271,7 @@ pub async fn connect(
             cfg.kind,
             DbKind::Mysql | DbKind::Mariadb | DbKind::Postgres
         ),
+        manual_transactions: db::supports_session_tx(&info.pool),
     };
 
     clear_database_pools(&state, &id).await;
@@ -911,7 +912,7 @@ pub async fn execute_routine(state: State<'_, AppState>, conn_id:String, databas
             };return Ok(db::routines::combine(sets));
     }
     let sets=match pool{
-        DbPool::MySql(pool)=>db::routines::execute_mysql(&mut *pool.acquire().await?,&database,&details,&values).await?,
+        DbPool::MySql(db::MySql { pool, .. })=>db::routines::execute_mysql(&mut *pool.acquire().await?,&database,&details,&values).await?,
         DbPool::Postgres(pool)=>db::routines::execute_pg(&mut *pool.acquire().await?,&schema,&details,&values).await?,
         _=>return Err(AppError::msg("该数据库不支持此例程执行面板")),
     };Ok(db::routines::combine(sets))

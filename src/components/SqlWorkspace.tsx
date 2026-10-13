@@ -34,6 +34,8 @@ export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
   const catalog = useApp((s) => (key ? s.catalogs[key] : undefined));
   const catalogLoading = useApp((s) => (key ? !!s.catalogLoading[key] : false));
   const hasMultiDb = useApp((s) => (tab ? !!s.meta[tab.connId]?.hasMultipleDatabases : false));
+  // 以后端连上时探明的为准;老版本后端没这个字段时退回按引擎类型的默认
+  const manualTx = useApp((s) => (tab ? s.meta[tab.connId]?.manualTransactions : undefined));
   const databases = useApp((s) => (tab ? s.databases[tab.connId] : undefined));
   const language = useApp((s) => s.language);
 
@@ -116,7 +118,7 @@ export default function SqlWorkspace({ tab }: { tab: QueryTab; }) {
             <span className="catalog-status"><Loader2 size={12} className="spin" /> {t("query.loadingMetadata")}</span>
           )}
           <div className="toolbar-spacer" />
-          {connected && connKind && DATABASE_CAPABILITIES[connKind].manualTransactions && (
+          {connected && connKind && (manualTx ?? DATABASE_CAPABILITIES[connKind].manualTransactions) && (
             <div className="ac-controls">
               {!autoCommit && (
                 <>

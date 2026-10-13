@@ -41,7 +41,7 @@ pub async fn details(
         return Err(AppError::msg("无效的例程类型"));
     }
     match pool {
-        DbPool::MySql(pool) => {
+        DbPool::MySql(super::MySql { pool, .. }) => {
             let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=? AND ROUTINE_NAME=? AND ROUTINE_TYPE=?")
                 .bind(database).bind(name).bind(kind.to_uppercase()).fetch_one(pool).await?;
             if exists != 1 {
@@ -192,7 +192,7 @@ pub fn combine(mut sets: Vec<QueryResult>) -> QueryResult {
 }
 pub async fn call_sql(pool: &DbPool, sql: &str, cap: usize) -> AppResult<QueryResult> {
     let sets = match pool {
-        DbPool::MySql(pool) => mysql_sql(&mut *pool.acquire().await?, sql, cap).await?,
+        DbPool::MySql(super::MySql { pool, .. }) => mysql_sql(&mut *pool.acquire().await?, sql, cap).await?,
         DbPool::Postgres(pool) => pg_sql(&mut *pool.acquire().await?, sql, cap).await?,
         _ => return Err(AppError::msg("该数据库不支持 CALL 执行")),
     };

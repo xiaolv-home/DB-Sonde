@@ -74,6 +74,9 @@ pub struct ConnectionMeta {
     /// True when the engine exposes multiple browsable databases. PostgreSQL
     /// uses lazily cached database-specific pools behind the same profile.
     pub has_multiple_databases: bool,
+    /// 能不能关自动提交、手动提交 / 回滚。连上时由后端按服务端实际能力判断
+    /// (Doris / StarRocks 这类没有普通事务的 MySQL 协议引擎是 false)。
+    pub manual_transactions: bool,
 }
 
 /// A table or view entry in the object tree.

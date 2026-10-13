@@ -65,7 +65,48 @@ async fn validate(pool: &DbPool, request: &UpdateCellRequest) -> AppResult<()> {
     Ok(())
 }
 
-fn push_mysql_value(query: &mut QueryBuilder<'_, sqlx::MySql>, value: &Value) {
+/// MySQL 一族改单元格时参数怎么带:能预编译写语句的走绑定参数;不能的(Doris / StarRocks)
+/// 把值转义后直接写进 SQL,走文本协议。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MySqlArgs {
+    Bind,
+    Inline,
+}
+
+/// JSON 值 → MySQL 字面量(Inline 模式用)。字符串按 mysql_real_escape_string 的规则转义。
+pub(crate) fn mysql_literal(value: &Value) -> String {
+    fn quote(text: &str) -> String {
+        let mut out = String::with_capacity(text.len() + 2);
+        out.push('\'');
+        for ch in text.chars() {
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '\'' => out.push_str("\\'"),
+                '"' => out.push_str("\\\""),
+                '\0' => out.push_str("\\0"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\u{1a}' => out.push_str("\\Z"),
+                c => out.push(c),
+            }
+        }
+        out.push('\'');
+        out
+    }
+    match value {
+        Value::Null => "NULL".into(),
+        Value::Bool(b) => if *b { "TRUE".into() } else { "FALSE".into() },
+        Value::Number(n) => n.to_string(),
+        Value::String(text) => quote(text),
+        other => quote(&other.to_string()),
+    }
+}
+
+fn push_mysql_value(query: &mut QueryBuilder<'_, sqlx::MySql>, value: &Value, args: MySqlArgs) {
+    if args == MySqlArgs::Inline {
+        query.push(mysql_literal(value));
+        return;
+    }
     match value {
         Value::Null => query.push("NULL"),
         Value::Bool(value) => query.push_bind(*value),
@@ -83,11 +124,11 @@ fn push_mysql_value(query: &mut QueryBuilder<'_, sqlx::MySql>, value: &Value) {
 
 // MySQL may compare an integer with a string through DOUBLE. The extra
 // textual guard preserves the exact identity even if that comparison rounds.
-fn mysql_exact_integer_guard(query: &mut QueryBuilder<'_, sqlx::MySql>, column: &str, value: &Value) {
+fn mysql_exact_integer_guard(query: &mut QueryBuilder<'_, sqlx::MySql>, column: &str, value: &Value, args: MySqlArgs) {
     if let Value::String(text) = value {
         if text.parse::<i128>().is_ok_and(|n| !(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&n)) {
-            query.push(" AND CAST(").push(quote_ident(DbKind::Mysql, column))
-                .push(" AS CHAR) = ").push_bind(text.clone());
+            query.push(" AND CAST(").push(quote_ident(DbKind::Mysql, column)).push(" AS CHAR) = ");
+            push_mysql_value(query, value, args);
         }
     }
 }
@@ -108,10 +149,7 @@ fn push_sqlite_value(query: &mut QueryBuilder<'_, sqlx::Sqlite>, value: &Value) 
     };
 }
 
-async fn update_mysql<'e, E>(executor: E, request: &UpdateCellRequest) -> AppResult<u64>
-where
-    E: sqlx::Executor<'e, Database = sqlx::MySql>,
-{
+fn mysql_update_query(request: &UpdateCellRequest, args: MySqlArgs) -> QueryBuilder<'_, sqlx::MySql> {
     let kind = DbKind::Mysql;
     let mut query = QueryBuilder::<sqlx::MySql>::new("UPDATE ");
     query
@@ -119,23 +157,42 @@ where
         .push(" SET ")
         .push(quote_ident(kind, &request.column))
         .push(" = ");
-    push_mysql_value(&mut query, &request.new_value);
+    push_mysql_value(&mut query, &request.new_value, args);
     query.push(" WHERE ");
     for (index, (column, value)) in request.primary_key.iter().enumerate() {
         if index > 0 {
             query.push(" AND ");
         }
         query.push(quote_ident(kind, column)).push(" <=> ");
-        push_mysql_value(&mut query, value);
-        mysql_exact_integer_guard(&mut query, column, value);
+        push_mysql_value(&mut query, value, args);
+        mysql_exact_integer_guard(&mut query, column, value, args);
     }
     query
         .push(" AND ")
         .push(quote_ident(kind, &request.column))
         .push(" <=> ");
-    push_mysql_value(&mut query, &request.old_value);
-    mysql_exact_integer_guard(&mut query, &request.column, &request.old_value);
-    Ok(query.build().execute(executor).await?.rows_affected())
+    push_mysql_value(&mut query, &request.old_value, args);
+    mysql_exact_integer_guard(&mut query, &request.column, &request.old_value, args);
+    query
+}
+
+async fn update_mysql<'e, E>(executor: E, request: &UpdateCellRequest, args: MySqlArgs) -> AppResult<u64>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
+    let mut query = mysql_update_query(request, args);
+    Ok(match args {
+        MySqlArgs::Bind => query.build().execute(executor).await?.rows_affected(),
+        // 不带参数的 &str = 文本协议,不预编译
+        MySqlArgs::Inline => executor.execute(query.sql()).await?.rows_affected(),
+    })
+}
+
+async fn update_mysql_bound<'e, E>(executor: E, request: &UpdateCellRequest) -> AppResult<u64>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
+    update_mysql(executor, request, MySqlArgs::Bind).await
 }
 
 async fn update_postgres<'e, E>(executor: E, request: &UpdateCellRequest) -> AppResult<u64>
@@ -224,11 +281,30 @@ pub async fn apply_edits(pool: &DbPool, requests: &[UpdateCellRequest]) -> AppRe
     }
     match pool {
         DbPool::MySql(p) => {
-            let mut tx = p.begin().await?;
-            for request in requests {
-                guard(update_mysql(&mut *tx, request).await?)?;
+            let args = if p.caps.prepared_writes { MySqlArgs::Bind } else { MySqlArgs::Inline };
+            if p.caps.transactions {
+                let mut tx = p.begin().await?;
+                for request in requests {
+                    guard(update_mysql(&mut *tx, request, args).await?)?;
+                }
+                tx.commit().await?;
+            } else {
+                // 没有普通事务(Doris / StarRocks):一处一处改,每处都核对改到了一行;
+                // 中途失败时前面的已经生效、撤不回,如实说清楚
+                for (index, request) in requests.iter().enumerate() {
+                    let outcome = match update_mysql(&p.pool, request, args).await {
+                        Ok(rows) => guard(rows),
+                        Err(error) => Err(error),
+                    };
+                    if let Err(error) = outcome {
+                        return Err(AppError::msg(format!(
+                            "第 {} 处修改失败:{error}。这个数据库没有事务,前 {} 处已经生效,请自行核对。",
+                            index + 1,
+                            index
+                        )));
+                    }
+                }
             }
-            tx.commit().await?;
         }
         DbPool::Postgres(p) => {
             let mut tx = p.begin().await?;
@@ -280,7 +356,8 @@ pub async fn apply_edits_on_tx(
         }};
     }
     match tx {
-        SessionTx::MySql(t) => batch!(t, update_mysql),
+        // 能开会话事务的 MySQL 一定是完整 MySQL(没有事务的引擎根本进不到这里),照常绑定参数
+        SessionTx::MySql(t) => batch!(t, update_mysql_bound),
         SessionTx::Postgres(t) => batch!(t, update_postgres),
         SessionTx::Sqlite(t) => batch!(t, update_sqlite),
     }
@@ -291,6 +368,34 @@ pub async fn apply_edits_on_tx(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn mysql_literals_are_escaped_like_the_server_expects() {
+        use serde_json::json;
+        assert_eq!(mysql_literal(&json!(null)), "NULL");
+        assert_eq!(mysql_literal(&json!(true)), "TRUE");
+        assert_eq!(mysql_literal(&json!(-12)), "-12");
+        assert_eq!(mysql_literal(&json!(12.5)), "12.5");
+        assert_eq!(mysql_literal(&json!("甲")), "'甲'");
+        assert_eq!(mysql_literal(&json!("O'Brien")), "'O\\'Brien'");
+        assert_eq!(mysql_literal(&json!("a\\b")), "'a\\\\b'", "反斜杠要双写,否则会吃掉后面的引号");
+        assert_eq!(mysql_literal(&json!("x\\' OR 1=1 -- ")), "'x\\\\\\' OR 1=1 -- '", "注入串整个留在引号里");
+        assert_eq!(mysql_literal(&json!("行1\n行2\r\0\u{1a}")), "'行1\\n行2\\r\\0\\Z'");
+        assert_eq!(mysql_literal(&json!("9007199254740993")), "'9007199254740993'", "大整数走字符串不丢精度");
+    }
+
+    #[test]
+    fn inline_update_has_no_placeholders_and_keeps_the_same_guards() {
+        use serde_json::json;
+        let request = UpdateCellRequest {
+            conn_id: "c".into(), database: "db".into(), schema: "db".into(), table: "t".into(), column: "name".into(),
+            primary_key: HashMap::from([("id".to_string(), json!(1))]), old_value: json!("甲"), new_value: json!("O'B"),
+        };
+        let inline = mysql_update_query(&request, MySqlArgs::Inline).into_sql();
+        assert_eq!(inline, "UPDATE `db`.`t` SET `name` = 'O\\'B' WHERE `id` <=> 1 AND `name` <=> '甲'");
+        let bound = mysql_update_query(&request, MySqlArgs::Bind).into_sql();
+        assert_eq!(bound, "UPDATE `db`.`t` SET `name` = ? WHERE `id` <=> ? AND `name` <=> ?");
+    }
 
     #[test]
     fn identifier_quoting_escapes_engine_delimiters() {
@@ -400,14 +505,19 @@ mod binary_key_tests {
 
         // 老的显示值拿去改,对不上 —— 这就是原来的 bug
         let hex = Value::String("0x3639613133663633303736383331653431613133393938313736363634623565".into());
-        let stale = update_mysql(&mut conn, &request(hex, code.clone(), Value::String("x".into()))).await.unwrap();
-        assert_eq!(stale, 0, "0x 显示值作为主键永远匹配不上");
+        // 绑定参数和直接写字面量(Doris 那条路)两种写法,结果必须一样
+        let mut current = code.clone();
+        for (args, next) in [(MySqlArgs::Bind, "20010733"), (MySqlArgs::Inline, "20010734")] {
+            let stale = update_mysql(&mut conn, &request(hex.clone(), current.clone(), Value::String("x".into())), args).await.unwrap();
+            assert_eq!(stale, 0, "{args:?}: 0x 显示值作为主键永远匹配不上");
 
-        // 用现在读出来的值改,改得动
-        let updated = update_mysql(&mut conn, &request(key.clone(), code, Value::String("20010733".into()))).await.unwrap();
-        assert_eq!(updated, 1, "用读出来的文本当主键和旧值,必须改到这一行");
-        let back: Vec<u8> = sqlx::query_scalar(&format!("SELECT `code` FROM `{db}`.`t`")).fetch_one(&mut conn).await.unwrap();
-        assert_eq!(back, b"20010733", "写进去的是正确的字节");
+            // 用现在读出来的值改,改得动
+            let updated = update_mysql(&mut conn, &request(key.clone(), current.clone(), Value::String(next.into())), args).await.unwrap();
+            assert_eq!(updated, 1, "{args:?}: 用读出来的文本当主键和旧值,必须改到这一行");
+            let back: Vec<u8> = sqlx::query_scalar(&format!("SELECT `code` FROM `{db}`.`t`")).fetch_one(&mut conn).await.unwrap();
+            assert_eq!(back, next.as_bytes(), "{args:?}: 写进去的是正确的字节");
+            current = Value::String(next.into());
+        }
 
         sqlx::query(&format!("DROP DATABASE `{db}`")).execute(&mut conn).await.unwrap();
     }

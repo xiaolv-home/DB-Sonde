@@ -334,6 +334,7 @@ export const mockApi = {
       currentDatabase: "/mock/demo.db",
       hasSchemas: false,
       hasMultipleDatabases: false,
+      manualTransactions: true,
     };
   },
   async disconnect() {},

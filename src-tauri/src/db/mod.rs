@@ -5,6 +5,8 @@ pub mod introspect;
 pub mod routines;
 pub mod oracle_driver;
 pub mod value;
+#[cfg(test)]
+mod live_mysql_family;
 
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -21,11 +23,63 @@ use crate::models::{ColumnMeta, ConnectionConfig, DbKind, QueryResult};
 /// run queries without holding a lock.
 #[derive(Clone)]
 pub enum DbPool {
-    MySql(sqlx::MySqlPool),
+    MySql(MySql),
     Postgres(sqlx::PgPool),
     Sqlite(sqlx::SqlitePool),
     Oracle(oracle_driver::OracleHandle),
     ClickHouse(clickhouse_driver::ClickHouseHandle),
+}
+
+/// MySQL 协议的连接池,加上连上时探明的服务端能力。
+///
+/// 同样说 MySQL 协议,Doris / StarRocks 这类分析型引擎和 MySQL 差在两处:
+/// 没有普通事务(BEGIN 进的是只许 INSERT 的导入事务,连接从此卡住),
+/// 写语句不能走预编译(PREPARE 的回包少两个字节,驱动直接报错)。
+/// 需要事务、需要绑定参数写入的地方只问这里,不去认引擎名字。
+#[derive(Clone)]
+pub struct MySql {
+    pub pool: sqlx::MySqlPool,
+    pub caps: MySqlCaps,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MySqlCaps {
+    /// BEGIN / COMMIT / ROLLBACK 是普通事务
+    pub transactions: bool,
+    /// INSERT / UPDATE 之类写语句能走预编译(绑定参数)
+    pub prepared_writes: bool,
+    /// information_schema 里 COLUMN_KEY = 'UNI' 的列能唯一确定一行。Doris / StarRocks 的
+    /// Unique Key 表就是这样标它的键列(它们没有 PRIMARY KEY);MySQL 里 UNI 只是唯一索引,不算。
+    pub unique_key_identifies_row: bool,
+}
+
+impl MySqlCaps {
+    pub const FULL: MySqlCaps = MySqlCaps { transactions: true, prepared_writes: true, unique_key_identifies_row: false };
+
+    /// 按 `@@version_comment` 认:Doris 报 "doris version doris-4.1…",StarRocks 报 "StarRocks version …"。
+    /// 认不出就当完整的 MySQL。
+    pub fn from_version_comment(comment: &str) -> MySqlCaps {
+        let c = comment.to_ascii_lowercase();
+        if c.contains("doris") || c.contains("starrocks") {
+            MySqlCaps { transactions: false, prepared_writes: false, unique_key_identifies_row: true }
+        } else {
+            MySqlCaps::FULL
+        }
+    }
+}
+
+impl MySqlCaps {
+    /// 这一列(按 information_schema.columns.COLUMN_KEY)是不是用来定位行的键 —— 改单元格靠它。
+    pub fn is_row_key(&self, column_key: &str) -> bool {
+        column_key.eq_ignore_ascii_case("PRI") || (self.unique_key_identifies_row && column_key.eq_ignore_ascii_case("UNI"))
+    }
+}
+
+impl std::ops::Deref for MySql {
+    type Target = sqlx::MySqlPool;
+    fn deref(&self) -> &sqlx::MySqlPool {
+        &self.pool
+    }
 }
 
 /// What a fresh connection tells us about the server.
@@ -47,13 +101,24 @@ pub enum SessionTx {
 /// 会话事务 —— 批量写入时要据此决定是"要么全成要么全不成",还是只能一条条来、
 /// 然后老实告诉用户跑掉了几条。
 pub fn supports_session_tx(pool: &DbPool) -> bool {
-    matches!(pool, DbPool::MySql(_) | DbPool::Postgres(_) | DbPool::Sqlite(_))
+    match pool {
+        DbPool::MySql(m) => m.caps.transactions,
+        DbPool::Postgres(_) | DbPool::Sqlite(_) => true,
+        DbPool::Oracle(_) | DbPool::ClickHouse(_) => false,
+    }
+}
+
+/// 不支持普通事务的 MySQL 协议引擎(Doris / StarRocks):要事务的地方直接说清楚,
+/// 别真去 BEGIN —— BEGIN 会把连接卡进只许 INSERT 的导入事务,还回连接池后连累后面所有查询。
+fn no_transactions() -> AppError {
+    AppError::msg("这个数据库(Doris / StarRocks 一类)没有普通事务,不能关闭自动提交,语句都是即时生效的。")
 }
 
 /// Begin a manual-commit transaction on a pooled engine. Oracle isn't pooled the
 /// same way, so it manages autocommit on its own connection instead.
 pub async fn begin_tx(pool: &DbPool) -> AppResult<SessionTx> {
     Ok(match pool {
+        DbPool::MySql(p) if !p.caps.transactions => return Err(no_transactions()),
         DbPool::MySql(p) => SessionTx::MySql(p.begin().await?),
         DbPool::Postgres(p) => SessionTx::Postgres(p.begin().await?),
         DbPool::Sqlite(p) => SessionTx::Sqlite(p.begin().await?),
@@ -77,6 +142,7 @@ pub async fn begin_tx(pool: &DbPool) -> AppResult<SessionTx> {
 /// `query_only` pragma would leak connection state back into the shared pool.
 async fn begin_read_only_tx(pool: &DbPool) -> AppResult<SessionTx> {
     Ok(match pool {
+        DbPool::MySql(p) if !p.caps.transactions => return Err(no_transactions()),
         DbPool::MySql(p) => SessionTx::MySql(p.begin_with("START TRANSACTION READ ONLY").await?),
         DbPool::Postgres(p) => SessionTx::Postgres(p.begin_with("BEGIN READ ONLY").await?),
         DbPool::Sqlite(p) => SessionTx::Sqlite(p.begin().await?),
@@ -156,20 +222,21 @@ pub async fn run_statements(pool: &DbPool, statements: &[String]) -> AppResult<u
 pub async fn run_statements_on_tx(tx: &mut SessionTx, statements: &[String]) -> AppResult<u64> {
     use sqlx::Acquire;
     macro_rules! batch {
-        ($parent:expr) => {{
+        ($parent:expr, |$c:ident, $sql:ident| $run:expr) => {{
             let mut nested = $parent.begin().await?;
             let mut total = 0;
-            for sql in statements {
-                total += sqlx::query(sql).execute(&mut *nested).await?.rows_affected();
+            for $sql in statements {
+                let $c = &mut *nested;
+                total += $run.await?.rows_affected();
             }
             nested.commit().await?;
             Ok(total)
         }};
     }
     match tx {
-        SessionTx::MySql(t) => batch!(t),
-        SessionTx::Postgres(t) => batch!(t),
-        SessionTx::Sqlite(t) => batch!(t),
+        SessionTx::MySql(t) => batch!(t, |c, sql| sqlx::Executor::execute(c, sql.as_str())),
+        SessionTx::Postgres(t) => batch!(t, |c, sql| sqlx::query(sql).execute(c)),
+        SessionTx::Sqlite(t) => batch!(t, |c, sql| sqlx::query(sql).execute(c)),
     }
 }
 
@@ -188,7 +255,7 @@ pub async fn run_query_on_tx(
     }
     if !returns_rows(sql) {
         let affected = match tx {
-            SessionTx::MySql(t) => sqlx::query(sql).execute(&mut **t).await?.rows_affected(),
+            SessionTx::MySql(t) => sqlx::Executor::execute(&mut **t, sql).await?.rows_affected(),
             SessionTx::Postgres(t) => sqlx::query(sql).execute(&mut **t).await?.rows_affected(),
             SessionTx::Sqlite(t) => sqlx::query(sql).execute(&mut **t).await?.rows_affected(),
         };
@@ -206,8 +273,8 @@ pub async fn run_query_on_tx(
     let mut truncated = false;
 
     macro_rules! collect_tx {
-        ($t:expr, $cell:path) => {{
-            let mut stream = sqlx::query(sql).fetch(&mut **$t);
+        ($stream:expr, $cell:path) => {{
+            let mut stream = $stream;
             while let Some(row) = stream.try_next().await? {
                 if columns.is_empty() {
                     columns = value::columns_from_row(&row);
@@ -227,9 +294,9 @@ pub async fn run_query_on_tx(
     }
 
     match tx {
-        SessionTx::MySql(t) => collect_tx!(t, value::mysql_value),
-        SessionTx::Postgres(t) => collect_tx!(t, value::pg_value),
-        SessionTx::Sqlite(t) => collect_tx!(t, value::sqlite_value),
+        SessionTx::MySql(t) => collect_tx!(sqlx::Executor::fetch(&mut **t, sql), value::mysql_value),
+        SessionTx::Postgres(t) => collect_tx!(sqlx::query(sql).fetch(&mut **t), value::pg_value),
+        SessionTx::Sqlite(t) => collect_tx!(sqlx::query(sql).fetch(&mut **t), value::sqlite_value),
     }
 
     Ok(QueryResult {
@@ -243,8 +310,14 @@ pub async fn run_query_on_tx(
     })
 }
 
-async fn run_bound_read_query_on_tx(
-    tx: &mut SessionTx,
+/// 带文本参数的只读查询在哪儿跑:只读事务里,或者(没有事务的引擎)直接在连接池上。
+enum ReadOn<'a> {
+    Tx(&'a mut SessionTx),
+    MySqlPool(&'a sqlx::MySqlPool),
+}
+
+async fn run_bound_read_query(
+    on: ReadOn<'_>,
     sql: &str,
     params: &[String],
     max_rows: Option<usize>,
@@ -256,12 +329,12 @@ async fn run_bound_read_query_on_tx(
     let mut truncated = false;
 
     macro_rules! collect_bound {
-        ($t:expr, $cell:path) => {{
+        ($exec:expr, $cell:path) => {{
             let mut query = sqlx::query(sql);
             for value in params {
                 query = query.bind(value);
             }
-            let mut stream = query.fetch(&mut **$t);
+            let mut stream = query.fetch($exec);
             while let Some(row) = stream.try_next().await? {
                 if columns.is_empty() {
                     columns = value::columns_from_row(&row);
@@ -280,10 +353,11 @@ async fn run_bound_read_query_on_tx(
         }};
     }
 
-    match tx {
-        SessionTx::MySql(t) => collect_bound!(t, value::mysql_value),
-        SessionTx::Postgres(t) => collect_bound!(t, value::pg_value),
-        SessionTx::Sqlite(t) => collect_bound!(t, value::sqlite_value),
+    match on {
+        ReadOn::Tx(SessionTx::MySql(t)) => collect_bound!(&mut **t, value::mysql_value),
+        ReadOn::Tx(SessionTx::Postgres(t)) => collect_bound!(&mut **t, value::pg_value),
+        ReadOn::Tx(SessionTx::Sqlite(t)) => collect_bound!(&mut **t, value::sqlite_value),
+        ReadOn::MySqlPool(p) => collect_bound!(p, value::mysql_value),
     }
 
     Ok(QueryResult {
@@ -307,14 +381,23 @@ pub async fn run_read_only_query(
     max_rows: Option<usize>,
     timeout: Duration,
 ) -> AppResult<QueryResult> {
-    let mut transaction = begin_read_only_tx(pool).await?;
-    let query_result = tokio::time::timeout(
-        timeout,
-        run_bound_read_query_on_tx(&mut transaction, sql, text_params, max_rows),
-    )
-    .await;
-    let rollback_result = rollback_tx(transaction).await;
-    rollback_result?;
+    let query_result = match pool {
+        // 没有普通事务的引擎(Doris / StarRocks)开不了只读事务:调用方已经用语句校验挡掉了写语句
+        // (validate_dashboard_sql / validate_bridge_sql,和 SQLite 同理),直接在连接池上跑
+        DbPool::MySql(m) if !m.caps.transactions => {
+            tokio::time::timeout(timeout, run_bound_read_query(ReadOn::MySqlPool(&m.pool), sql, text_params, max_rows)).await
+        }
+        _ => {
+            let mut transaction = begin_read_only_tx(pool).await?;
+            let result = tokio::time::timeout(
+                timeout,
+                run_bound_read_query(ReadOn::Tx(&mut transaction), sql, text_params, max_rows),
+            )
+            .await;
+            rollback_tx(transaction).await?;
+            result
+        }
+    };
     let mut result = query_result.map_err(|_| {
         AppError::msg(format!(
             "Dashboard query timed out after {} seconds.",
@@ -374,15 +457,13 @@ async fn connect_mysql(cfg: &ConnectionConfig, password: Option<&str>) -> AppRes
         .connect_with(opts)
         .await?;
 
-    let server_version = fetch_scalar(&DbPool::MySql(pool.clone()), "SELECT VERSION()")
-        .await
-        .unwrap_or_default();
-    let current_database = fetch_scalar(&DbPool::MySql(pool.clone()), "SELECT DATABASE()")
-        .await
-        .unwrap_or_default();
+    let probe = DbPool::MySql(MySql { pool: pool.clone(), caps: MySqlCaps::FULL });
+    let server_version = fetch_scalar(&probe, "SELECT VERSION()").await.unwrap_or_default();
+    let current_database = fetch_scalar(&probe, "SELECT DATABASE()").await.unwrap_or_default();
+    let caps = MySqlCaps::from_version_comment(&fetch_scalar(&probe, "SELECT @@version_comment").await.unwrap_or_default());
 
     Ok(ConnectInfo {
-        pool: DbPool::MySql(pool),
+        pool: DbPool::MySql(MySql { pool, caps }),
         server_version,
         current_database,
     })
@@ -470,11 +551,11 @@ async fn connect_sqlite(cfg: &ConnectionConfig) -> AppResult<ConnectInfo> {
 /// current-database probes.
 async fn fetch_scalar(pool: &DbPool, sql: &str) -> Option<String> {
     let value = match pool {
-        DbPool::MySql(p) => sqlx::query(sql)
-            .fetch_optional(p)
+        // 文本协议;sqlx 的 raw_sql 没有真正的 fetch_optional(它内部就是 fetch_one),没行就当没有
+        DbPool::MySql(p) => sqlx::raw_sql(sql)
+            .fetch_one(&p.pool)
             .await
             .ok()
-            .flatten()
             .map(|r| value::mysql_value(&r, 0)),
         DbPool::Postgres(p) => sqlx::query(sql)
             .fetch_optional(p)
@@ -628,7 +709,7 @@ pub async fn cancel_marked_query(pool: &DbPool, marker: &str) -> AppResult<u64> 
 pub async fn kill_process(pool: &DbPool, id: i64) -> AppResult<()> {
     match pool {
         DbPool::MySql(p) => {
-            sqlx::raw_sql(&format!("KILL {id}")).execute(p).await?;
+            sqlx::raw_sql(&format!("KILL {id}")).execute(&p.pool).await?;
         }
         DbPool::Postgres(p) => {
             sqlx::query("SELECT pg_terminate_backend($1)")
@@ -666,7 +747,8 @@ pub async fn run_query(
     }
     if !returns_rows(sql) {
         let affected = match pool {
-            DbPool::MySql(p) => sqlx::query(sql).execute(p).await?.rows_affected(),
+            // MySQL 一族手写的 SQL 走文本协议(和 mysql 命令行一样),不预编译 —— 见 MySql 上的说明
+            DbPool::MySql(p) => sqlx::Executor::execute(&p.pool, sql).await?.rows_affected(),
             DbPool::Postgres(p) => sqlx::query(sql).execute(p).await?.rows_affected(),
             DbPool::Sqlite(p) => sqlx::query(sql).execute(p).await?.rows_affected(),
             DbPool::Oracle(_) => unreachable!("oracle handled above"),
@@ -686,8 +768,8 @@ pub async fn run_query(
     let mut truncated = false;
 
     macro_rules! collect {
-        ($p:expr, $cell:path) => {{
-            let mut stream = sqlx::query(sql).fetch($p);
+        ($stream:expr, $cell:path) => {{
+            let mut stream = $stream;
             while let Some(row) = stream.try_next().await? {
                 if columns.is_empty() {
                     columns = value::columns_from_row(&row);
@@ -707,9 +789,10 @@ pub async fn run_query(
     }
 
     match pool {
-        DbPool::MySql(p) => collect!(p, value::mysql_value),
-        DbPool::Postgres(p) => collect!(p, value::pg_value),
-        DbPool::Sqlite(p) => collect!(p, value::sqlite_value),
+        // 传 &str = 文本协议(COM_QUERY),不预编译
+        DbPool::MySql(p) => collect!(sqlx::Executor::fetch(&p.pool, sql), value::mysql_value),
+        DbPool::Postgres(p) => collect!(sqlx::query(sql).fetch(p), value::pg_value),
+        DbPool::Sqlite(p) => collect!(sqlx::query(sql).fetch(p), value::sqlite_value),
         DbPool::Oracle(_) => unreachable!("oracle handled above"),
         DbPool::ClickHouse(_) => unreachable!("clickhouse handled above"),
     }
@@ -1003,6 +1086,19 @@ mod cancel_tests {
     }
 
     #[test]
+    fn analytic_engines_are_recognised_from_version_comment() {
+        let doris = MySqlCaps::from_version_comment("doris version doris-4.1.4.1-rc02-5dbec55b399");
+        assert!(!doris.transactions && !doris.prepared_writes, "Doris:没有普通事务、写语句不能预编译");
+        assert_eq!(MySqlCaps::from_version_comment("StarRocks version 3.3.2"), doris);
+        assert_eq!(MySqlCaps::from_version_comment("MySQL Community Server - GPL"), MySqlCaps::FULL);
+        assert_eq!(MySqlCaps::from_version_comment("Source distribution"), MySqlCaps::FULL, "PolarDB / 自编译 MySQL");
+        assert_eq!(MySqlCaps::from_version_comment(""), MySqlCaps::FULL, "读不到就当完整 MySQL");
+        assert!(MySqlCaps::FULL.is_row_key("PRI") && !MySqlCaps::FULL.is_row_key("UNI"), "MySQL:唯一索引不当行键");
+        assert!(doris.is_row_key("UNI") && doris.is_row_key("PRI"), "Doris Unique Key 表的键列标 UNI");
+        assert!(!doris.is_row_key("DUP") && !doris.is_row_key("AGG") && !doris.is_row_key(""), "明细 / 聚合模型不能按行改");
+    }
+
+    #[test]
     fn run_markers_cannot_break_out_of_the_comment_or_widen_the_match() {
         assert_eq!(run_marker("q1-abc").as_deref(), Some("sonde:q1-abc"));
         for bad in ["", "a*/ DROP", "x%", "x_y", "a b", &"z".repeat(65)] {
@@ -1020,11 +1116,11 @@ mod cancel_tests {
             .username(&std::env::var("SONDE_TEST_MYSQL_USER").expect("test MySQL user"))
             .password(&std::env::var("SONDE_TEST_MYSQL_PASSWORD").unwrap_or_default());
         let pool = sqlx::mysql::MySqlPoolOptions::new().max_connections(2).connect_with(options).await.unwrap();
-        let db = DbPool::MySql(pool.clone());
+        let db = DbPool::MySql(MySql { pool: pool.clone(), caps: MySqlCaps::FULL });
         let marker = run_marker("stop-test-1").unwrap();
         let sql = format!("/* {marker} */ SELECT SLEEP(20) AS s");
         let started = Instant::now();
-        let running = tokio::spawn({ let db = DbPool::MySql(pool.clone()); async move { run_query(&db, &sql, Some(10)).await } });
+        let running = tokio::spawn({ let db = DbPool::MySql(MySql { pool: pool.clone(), caps: MySqlCaps::FULL }); async move { run_query(&db, &sql, Some(10)).await } });
         tokio::time::sleep(Duration::from_millis(1000)).await;
         let cancelled = cancel_marked_query(&db, &marker).await.unwrap();
         assert_eq!(cancelled, 1, "应当找到并取消那一条");

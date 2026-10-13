@@ -23,6 +23,8 @@ export interface ConnectionMeta {
   currentDatabase: string;
   hasSchemas: boolean;
   hasMultipleDatabases: boolean;
+  /** 能不能关自动提交。后端连上时按服务端实际能力判断(Doris / StarRocks 没有普通事务) */
+  manualTransactions?: boolean;
 }
 
 export interface TableInfo {

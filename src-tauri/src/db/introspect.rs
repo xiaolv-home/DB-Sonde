@@ -43,7 +43,7 @@ fn mysql_table_kind(is_view: i64) -> String {
 /// Top-level databases browsable on this connection.
 pub async fn list_databases(pool: &DbPool, kind: DbKind) -> AppResult<Vec<String>> {
     match pool {
-        DbPool::MySql(p) => {
+        DbPool::MySql(super::MySql { pool: p, .. }) => {
             let rows = sqlx::query(
                 "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name",
             )
@@ -94,7 +94,7 @@ pub async fn list_schemas(pool: &DbPool, _database: &str) -> AppResult<Vec<Strin
 /// for PostgreSQL it's `schema`; SQLite ignores both.
 pub async fn list_tables(pool: &DbPool, database: &str, schema: &str) -> AppResult<Vec<TableInfo>> {
     match pool {
-        DbPool::MySql(p) => {
+        DbPool::MySql(super::MySql { pool: p, .. }) => {
             let rows = sqlx::query(
                 "SELECT t.table_name, \
                         CAST(CASE WHEN v.table_name IS NOT NULL \
@@ -191,7 +191,7 @@ pub async fn list_columns(
     table: &str,
 ) -> AppResult<Vec<ColumnInfo>> {
     match pool {
-        DbPool::MySql(p) => {
+        DbPool::MySql(super::MySql { pool: p, caps }) => {
             let rows = sqlx::query(
                 "SELECT column_name, CAST(column_type AS CHAR), \
                         CAST(CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS SIGNED), \
@@ -218,7 +218,7 @@ pub async fn list_columns(
                         name,
                         data_type,
                         nullable: nullable != 0,
-                        is_primary_key: key.eq_ignore_ascii_case("PRI"),
+                        is_primary_key: caps.is_row_key(&key),
                         default_value,
                         ordinal_position: r.try_get(5).ok(),
                         auto_increment: extra.to_ascii_lowercase().contains("auto_increment"),
@@ -328,7 +328,7 @@ pub async fn list_routines(
     schema: &str,
 ) -> AppResult<Vec<RoutineInfo>> {
     match pool {
-        DbPool::MySql(p) => {
+        DbPool::MySql(super::MySql { pool: p, .. }) => {
             let rows = sqlx::query(
                 "SELECT routine_name, \
                         CAST(CASE WHEN routine_type = 'PROCEDURE' THEN 1 ELSE 0 END AS SIGNED), \
@@ -401,7 +401,7 @@ pub async fn list_indexes(
     table: &str,
 ) -> AppResult<Vec<IndexInfo>> {
     match pool {
-        DbPool::MySql(p) => {
+        DbPool::MySql(super::MySql { pool: p, .. }) => {
             let rows = sqlx::query(
                 "SELECT index_name, CAST(non_unique AS SIGNED), index_type, \
                         COALESCE(column_name, '') \
@@ -510,7 +510,7 @@ pub async fn get_object_ddl(
     object_kind: &str,
 ) -> AppResult<String> {
     match pool {
-        DbPool::MySql(p) => {
+        DbPool::MySql(super::MySql { pool: p, .. }) => {
             let database = database.replace('`', "``");
             let table = table.replace('`', "``");
             let noun = if object_kind.eq_ignore_ascii_case("view") {
@@ -518,9 +518,9 @@ pub async fn get_object_ddl(
             } else {
                 "TABLE"
             };
-            let row = sqlx::query(&format!("SHOW CREATE {noun} `{database}`.`{table}`"))
-                .fetch_one(p)
-                .await?;
+            // 文本协议:SHOW CREATE 在 Doris 上不能预编译
+            let sql = format!("SHOW CREATE {noun} `{database}`.`{table}`");
+            let row = sqlx::Executor::fetch_one(p, sql.as_str()).await?;
             Ok(row.try_get::<String, _>(1).unwrap_or_default())
         }
         DbPool::Sqlite(p) => {
