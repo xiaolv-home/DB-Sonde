@@ -69,6 +69,16 @@ async fn live_mysql_family_everyday_operations() {
     rep.step("树:列库", introspect::list_databases(&pool, crate::models::DbKind::Mysql).await.map_err(|e| e.to_string()), |d| format!("含测试库={}", d.contains(&db)));
     rep.step("树:列表", introspect::list_tables(&pool, &db, &db).await.map_err(|e| e.to_string()), |ts| format!("{:?}", ts.iter().map(|t| (t.name.clone(), t.comment.clone())).collect::<Vec<_>>()));
     rep.step("树:列字段", introspect::list_columns(&pool, &db, &db, "t").await.map_err(|e| e.to_string()), |cs| format!("{:?}", cs.iter().map(|c| (c.name.clone(), c.data_type.clone(), c.is_primary_key, c.comment.clone())).collect::<Vec<_>>()));
+    if !doris {
+        rep.step("建函数", q(run_query(&pool, &format!("CREATE FUNCTION `{db}`.f_name() RETURNS VARCHAR(10) DETERMINISTIC RETURN 'x'"), None).await), |_| "ok".into());
+    }
+    rep.step("树:存储过程 / 函数", introspect::list_routines(&pool, &db, &db).await.map_err(|e| e.to_string()).and_then(|r| {
+        // MySQL 上那个函数的返回类型要读成完整的 varchar(10)
+        match r.iter().find(|x| x.name == "f_name") {
+            Some(f) if f.return_type.as_deref() != Some("varchar(10)") => Err(format!("返回类型读成了 {:?}", f.return_type)),
+            _ => Ok(r),
+        }
+    }), |r| format!("{:?}", r.iter().map(|x| (x.name.clone(), x.return_type.clone())).collect::<Vec<_>>()));
     rep.step("树:索引", introspect::list_indexes(&pool, &db, &db, "t").await.map_err(|e| e.to_string()), |ix| format!("{} 个", ix.len()));
     rep.step("DDL", introspect::get_object_ddl(&pool, &db, &db, "t", "table").await.map_err(|e| e.to_string()), |s| s.lines().next().unwrap_or("").to_string());
     rep.step("改单元格", edit::apply_edits(&pool, &[UpdateCellRequest {

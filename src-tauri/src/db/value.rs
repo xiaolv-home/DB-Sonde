@@ -47,7 +47,7 @@ pub fn exact_json_integer(value: Value) -> Value {
 /// 所以:合法 UTF-8、不含控制字符(制表 / 换行 / 回车除外)、不超过 64 KiB 的,
 /// 按文本返回 —— 显示读得懂,绑回去的也正是原来的字节。
 /// 其余才是真二进制,照旧给十六进制(短的全给,长的截断并标长度)。
-fn bytes_to_value(bytes: Vec<u8>) -> Value {
+pub(crate) fn bytes_to_value(bytes: Vec<u8>) -> Value {
     const TEXT_LIMIT: usize = 64 * 1024;
     if bytes.len() <= TEXT_LIMIT {
         if let Ok(text) = std::str::from_utf8(&bytes) {

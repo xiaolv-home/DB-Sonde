@@ -13,7 +13,7 @@ import {
   keywordCompletionSource,
 } from "@codemirror/lang-sql";
 import { EditorView, keymap } from "@codemirror/view";
-import { EditorState, Prec, type Text } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import {
   autocompletion,
@@ -25,53 +25,9 @@ import { tags as t } from "@lezer/highlight";
 import type { DbKind } from "../types";
 import type { CompletionCatalog } from "../types";
 import type { SQLNamespace } from "@codemirror/lang-sql";
-import { scanSql, sqlScanState } from "../lib/sql";
+import { keywordUpperEdits, type Edit } from "../lib/keywordCase";
 import { editorKit } from "./editorKit";
 
-
-type Edit = { from: number; to: number; insert: string };
-
-/** Find completed words in `doc[from..to]` that are SQL keywords for the
- *  dialect and return edits that upper-case them — DBeaver style. Only *whole,
- *  finished* words are touched (a word still being typed is left alone), and
- *  never inside strings, quoted identifiers, or comments. Table/column names
- *  (anything not a dialect keyword) keep the exact case you typed, so they match
- *  on case-sensitive servers and rank first in completion. */
-function keywordUpperEdits(
-  doc: Text,
-  from: number,
-  to: number,
-  words: Record<string, unknown>,
-  kind: DbKind | undefined,
-): Edit[] {
-  let start = from;
-  while (start > 0 && /\w/.test(doc.sliceString(start - 1, start))) start -= 1;
-  const text = doc.sliceString(start, to);
-  const nextChar = to < doc.length ? doc.sliceString(to, to + 1) : "";
-
-  /* 语境(在不在字符串/注释里)交给 lib/sql.ts 的那一份扫描器 —— 这儿原来自己
-     又写了一遍,而且跟拆语句那份规则不一致(都把反斜杠一律当转义)。
-     先把光标前的文本扫一遍拿到语境,再扫这次改动的片段,标出哪些位置是代码区。 */
-  const before = sqlScanState(doc.sliceString(0, start), kind);
-  const isCode = new Array<boolean>(text.length).fill(false);
-  scanSql(text, kind, before, (i) => { isCode[i] = true; });
-
-  const edits: Edit[] = [];
-  const n = text.length;
-  for (let i = 0; i < n; ) {
-    if (!isCode[i] || !/[A-Za-z_]/.test(text[i])) { i += 1; continue; }
-    let j = i + 1;
-    while (j < n && isCode[j] && /[A-Za-z0-9_]/.test(text[j])) j += 1;
-    const word = text.slice(i, j);
-    // 紧贴改动末尾的词,只有当文档里它后面不是词字符时才算"打完了"
-    const complete = j < n ? true : !/[A-Za-z0-9_]/.test(nextChar);
-    if (complete && words[word.toLowerCase()] != null && word !== word.toUpperCase()) {
-      edits.push({ from: start + i, to: start + j, insert: word.toUpperCase() });
-    }
-    i = j;
-  }
-  return edits;
-}
 
 /** As you type or paste, fold SQL *keywords* to upper case once each word is
  *  finished — identifiers (table/column names) are left exactly as written. */
@@ -81,9 +37,10 @@ function keywordUpperCase(dialect: SQLDialect, kind: DbKind | undefined) {
   return EditorState.transactionFilter.of((tr) => {
     if (!tr.docChanged) return tr;
     if (!tr.isUserEvent("input.type") && !tr.isUserEvent("input.paste")) return tr;
+    const pasted = tr.isUserEvent("input.paste");
     const edits: Edit[] = [];
     tr.changes.iterChanges((_fromA, _toA, fromB, toB) => {
-      edits.push(...keywordUpperEdits(tr.newDoc, fromB, toB, words, kind));
+      edits.push(...keywordUpperEdits(tr.newDoc, fromB, toB, words, kind, pasted));
     });
     if (!edits.length) return tr;
     return [tr, { changes: edits, sequential: true }];

@@ -327,7 +327,7 @@ mod thin {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use oracle_rs::{Config, Connection, QueryResult as OraResult, Row, Value};
+    use oracle_rs::{Config, Connection, LobData, LobValue, QueryResult as OraResult, Row, Value};
     use serde_json::Value as Json;
 
     use crate::db::{ConnectInfo, DbPool};
@@ -367,6 +367,36 @@ mod thin {
             Value::Json(j) => j.clone(),
             other => Json::String(other.to_string()),
         }
+    }
+
+    /// 查询结果里的大字段只读前这么多(字符 / 字节),免得一页结果几百兆卡住界面;看 DDL 时读全
+    const LOB_PREVIEW: u64 = 1 << 20;
+
+    /// CLOB 读成文字,BLOB 读成字节(和 MySQL 的二进制列一样显示成 0x…)。
+    /// `limit` 有值且内容更长时只读前 limit 个,末尾注明原来多大。
+    async fn lob_to_json(handle: &Handle, lob: &LobValue, limit: Option<u64>) -> AppResult<Json> {
+        Ok(match lob {
+            LobValue::Null => Json::Null,
+            LobValue::Empty => Json::String(String::new()),
+            LobValue::Inline(bytes) => match std::str::from_utf8(bytes) {
+                Ok(text) => Json::String(text.to_string()),
+                Err(_) => crate::db::value::bytes_to_value(bytes.to_vec()),
+            },
+            LobValue::Locator(loc) => {
+                let size = loc.size();
+                let take = limit.map_or(size, |l| l.min(size));
+                let data = if take < size {
+                    handle.read_lob_range(loc, 1, take).await.map_err(oe)?
+                } else {
+                    handle.read_lob(loc).await.map_err(oe)?
+                };
+                let cut = if take < size { format!("…(共 {size},只显示前 {take})") } else { String::new() };
+                match data {
+                    LobData::String(text) => Json::String(format!("{text}{cut}")),
+                    LobData::Bytes(bytes) => crate::db::value::bytes_to_value(bytes.to_vec()),
+                }
+            }
+        })
     }
 
     fn cell_str(row: &Row, i: usize) -> Option<String> {
@@ -463,15 +493,19 @@ mod thin {
                 })
                 .collect();
             let ncols = result.columns.len();
-            let rows: Vec<Vec<Json>> = result
-                .rows
-                .iter()
-                .map(|row| {
-                    (0..ncols)
-                        .map(|i| row.get(i).map(cell_to_json).unwrap_or(Json::Null))
-                        .collect()
-                })
-                .collect();
+            let mut rows: Vec<Vec<Json>> = Vec::with_capacity(result.rows.len());
+            for row in &result.rows {
+                let mut cells = Vec::with_capacity(ncols);
+                for i in 0..ncols {
+                    cells.push(match row.get(i) {
+                        // CLOB / BLOB 在结果里只是个「指针」,要再去服务器把内容读回来
+                        Some(Value::Lob(lob)) => lob_to_json(handle, lob, Some(LOB_PREVIEW)).await?,
+                        Some(v) => cell_to_json(v),
+                        None => Json::Null,
+                    });
+                }
+                rows.push(cells);
+            }
             Ok(QueryResult {
             additional_results: None,
                 columns,
@@ -608,7 +642,12 @@ mod thin {
         )
         .await
         {
-            Ok((result, _)) => Ok(result.rows.first().and_then(|r| cell_str(r, 0)).unwrap_or_default()),
+            // GET_DDL 返回 CLOB:读全文(不截断),不然只能看到 <LOB: … locator>
+            Ok((result, _)) => match result.rows.first().and_then(|r| r.get(0)) {
+                Some(Value::Lob(lob)) => Ok(lob_to_json(handle, lob, None).await?.as_str().unwrap_or_default().trim().to_string()),
+                Some(_) => Ok(result.rows.first().and_then(|r| cell_str(r, 0)).unwrap_or_default()),
+                None => Ok(String::new()),
+            },
             Err(e) => Ok(format!("-- DDL unavailable (DBMS_METADATA): {e}")),
         }
     }
@@ -1130,5 +1169,20 @@ mod live_tests {
         let cols = super::list_columns(&conn, owner, &first.name).await.expect("读字段");
         assert!(cols.iter().any(|c| c.comment.is_some()), "{} 的字段没读出注释", first.name);
         println!("{} 张表里 {with_comment} 张有注释;{} 第一列注释:{:?}", tables.len(), first.name, cols.iter().find_map(|c| c.comment.clone()));
+
+        // DDL 是 CLOB,要读出全文,不能是 <LOB: … locator>
+        let ddl = super::get_object_ddl(&conn, owner, &first.name, "table").await.expect("取 DDL");
+        assert!(ddl.contains("CREATE TABLE"), "DDL 没读出来:{}", ddl.chars().take(80).collect::<String>());
+        println!("DDL 前一行:{}", ddl.lines().next().unwrap_or(""));
+        // 普通查询里的 CLOB 也要读出内容
+        // RPAD 按显示宽度算(中文占 2),实际字数以 Oracle 自己报的 GETLENGTH 为准
+        let r = super::run_query(&conn, "SELECT c, DBMS_LOB.GETLENGTH(c) AS n FROM (SELECT RPAD(TO_CLOB('中'), 12000, '文') AS c FROM DUAL)", 10).await.expect("CLOB 查询");
+        let cell = r.rows[0][0].as_str().unwrap_or_default().to_string();
+        let n: usize = r.rows[0][1].as_u64().map(|v| v as usize)
+            .or_else(|| r.rows[0][1].as_str().and_then(|t| t.parse().ok()))
+            .expect("GETLENGTH 读不出来");
+        assert!(n > 4000, "要测的是超过 4000 字的大 CLOB(实际 {n})");
+        assert_eq!(cell.chars().count(), n, "CLOB 内容读全:{}", cell.chars().take(40).collect::<String>());
+        println!("CLOB {n} 字全部读出");
     }
 }

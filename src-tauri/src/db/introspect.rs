@@ -328,11 +328,13 @@ pub async fn list_routines(
     schema: &str,
 ) -> AppResult<Vec<RoutineInfo>> {
     match pool {
+        // 返回类型用 DTD_IDENTIFIER(完整类型,如 varchar(10)):MySQL / MariaDB 都有,
+        // Doris / StarRocks 的 routines 表没有 DATA_TYPE 列
         DbPool::MySql(super::MySql { pool: p, .. }) => {
             let rows = sqlx::query(
                 "SELECT routine_name, \
                         CAST(CASE WHEN routine_type = 'PROCEDURE' THEN 1 ELSE 0 END AS SIGNED), \
-                        CAST(external_language AS CHAR), NULLIF(CAST(data_type AS CHAR), ''), \
+                        CAST(external_language AS CHAR), NULLIF(CAST(dtd_identifier AS CHAR), ''), \
                         NULLIF(routine_comment, '') \
                  FROM information_schema.routines \
                  WHERE routine_schema = ? ORDER BY routine_type, routine_name",
