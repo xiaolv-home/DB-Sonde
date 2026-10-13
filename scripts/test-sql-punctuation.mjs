@@ -30,6 +30,16 @@ try {
   assert.equal(m.asciiPunctuationFor('。', "SELECT '好", 'mysql'), null, '字符串里的句号不动');
   assert.equal(m.asciiPunctuationFor('。', 'SELECT 1 -- 完成', 'mysql'), null, '注释里的句号不动');
   assert.equal(m.asciiPunctuationFor('、', 'SELECT 1', 'mysql'), null, '顿号这类不管(SQL 里没有对应的)');
+  // 引号
+  assert.equal(m.asciiPunctuationFor('‘', 'WHERE name = ', 'mysql'), "'", '代码里的中文单引号');
+  assert.equal(m.asciiPunctuationFor('“', 'SELECT ', 'mysql'), '"', '代码里的中文双引号');
+  assert.equal(m.asciiPunctuationFor('“你好，世界”', 'SELECT ', 'mysql'), '"你好，世界"', '一次上屏:前面的引号换了以后,里面的逗号在字符串里,不换');
+  assert.equal(m.asciiPunctuationFor("‘a’，", 'IN (', 'mysql'), "'a',", '字符串结束后的逗号又回到代码,要换');
+  assert.equal(m.asciiPunctuationFor('“', "SELECT '他说", 'mysql'), null, '单引号字符串里的中文双引号保留');
+  assert.equal(m.asciiPunctuationFor('”', 'SELECT "你好', 'mysql'), '"', '双引号字符串里敲中文右双引号:是在关上它');
+  assert.equal(m.asciiPunctuationFor('’', "WHERE n = 'a", 'mysql'), "'", '单引号字符串里敲中文右单引号:关上');
+  assert.equal(m.asciiPunctuationFor("'他说“你好”'", 'SELECT ', 'mysql'), null, '单引号串里的一对中文双引号原样保留');
+  assert.equal(m.asciiPunctuationFor('’', 'SELECT 1 -- 注释', 'mysql'), null, '注释里的中文引号保留');
   assert.equal(m.asciiPunctuationFor(';', 'SELECT a', 'mysql'), null, '本来就是英文分号不用换');
   assert.equal(fix('BEGIN NULL', 'oracle'), ';', 'Oracle 一样');
   // 输入法一次上屏好几个字:每个全角分号各自看语境
@@ -37,7 +47,7 @@ try {
   assert.equal(m.asciiPunctuationFor("'好；'；", 'SELECT ', 'mysql'), "'好；';", '引号里的留着,引号外的换掉');
   assert.equal(m.asciiPunctuationFor('完成；', 'SELECT 1 -- ', 'mysql'), null, '整段都在注释里');
   assert.equal(m.asciiPunctuationFor("'😀'；", 'SELECT ', 'mysql'), "'😀';", '前面有表情也不错位');
-  console.log('sql punctuation: 分号 逗号 括号 句号 × 代码 / 字符串 / 注释 / 标识符 全部通过');
+  console.log('sql punctuation: 分号 逗号 括号 句号 引号 × 代码 / 字符串 / 注释 / 标识符 全部通过');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
