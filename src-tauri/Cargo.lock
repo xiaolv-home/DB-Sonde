@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "db-sonde"
-version = "0.51.37"
+version = "0.51.38"
 dependencies = [
  "base64 0.22.1",
  "bigdecimal",
