@@ -277,6 +277,38 @@ try {
     ok('流动效果:四种样式 / 三档流速 / 单独颜色都认,时长按线长算,导出静态图合理');
   }
 
+  // ── 纯数据 <-> React Flow 画布对象:存盘、撤销都靠它换回来,字段一个都不能丢 ──
+  {
+    const flowFile = join(dir, 'f.cjs');
+    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
+    const f = createRequire(import.meta.url)(flowFile);
+    const node = m.newNode('cylinder', 10, 20, { w: 150, h: 70, text: 'ods.raw', color: 'teal', fontSize: 15, bold: true, fill: 'solid', dashed: true, z: 3, ref: 'shop.ods_raw' });
+    const fn = f.toFlowNode(node);
+    assert.deepEqual(f.fromFlowNode(fn), node, '每个字段都要原样换回来(漏一个,存盘后就悄悄没了)');
+    assert.equal(fn.zIndex, 3);
+    assert.equal(f.toFlowNode(m.newNode('group', 0, 0)).zIndex, -1000, '分组框垫在最底下,不挡住框里的东西');
+    const moved = f.fromFlowNode({ ...fn, position: { x: 33.6, y: -4.4 }, width: 200.4, height: undefined, measured: { width: 1, height: 81.7 } });
+    assert.deepEqual([moved.x, moved.y, moved.w, moved.h], [34, -4, 200, 82], '拖动 / 改大小后取整;没有显式高度就用量出来的');
+    assert.deepEqual(f.boxOf(fn), { id: node.id, x: 10, y: 20, w: 150, h: 70 });
+
+    const a = m.newNode('rect', 0, 0), b = m.newNode('rect', 300, 0), c = m.newNode('rect', 600, 0);
+    const edge = m.newEdge(a.id, b.id, { fromHandle: 'right', toHandle: 'left', label: '写入', color: 'orange', line: 'step', arrow: 'both',
+      dashed: true, flow: true, width: 3, flowStyle: 'comet', flowSpeed: 3, flowColor: 'cyan' });
+    const fe = f.toFlowEdge(edge);
+    assert.deepEqual(f.fromFlowEdge(fe), edge, '连线的每个字段也要原样换回来');
+    assert.equal(fe.type, 'flowfx', '流动的线走自己的画法');
+    assert(fe.markerStart && fe.markerEnd, '双向箭头两头都有');
+    const plain = f.toFlowEdge(m.newEdge(a.id, b.id, { arrow: 'none', line: 'sharp' }));
+    assert.equal(plain.type, 'step');
+    assert.equal(plain.markerEnd, undefined, '没箭头就不画箭头');
+    assert(f.toFlowEdge(edge, true).style.strokeWidth > fe.style.strokeWidth, '选中的线加粗');
+    const re = f.fromFlowEdge({ ...fe, target: c.id, targetHandle: null });
+    assert.equal(re.to, c.id, '改连之后存的是新的那一头');
+    assert.equal(re.toHandle, undefined, '没有连接点就不存(不存 null)');
+    assert.deepEqual(f.styleOf(node), { color: 'teal', fill: 'solid', dashed: true, fontSize: 15, bold: true }, '格式刷只带走样式,不带文字和位置');
+    ok('画布对象和纯数据互转:字段不丢、坐标取整、叠放、线型箭头、改连');
+  }
+
   console.log(`lineage canvas: ${n} 项通过`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
