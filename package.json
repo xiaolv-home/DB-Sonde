@@ -75,7 +75,8 @@
     "test:py-missing": "node scripts/test-py-missing.mjs",
     "test:edit-shortcuts": "node scripts/test-edit-shortcuts.mjs",
     "test:keyword-case": "node scripts/test-keyword-case.mjs",
-    "test:sql-punctuation": "node scripts/test-sql-punctuation.mjs"
+    "test:sql-punctuation": "node scripts/test-sql-punctuation.mjs",
+    "test:result-grid": "node scripts/test-result-grid.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

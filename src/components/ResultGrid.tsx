@@ -26,89 +26,17 @@ import type { Cell, EditDraft, QueryResult } from "../types";
 import { useAi } from "../features/ai/aiStore";
 import { useI18n } from "../hooks/useI18n";
 import { useViewportFit } from "../hooks/useViewportFit";
-import { maxOf, minOf } from "../lib/numbers";
-
-const DEFAULT_W = 168;
-const MIN_W = 56;
-const ROW_H = 30;
-
-function classify(v: Cell): { cls: string; text: string } {
-  if (v === null || v === undefined) return { cls: "null", text: "NULL" };
-  if (typeof v === "number") return { cls: "num", text: String(v) };
-  if (typeof v === "boolean") return { cls: "bool", text: v ? "true" : "false" };
-  if (typeof v === "object") return { cls: "", text: JSON.stringify(v) };
-  return { cls: "", text: String(v) };
-}
-
-/** Numeric column types are right-aligned; everything else (char/date) is left. */
-const NUMERIC_TYPE = /(^|[^a-z])(int|integer|bigint|smallint|tinyint|mediumint|decimal|numeric|number|dec|float|double|real|money|bit)([^a-z]|$)/i;
-function isNumericType(typeName?: string): boolean {
-  return !!typeName && NUMERIC_TYPE.test(typeName);
-}
-
-/** Plain-text form of a cell for clipboard copy (NULL → empty, like DBeaver). */
-function cellText(v: Cell): string {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
-
-function cellsEqual(a: Cell, b: Cell): boolean {
-  if (a === b) return true;
-  if (a === null || a === undefined || b === null || b === undefined) {
-    return (a === null || a === undefined) && (b === null || b === undefined);
-  }
-  if (typeof a === "object" || typeof b === "object") {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-  return false;
-}
-
+import {
+  aggregate, buildDisplayList, CANCELLED, cellKey, cellsEqual, cellText, classify, coerceFilterValue, columnInRanges,
+  DEFAULT_W, FILTER_OPS, formatAgg, inRanges, isNumericType, lineAggregateValues, menuValueLabel, MIN_W,
+  parseInsertValue, parsePasteMatrix, rectBounds, ROW_H, selectionBounds, selectionTsvLines, shortFilterVal,
+  type AggFn, type InsertRow, type Pos, type Rect, type UndoEntry, type UndoItem,
+} from "./resultGridModel";
 
 export type { FilterOp, FilterCond, GridSort } from "../lib/queryResultView";
-/** The operators offered in the column header's filter form. */
-export const FILTER_OPS: { op: FilterOp; label: string }[] = [
-  { op: "=", label: "=" },
-  { op: "<>", label: "≠" },
-  { op: ">", label: ">" },
-  { op: ">=", label: "≥" },
-  { op: "<", label: "<" },
-  { op: "<=", label: "≤" },
-  { op: "like", label: "包含" },
-];
+export type { AggFn } from "./resultGridModel";
+
 const AGG_DEFAULT_POS = { right: 16, bottom: 14 };
-
-export type AggFn = "sum" | "avg" | "median" | "min" | "max" | "count";
-
-function aggregate(values: number[], fn: AggFn): number {
-  const n = values.length;
-  if (n === 0) return 0;
-  switch (fn) {
-    case "count":
-      return n;
-    case "sum":
-      return values.reduce((a, b) => a + b, 0);
-    case "avg":
-      return values.reduce((a, b) => a + b, 0) / n;
-    // 用循环而不是 Math.min(...values):选中一整列可能是几万行,参数展开会直接 RangeError
-    case "min":
-      return minOf(values) ?? 0;
-    case "max":
-      return maxOf(values) ?? 0;
-    case "median": {
-      const s = [...values].sort((a, b) => a - b);
-      const m = Math.floor(n / 2);
-      return n % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-    }
-  }
-}
-
-/** Compact, locale-aware number for the aggregation footer. */
-function formatAgg(n: number): string {
-  if (!Number.isFinite(n)) return "—";
-  if (Number.isInteger(n)) return n.toLocaleString();
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
-}
 
 interface Props {
   result: QueryResult;
@@ -148,43 +76,6 @@ interface Props {
   onLoadMore?: () => void;
   loadingMore?: boolean;
 }
-
-interface UndoItem {
-  key: string;
-  had: boolean;
-  value: Cell;
-}
-
-/** One undoable step. */
-type UndoEntry =
-  | { kind: "cells"; items: UndoItem[] }
-  | { kind: "col"; column: number; had: boolean; value: Cell; clearedCells: [string, Cell][] }
-  | { kind: "addRow"; key: string }
-  | { kind: "removeInsert"; row: { key: string; after: number; values: Cell[] } }
-  | { kind: "insertCell"; key: string; c: number; prev: Cell }
-  | { kind: "markDelete"; indexes: number[] }
-  | { kind: "unmarkDelete"; indexes: number[] };
-
-interface Pos {
-  r: number;
-  c: number;
-}
-
-/** A rectangular selection area. Several make up a discontinuous selection. */
-interface Rect {
-  a: Pos;
-  b: Pos;
-  full?: boolean;
-}
-
-const CANCELLED = "__update_cancelled__";
-const cellKey = (r: number, c: number) => `${r}:${c}`;
-const rectBounds = (r: Rect) => ({
-  r0: Math.min(r.a.r, r.b.r),
-  r1: Math.max(r.a.r, r.b.r),
-  c0: Math.min(r.a.c, r.b.c),
-  c1: Math.max(r.a.c, r.b.c),
-});
 
 export default function ResultGrid({
   result,
@@ -230,7 +121,7 @@ export default function ResultGrid({
   const sorts = !sort ? [] : Array.isArray(sort) ? sort : [sort];
   /** Newly-added rows awaiting INSERT. `after` is the loaded-row index they
    *  render below (-1 = above the first loaded row); order is display-only. */
-  const [inserts, setInserts] = useState<{ key: string; after: number; values: Cell[] }[]>([]);
+  const [inserts, setInserts] = useState<InsertRow[]>([]);
   /** Loaded-row indexes marked for DELETE. */
   const [deletes, setDeletes] = useState<Set<number>>(new Set());
   const insertSeq = useRef(0);
@@ -272,20 +163,7 @@ export default function ResultGrid({
   // Interleave added rows at their anchor to build the visible row order.
   // Each item is a loaded row (`row`) or a pending insert (`ins`, index into
   // `inserts`). Loaded-row edits/deletes stay keyed by loaded index.
-  const displayList = useMemo(() => {
-    const list: ({ kind: "row"; row: number } | { kind: "ins"; ins: number })[] = [];
-    const after = new Map<number, number[]>();
-    inserts.forEach((ins, i) => {
-      const a = ins.after < 0 || rows.length === 0 ? -1 : Math.min(ins.after, rows.length - 1);
-      const at = after.get(a); if (at) at.push(i); else after.set(a, [i]);
-    });
-    for (const i of after.get(-1) ?? []) list.push({ kind: "ins", ins: i });
-    for (let r = 0; r < rows.length; r++) {
-      list.push({ kind: "row", row: r });
-      for (const i of after.get(r) ?? []) list.push({ kind: "ins", ins: i });
-    }
-    return list;
-  }, [inserts, rows.length]);
+  const displayList = useMemo(() => buildDisplayList(inserts, rows.length), [inserts, rows.length]);
 
   const totalRows = displayList.length;
   /** Loaded-row index for a display position, or -1 for an insert row. */
@@ -361,24 +239,8 @@ export default function ResultGrid({
   const isInsertRow = useCallback((pos: number) => insertAt(pos) >= 0, [insertAt]);
 
   // ---- selection geometry ----
-  const inSel = useCallback(
-    (r: number, c: number) =>
-      ranges.some((rect) => {
-        const b = rectBounds(rect);
-        return r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1;
-      }),
-    [ranges],
-  );
-  const bounds = useMemo(() => {
-    if (!ranges.length) return null;
-    let r0 = Infinity, r1 = -Infinity, c0 = Infinity, c1 = -Infinity;
-    for (const rect of ranges) {
-      const b = rectBounds(rect);
-      r0 = Math.min(r0, b.r0); r1 = Math.max(r1, b.r1);
-      c0 = Math.min(c0, b.c0); c1 = Math.max(c1, b.c1);
-    }
-    return { r0, r1, c0, c1 };
-  }, [ranges]);
+  const inSel = useCallback((r: number, c: number) => inRanges(ranges, r, c), [ranges]);
+  const bounds = useMemo(() => selectionBounds(ranges), [ranges]);
   const multiCells =
     !!bounds && (bounds.r0 !== bounds.r1 || bounds.c0 !== bounds.c1 || ranges.length > 1);
   const columnUpdateActive = useMemo(() => {
@@ -386,34 +248,9 @@ export default function ResultGrid({
     const b = rectBounds(ranges[0]);
     return b.c0 === b.c1;
   }, [ranges, onSaveColumns]);
-  const colSelected = useCallback(
-    (i: number) =>
-      ranges.some((rect) => {
-        if (!rect.full) return false;
-        const b = rectBounds(rect);
-        return i >= b.c0 && i <= b.c1;
-      }),
-    [ranges],
-  );
+  const colSelected = useCallback((i: number) => columnInRanges(ranges, i), [ranges]);
 
-  // Numeric values under a single-line selection (1×n or n×1) drive the
-  // aggregation footer. Any non-line or non-numeric selection yields nothing.
-  const aggValues = useMemo(() => {
-    if (ranges.length !== 1) return null;
-    const b = rectBounds(ranges[0]);
-    const isLine = b.r0 === b.r1 || b.c0 === b.c1;
-    if (!isLine) return null;
-    const vals: number[] = [];
-    for (let r = b.r0; r <= b.r1; r++) {
-      for (let c = b.c0; c <= b.c1; c++) {
-        if (!numericCols[c]) continue;
-        const v = valueAt(r, c);
-        const n = typeof v === "number" ? v : v == null ? NaN : Number(v);
-        if (Number.isFinite(n)) vals.push(n);
-      }
-    }
-    return vals.length ? vals : null;
-  }, [ranges, numericCols, valueAt]);
+  const aggValues = useMemo(() => lineAggregateValues(ranges, numericCols, valueAt), [ranges, numericCols, valueAt]);
 
   const startResize = (c: number, e: React.PointerEvent) => {
     e.preventDefault();
@@ -583,15 +420,7 @@ export default function ResultGrid({
   };
 
   // ---- added / deleted rows ----
-  const parseForColumn = (raw: string, c: number): Cell => {
-    const s = raw.trim();
-    if (s === "" || s.toUpperCase() === "NULL") return null;
-    if (numericCols[c]) {
-      const n = Number(s);
-      if (Number.isFinite(n)) return Number.isInteger(n) && !Number.isSafeInteger(n) ? s : n;
-    }
-    return raw;
-  };
+  const parseForColumn = (raw: string, c: number): Cell => parseInsertValue(raw, numericCols[c]);
   const setInsertCell = (pos: number, c: number, raw: string) => {
     const row = inserts[insertAt(pos)];
     if (!row) return;
@@ -748,13 +577,7 @@ export default function ResultGrid({
   // ---- clipboard ----
   const copySelection = useCallback(() => {
     if (!bounds) return;
-    const lines: string[] = [];
-    for (let r = bounds.r0; r <= bounds.r1; r++) {
-      const cells: string[] = [];
-      for (let c = bounds.c0; c <= bounds.c1; c++) cells.push(inSel(r, c) ? cellText(valueAt(r, c)) : "");
-      lines.push(cells.join("\t"));
-    }
-    void writeClipboardText(lines.join("\n"));
+    void writeClipboardText(selectionTsvLines(bounds, bounds.r1, inSel, valueAt).join("\n"));
   }, [bounds, inSel, valueAt]);
 
   // Serialize the selection (header + up to 50 rows) to hand to the AI for a
@@ -763,12 +586,7 @@ export default function ResultGrid({
     if (!bounds) return;
     const header: string[] = [];
     for (let c = bounds.c0; c <= bounds.c1; c++) header.push(cols[c]?.name ?? `col${c}`);
-    const rows: string[] = [header.join("\t")];
-    for (let r = bounds.r0; r <= Math.min(bounds.r1, bounds.r0 + 49); r++) {
-      const cells: string[] = [];
-      for (let c = bounds.c0; c <= bounds.c1; c++) cells.push(inSel(r, c) ? cellText(valueAt(r, c)) : "");
-      rows.push(cells.join("\t"));
-    }
+    const rows: string[] = [header.join("\t"), ...selectionTsvLines(bounds, Math.min(bounds.r1, bounds.r0 + 49), inSel, valueAt)];
     useAi.getState().seedAsk(
       `请解读下面这组查询结果(只读分析,不要改数据),用中文总结规律、异常或值得注意的点:\n\`\`\`\n${rows.join("\n")}\n\`\`\``,
     );
@@ -778,9 +596,7 @@ export default function ResultGrid({
     if (!editable || !active) return;
     const text = await readClipboardText();
     if (text === "") return;
-    const grid = text.replace(/\r\n?/g, "\n").split("\n");
-    if (grid.length > 1 && grid[grid.length - 1] === "") grid.pop();
-    const matrix = grid.map((line) => line.split("\t"));
+    const matrix = parsePasteMatrix(text);
     const single = matrix.length === 1 && matrix[0].length === 1;
 
     if (single && columnUpdateActive && bounds) {
@@ -906,33 +722,8 @@ export default function ResultGrid({
     setCellMenu({ x: e.clientX, y: e.clientY, colName: cols[c].name, value: valueAt(r, c) });
   };
 
-  const menuVal = cellMenu ? cellText(cellMenu.value) : "";
-  const menuValShort = cellMenu
-    ? cellMenu.value == null
-      ? "NULL"
-      : menuVal.length > 18
-        ? `${menuVal.slice(0, 18)}…`
-        : menuVal
-    : "";
+  const menuValShort = cellMenu ? menuValueLabel(cellMenu.value) : "";
 
-  // Coerce a typed filter value: numeric columns get a real number (so the
-  // server-side path stays unquoted and client-side compares numerically).
-  const coerceFilterValue = (raw: string, c: number): Cell => {
-    const s = raw.trim();
-    if (s === "") return "";
-    if (s.toUpperCase() === "NULL") return null;
-    if (numericCols[c] && Number.isFinite(Number(s))) {
-      const n = Number(s);
-      return Number.isInteger(n) && !Number.isSafeInteger(n) ? s : n;
-    }
-    return raw;
-  };
-  /** 值的短显示:太长就中间省略,避免菜单被撑爆。 */
-  const shortFilterVal = (value: Cell) => {
-    if (value == null) return "NULL";
-    const text = cellText(value);
-    return text.length > 22 ? `${text.slice(0, 10)} … ${text.slice(-9)}` : text;
-  };
   /** DBeaver 风格的筛选项:点一下直接生效,不用再选操作符、也没有「添加」按钮。 */
   const filterItems = (colName: string, value: Cell, keyPrefix: string) => {
     const shown = shortFilterVal(value);
@@ -1282,7 +1073,7 @@ export default function ResultGrid({
             <>
               <div className="ctx-sep" />
               <div className="ctx-group">剪贴板</div>
-              {filterItems(cols[headerMenu.c].name, coerceFilterValue(hClip, headerMenu.c), "clip-")}
+              {filterItems(cols[headerMenu.c].name, coerceFilterValue(hClip, numericCols[headerMenu.c]), "clip-")}
             </>
           )}
           {onFilterByValue && <>
