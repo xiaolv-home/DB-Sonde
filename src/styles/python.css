@@ -1,0 +1,368 @@
+/* Python 工作台:编辑区、输出控制台、内嵌图、缺包安装、运行时下载。 */
+
+/* ---- Python workbench ---- */
+.py-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.py-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.py-toolbar .run-kbd {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  opacity: 0.75;
+}
+.py-file {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-left: 4px;
+}
+.py-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.py-pill.ok {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 13%, transparent);
+}
+.py-pill.wait {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 13%, transparent);
+}
+.py-pill.err {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 13%, transparent);
+}
+.py-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.py-banner.err {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.py-editor {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+.py-editor .cm-host {
+  flex: 1;
+  min-width: 0;
+}
+.py-output {
+  flex: 0 0 260px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.py-output.collapsed {
+  flex: 0 0 auto;
+  height: auto;
+}
+.py-output.collapsed .py-out-body {
+  display: none;
+}
+.py-out-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.py-out-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+.py-out-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.py-out-empty {
+  color: var(--text-3);
+  font-size: 12.5px;
+  font-family: var(--sans, inherit);
+}
+.py-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.py-line.err {
+  color: var(--red);
+}
+/* 缺包时报错行后面的「安装 xxx」按钮 */
+.py-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+  vertical-align: 1px;
+}
+.py-missing:hover { background: var(--accent); color: #fff; }
+.py-line.sys {
+  color: var(--accent);
+  font-weight: 600;
+}
+.py-line.exit {
+  color: var(--text-3);
+  margin-top: 4px;
+}
+.icon-btn.xs {
+  width: 22px;
+  height: 22px;
+}
+
+/* py toolbar: AI mini-menu */
+.ai-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.ai-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.ai-mini-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  z-index: 41;
+  min-width: 128px;
+  padding: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.ai-mini-menu > div {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: default;
+}
+.ai-mini-menu > div:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* inline matplotlib plot in the output console */
+.py-plot {
+  padding: 8px 2px;
+}
+.py-plot img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* package installer modal */
+.pkg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 420;
+  background: color-mix(in srgb, #05070c 55%, transparent);
+  display: grid;
+  place-items: center;
+  padding: 4vh 4vw;
+}
+.pkg-panel {
+  width: min(680px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.pkg-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-weight: 650;
+  font-size: 15px;
+}
+.pkg-head svg {
+  color: var(--accent);
+}
+.pkg-sub {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pkg-body {
+  padding: 16px;
+  overflow: auto;
+  min-height: 0;
+}
+.pkg-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.pkg-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  padding: 9px 11px;
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: default;
+  text-align: left;
+}
+.pkg-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.pkg-chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.pkg-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+}
+.pkg-note {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.pkg-custom {
+  display: block;
+  margin: 14px 0 12px;
+}
+.pkg-custom span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin-bottom: 5px;
+}
+.pkg-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pkg-out {
+  margin-top: 14px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+@media (max-width: 560px) {
+  .pkg-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.sidebar-head {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-head .title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.tree {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0 20px;
+}
+
+/* Python 运行时安装:按钮 + 进度条。进面板不自动下 180MB,由用户点。 */
+.py-install {
+  margin-left: 10px;
+  padding: 3px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.py-install:hover { filter: brightness(1.08); }
+.py-hint { margin-left: 8px; opacity: .75; }
+.py-hint code { font-family: var(--mono); font-size: 11px; }
+.py-bar {
+  display: inline-block;
+  width: 160px;
+  height: 6px;
+  margin-left: 10px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.py-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width .3s ease;
+}

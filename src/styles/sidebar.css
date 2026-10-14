@@ -1,0 +1,442 @@
+/* 左侧栏:连接 / 编辑器 / 文件三段切换、打开的编辑器、文件列表、对象树(行、图标配色、隐藏节点、连接色条、数据库徽标)。 */
+
+/* ---------- sidebar ---------- */
+.sidebar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+
+/* three-section switcher: 连接 / 编辑器 / 文件 */
+.side-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  padding: 6px 6px 0;
+  gap: 3px;
+  border-bottom: 1px solid var(--border);
+}
+.side-tab {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12.5px;
+  cursor: default;
+}
+.side-tab:hover {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.side-tab.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+}
+.side-tab .st-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.side-tab .st-badge {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  line-height: 15px;
+  min-width: 15px;
+  text-align: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+.side-tab.on .st-badge {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.side-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.side-body > .tree {
+  overflow: visible;
+}
+.side-empty {
+  padding: 22px 16px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.side-empty.sm {
+  padding: 12px 14px;
+}
+.side-empty.py-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* open-editors list */
+.editor-list {
+  padding: 6px 6px 16px;
+}
+.el-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  cursor: default;
+}
+.el-row:hover {
+  background: var(--surface-2);
+}
+.el-row.on {
+  background: var(--accent-soft);
+}
+.el-icon {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  display: inline-flex;
+}
+.el-row.on .el-icon {
+  color: var(--accent);
+}
+.el-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.el-conn {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-3);
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.el-close {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: 5px;
+  padding: 3px;
+  cursor: default;
+}
+.el-row:hover .el-close {
+  display: inline-flex;
+}
+.el-close:hover {
+  background: var(--red);
+  color: #fff;
+}
+
+/* files panel */
+.files-panel {
+  padding: 4px 0 16px;
+}
+.files-group {
+  padding: 6px 0;
+}
+.files-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 4px 14px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 600;
+}
+.fg-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: default;
+}
+.fg-add:hover {
+  background: var(--surface-2);
+  color: var(--accent);
+}
+
+/* ---- saved queries (SQL scripts) ---- */
+.saved-queries {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: 42%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+.sq-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 9px 12px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: default;
+}
+.sq-caret {
+  color: var(--text-3);
+  transition: transform var(--dur-1) var(--ease);
+}
+.sq-caret.open {
+  transform: rotate(90deg);
+}
+.sq-count {
+  color: var(--text-3);
+  font-weight: 500;
+}
+.sq-list {
+  overflow: auto;
+  min-height: 0;
+  padding: 0 6px 8px;
+}
+.sq-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  cursor: default;
+}
+.sq-row:hover {
+  background: var(--surface-2);
+}
+.sq-icon {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.sq-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sq-act,
+.sq-del {
+  display: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: default;
+  padding: 2px;
+  border-radius: 4px;
+}
+.sq-row:hover .sq-act,
+.sq-row:hover .sq-del {
+  display: inline-flex;
+}
+.sq-act:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+/* 只有真会删东西的按钮才变红 */
+.sq-del:hover {
+  color: var(--red);
+  background: var(--surface-3);
+}
+
+/* hidden tree nodes (shown greyed only when "show hidden" is on) */
+.node.hidden-node {
+  opacity: 0.5;
+}
+.node.hidden-node .label {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+}
+.icon-btn.on {
+  color: var(--accent);
+}
+
+/* tree rows */
+.node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding-right: 10px;
+  cursor: default;
+  position: relative;
+  white-space: nowrap;
+  transition: background var(--dur-1) var(--ease);
+}
+.node:hover {
+  background: var(--surface-2);
+}
+.node.selected {
+  background: var(--accent-soft);
+}
+.node.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+.node .twisty {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  flex: 0 0 16px;
+  transition: transform var(--dur-1) var(--ease);
+}
+.node .twisty.open {
+  transform: rotate(90deg);
+}
+.node .twisty.leaf {
+  visibility: hidden;
+}
+.node .nicon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 16px;
+  color: var(--text-2);
+}
+/* Object-type icon tints, DataGrip-style, so the tree scans at a glance. */
+.node.connection .nicon { color: var(--c-connection); }
+.node.database .nicon { color: var(--c-database); }
+.node.schema .nicon { color: var(--c-schema); }
+.node.folder .nicon { color: var(--text-3); }
+.node.table .nicon { color: var(--c-table); }
+.node.view .nicon { color: var(--c-view); }
+.node.procedure .nicon { color: var(--c-procedure); }
+.node.function .nicon { color: var(--c-function); }
+.node.column .nicon { color: var(--text-3); }
+.node .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 15.5px;
+}
+.node .detail {
+  color: var(--text-3);
+  font-size: 14px;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node .spin {
+  margin-left: auto;
+  color: var(--text-3);
+}
+.node.conn .label {
+  font-weight: 600;
+}
+.node .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 7px;
+  background: var(--text-3);
+}
+.node .dot.on {
+  background: var(--green);
+  /* currentColor 给 .breathe-glow 的辉光用 */
+  color: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+  transition: background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+}
+/* 连接中:黄色 + 呼吸。连上之后停下来,变成稳定的绿色柔光 ——
+   「在动」和「已经好了」要一眼分得出。 */
+.node .dot.connecting {
+  background: var(--amber);
+  color: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 22%, transparent);
+}
+.pk-badge {
+  color: var(--amber);
+  margin-left: 4px;
+}
+.row-action {
+  display: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--text-3);
+}
+.node:hover .row-action {
+  display: grid;
+}
+.row-action:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* per-connection accent: a thin colored bar next to the connection row */
+.node.connection.tinted::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--conn-tint);
+}
+.test-result {
+  font-size: 15px;
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.test-result.ok {
+  color: var(--green);
+}
+.test-result.err {
+  color: var(--red);
+}
+
+.database-logo { width:18px; height:18px; object-fit:contain; flex:none; }
+/* 连接徽标:自绘的字母块,取代厂商 logo(商标不能随 MIT 再分发)。
+   深色底配深色字、浅色底配浅色字都读不清 —— 文字色用混合出来的深色,
+   保证任何 accent 上都有对比。 */
+.database-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 5px; font-size: 9.5px; font-weight: 700; letter-spacing: -0.2px;
+  color: color-mix(in srgb, #0b1017 82%, currentColor);
+  font-family: var(--mono, ui-monospace, monospace); user-select: none;
+}

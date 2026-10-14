@@ -1,0 +1,127 @@
+/* SQL 编辑器:编辑区、工具栏、执行中的进度浮层。 */
+
+/* ---------- editor ---------- */
+.editor-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.editor-bar {
+  height: 38px;
+  flex: 0 0 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.editor-bar .conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 15px;
+  color: var(--text-2);
+}
+.editor-bar .conn-pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.catalog-status,
+.editor-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: 14.5px;
+}
+.ac-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ac-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px 0 9px;
+  border-radius: 20px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 15px;
+  font-weight: 550;
+  cursor: default;
+  user-select: none;
+}
+.ac-toggle.off {
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--border-2));
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.ac-toggle input {
+  accent-color: var(--accent);
+  cursor: default;
+  margin: 0;
+}
+.ac-toggle.off input {
+  accent-color: var(--amber);
+}
+.cm-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.cm-host .cm-editor {
+  height: 100%;
+  font-family: var(--editor-font);
+  font-size: 16.5px;
+}
+.cm-host .cm-scroller {
+  font-family: var(--editor-font);
+}
+.cm-host .cm-gutters {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  color: var(--text-3);
+}
+.cm-host .cm-activeLineGutter {
+  background: var(--surface-2);
+}
+
+.empty-main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  text-align: center;
+}
+.empty-main .kbd {
+  font-family: var(--mono);
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.sql-run-overlay { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 8px 12px; pointer-events: none; }
+.sql-run-status { position: relative; box-sizing: border-box; width: 280px; max-width: 100%; max-height: 100%; overflow: hidden; padding: 16px 22px; border: 1px solid var(--border-2); border-radius: 12px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); box-shadow: var(--shadow); font-size: 12px; }
+.sql-run-summary { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--accent); }
+.sql-run-summary strong { color: var(--text); font-weight: 600; }
+.sql-run-detail { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 8px; color: var(--text-3); }
+.sql-run-timer { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.sql-run-track { position: absolute; height: 2px; bottom: 0; left: 0; right: 0; overflow: hidden; }
+.sql-run-track span { display: block; height: 100%; width: 30%; background: var(--accent); animation: sql-running 1.5s ease-in-out infinite; }
+@keyframes sql-running { from { transform: translateX(-100%); } to { transform: translateX(440%); } }
+@media (prefers-reduced-motion: reduce) { .sql-run-track span { animation: none; width: 100%; opacity: .5; } }

@@ -1,0 +1,526 @@
+/* 应用外壳与通用部件:整体布局、按钮、右键菜单、拖拽分隔条、状态栏、输入框、弹窗、提示条、崩溃兜底页,
+   以及 .mono / .muted 这类工具类。 */
+
+/* ---------- app shell ---------- */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.toolbar {
+  height: 46px;
+  flex: 0 0 46px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--header);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  padding-right: 8px;
+}
+.brand .logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: var(--shadow-sm);
+}
+.brand small {
+  color: var(--text-3);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15.5px;
+  font-weight: 550;
+  cursor: default;
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--surface-3);
+  border-color: var(--text-3);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn.primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-color: var(--accent-2);
+  color: var(--accent-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 16px -6px var(--accent);
+}
+.btn.primary:hover {
+  filter: brightness(1.07);
+  border-color: var(--accent-2);
+}
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.btn.danger:hover {
+  filter: brightness(1.07);
+  border-color: var(--red);
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn.ghost:hover {
+  background: var(--surface-3);
+}
+.btn.sm {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 15px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  cursor: default;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.icon-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* context menu */
+.ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+}
+.ctx-menu {
+  position: fixed;
+  z-index: 151;
+  min-width: 190px;
+  padding: 5px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  box-shadow: var(--shadow);
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 15.5px;
+  cursor: default;
+}
+.ctx-item:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.ctx-item.danger:hover {
+  background: var(--red);
+}
+.ctx-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--border);
+}
+.ctx-menu.wide {
+  min-width: 260px;
+}
+.ctx-head {
+  padding: 4px 10px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-head.mono {
+  font-family: var(--mono);
+}
+
+/* resizer handles */
+.resizer-x {
+  flex: 0 0 5px;
+  margin: 0 -2px;
+  cursor: col-resize;
+  z-index: 5;
+  background: transparent;
+}
+.resizer-x:hover,
+.resizer-x.active {
+  background: var(--accent-border);
+}
+.resizer-y {
+  position: relative;
+  flex: 0 0 auto;
+  height: 7px;
+  margin: -3px 0;
+  cursor: row-resize;
+  z-index: 5;
+  background: transparent;
+}
+/* 常驻的一道细握把,让人看得出这里能拖。 */
+.resizer-y::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  background: var(--border);
+  transition: background var(--dur-1) var(--ease), width var(--dur-1) var(--ease);
+}
+.resizer-y:hover,
+.resizer-y.active {
+  background: var(--accent-border);
+}
+.resizer-y:hover::after,
+.resizer-y.active::after {
+  width: 72px;
+  background: var(--accent);
+}
+
+.mono { font-family: var(--mono); }
+.muted { color: var(--text-3); }
+
+/* ---------- status bar ---------- */
+.statusbar {
+  height: 26px;
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  background: var(--header);
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 14.5px;
+}
+.statusbar .sb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.statusbar .sb-spacer {
+  flex: 1;
+}
+
+/* ---------- inputs ---------- */
+.input,
+.select {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+}
+.input:focus,
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.input::placeholder {
+  color: var(--text-3);
+}
+
+/* ---------- modal ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+.modal {
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  padding: 16px 18px 6px;
+}
+.modal-head h3 {
+  margin: 0;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.confirm-modal {
+  width: 460px;
+}
+.confirm-modal .modal-head h3 svg {
+  color: var(--amber);
+}
+.confirm-text {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: 15.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.modal-body {
+  padding: 8px 18px 4px;
+}
+.modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px 18px;
+}
+.form-row {
+  margin: 12px 0;
+}
+.form-row label {
+  display: block;
+  font-size: 14.5px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+  font-weight: 550;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 12px;
+}
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 15.5px;
+  cursor: default;
+}
+.kind-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* 这是一组**可换行**的芯片(连接类型、模型供应商…),不是一排切换项 ——
+   所以不给它滑动胶囊:换行之后胶囊要横跨两行窜过去,反而更乱。
+   但材质跟胶囊保持一致:选中那个也是上亮下暗的玻璃 + 一圈辉光,
+   这样整个应用里「被选中」长得是同一个样子。 */
+.kind-tabs button {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 15.5px;
+  font-weight: 550;
+  cursor: default;
+  transition:
+    background var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
+.kind-tabs button:hover {
+  border-color: color-mix(in srgb, var(--accent-border) 55%, var(--border-2));
+  color: var(--text);
+}
+.kind-tabs button:active {
+  transform: scale(0.97);
+}
+.kind-tabs button.on {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-soft) 100%, white 6%) 0%,
+    var(--accent-soft) 100%
+  );
+  border-color: var(--accent-border);
+  color: var(--text);
+  box-shadow:
+    inset 0 1px 0 var(--glass-line),
+    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 3px 14px -6px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: default;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform var(--dur-1) var(--ease);
+}
+.swatch:hover {
+  transform: scale(1.12);
+}
+.swatch.on {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-2);
+}
+.swatch.none {
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--text-3);
+  box-shadow: inset 0 0 0 1px var(--border-2);
+}
+.swatch.none.on {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  color: var(--text);
+}
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 15.5px;
+  max-width: 70vw;
+  animation: toast-in 0.18s ease;
+}
+.toast.error {
+  border-color: color-mix(in srgb, var(--red) 55%, var(--border-2));
+}
+.toast.success {
+  border-color: color-mix(in srgb, var(--green) 55%, var(--border-2));
+}
+/* 「做了,但没达到你要的效果」—— 不是报错,可也绝不能绿 */
+.toast.warn {
+  border-color: color-mix(in srgb, var(--amber) 60%, var(--border-2));
+}
+.toast .tdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.toast.error .tdot {
+  background: var(--red);
+}
+.toast.success .tdot {
+  background: var(--green);
+}
+.toast.info .tdot {
+  background: var(--accent);
+}
+.toast.warn .tdot {
+  background: var(--amber);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+  display: inline-flex;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Failure surfaces share the application theme and stay inside their owning feature. */
+.panel-crash { margin: auto; padding: 28px; max-width: 660px; color: var(--text); overflow: auto; font-size: 13px; }
+.panel-crash > svg { color: var(--amber); }
+.panel-crash h3 { margin: 12px 0; font-size: 16px; }
+.panel-crash p { color: var(--text-2); line-height: 1.65; }
+.panel-crash-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
+.panel-crash details { color: var(--text-3); }
+.panel-crash pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.failed-ai-panel { width: 380px; flex: 0 1 380px; min-width: 240px; display: flex; border-left: 1px solid var(--border); background: var(--surface); }
+.storage-notice { flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 12px; }
+.storage-notice > summary { display: flex; align-items: center; gap: 8px; padding: 7px 14px; cursor: pointer; }
+.storage-notice > summary > svg { color: var(--amber); }
+.storage-notice > summary > span:last-child { margin-left: auto; color: var(--accent); }
+.storage-notice-body { max-height: 200px; overflow: auto; padding: 0 14px 10px; display: grid; gap: 12px; }
+.storage-notice-body p { margin: 5px 0; line-height: 1.6; }
+.storage-notice-body code { overflow-wrap: anywhere; }

@@ -1,0 +1,154 @@
+/* 顶部标签页:查询标签、内联改名(标签页和侧栏文件行共用)、未保存标记、恢复后还没连上库的标签。 */
+
+/* inline tab rename */
+.qt-rename {
+  width: 108px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 1px 5px;
+  outline: none;
+}
+
+/* ---------- query tabs ---------- */
+.tabbar {
+  height: 38px;
+  flex: 0 0 38px;
+  display: flex;
+  align-items: stretch;
+  background: var(--header);
+  /* 1px 实线换成一层极淡的渐变 —— 硬边把上下切成两块,渐变是过渡 */
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--glass-line) 40%, transparent) inset;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.tabbar::-webkit-scrollbar {
+  height: 0;
+}
+/* 轨道:.tabbar 负责滚动,它负责定位。宽度跟着内容走,但至少撑满一行,
+   这样鼠标划到空白处也还在轨道上(胶囊会回到选中项,而不是卡在半路)。 */
+.tabbar-track {
+  display: flex;
+  align-items: stretch;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* 标签本身不再画背景和分隔线 —— 那两样是方块感的来源。
+   选中和悬停的底都交给后面那块玻璃胶囊,这儿只管文字颜色。
+   margin 把它自己缩进去一圈,胶囊正好贴着它的盒子,读起来就是个胶囊而不是整条色块。 */
+.qtab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 2px;
+  padding: 0 8px 0 12px;
+  border-radius: 999px;
+  cursor: default;
+  color: var(--text-3);
+  max-width: 220px;
+  position: relative;
+  z-index: 1;                 /* 压在胶囊上面 */
+  transition: color var(--dur-1) var(--ease);
+}
+.qtab:first-child {
+  margin-left: 6px;
+}
+.qtab:hover {
+  color: var(--text-2);
+}
+.qtab.active {
+  color: var(--text);
+}
+.qtab .qt-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15.5px;
+}
+.qtab .qt-conn {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.qtab .qt-close {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+.qtab .qt-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.new-tab {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  color: var(--text-3);
+  border-right: 1px solid var(--border);
+}
+.new-tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Workspace pages retain local edits while inactive. */
+.workspace-pane { flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
+.tab-unsaved { color: var(--amber); font-size: 10px; }
+
+/* 侧栏文件行里的内联改名输入框 */
+.sq-rename {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  font-size: 13px;
+}
+
+/* 恢复的标签页还没连上库。居中一张卡片:是什么、在哪、为什么没连、点这里。 */
+.disconnected {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.disconnected-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 420px;
+  padding: 32px 36px 28px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+.disconnected-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.disconnected-card h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text);
+  word-break: break-all;
+}
+.disconnected-where { margin: 0; font-size: 13px; color: var(--text-2); }
+.disconnected-why { margin: 8px 0 14px; font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
+.disconnected-card .btn { min-width: 140px; justify-content: center; }

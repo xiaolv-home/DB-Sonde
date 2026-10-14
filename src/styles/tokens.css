@@ -1,0 +1,109 @@
+/* ============================================================
+   Sonde — design system
+   Dark-first, DBeaver-familiar layout. Tokens flip for light.
+   ============================================================ */
+
+:root {
+  --bg: #101013;
+  --surface: #17171b;
+  --surface-2: #212127;
+  --surface-3: #2e2e35;
+  --header: #131316;
+  --border: #36363f;
+  --border-2: #4a4a53;
+  --text: #e4e4ea;
+  --text-2: #b2b2bd;
+  --text-3: #8e8e99;
+  --accent: #33b1f5;
+  --accent-2: #159fe8;
+  --accent-ink: #05131e;
+  --accent-soft: #103048;
+  --accent-border: #33b1f5;
+  --green: #3ed06a;
+  --red: #ff5757;
+  --amber: #ffc233;
+  --sel: #16384f;
+  --dirty: #3c3210;
+  --shadow: 0 16px 42px rgba(0, 0, 0, 0.72);
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.55);
+  --radius: 9px;
+  --radius-sm: 6px;
+  /* UI text (bundled Inter) */
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  /* data grid, DDL, structure — clean system monospace (not the code font) */
+  --mono: "SF Mono", "SFMono-Regular", "Menlo", "Consolas", ui-monospace, monospace;
+  /* the SQL editor only (bundled JetBrains Mono) */
+  --editor-font: "JetBrains Mono", "SF Mono", "Menlo", ui-monospace, monospace;
+
+  /* object-type accents (tree icons) — bright and distinct */
+  --c-connection: #ffc233;
+  --c-database: #3ed06a;
+  --c-table: #33b1f5;
+  --c-schema: #f0913a;
+  --c-view: #a3cf6b;
+  --c-procedure: #ff5757;
+  --c-function: #43d9d9;
+
+  /* 代码配色 · 这里只是 JS 落 data-syntax 之前的兜底（= azure）。
+     五套配色的完整定义在文件下方「代码配色」一节。 */
+  --syn-keyword: #569cd6;
+  --syn-string: #ce9178;
+  --syn-number: #b5cea8;
+  --syn-func: #dcdcaa;
+  --syn-type: #4ec9b0;
+  --syn-comment: #6a9955;
+  --syn-operator: #d4d4d4;
+  --syn-variable: #9cdcfe;
+  --syn-punct: #a8a8b2;
+}
+
+/* 浅色:深墨压白纸,细笔画反而更干净 */
+:root[data-theme="light"] body {
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f4f6;
+  --surface: #ffffff;
+  --surface-2: #ededf0;
+  --surface-3: #e0e0e5;
+  --header: #fafafb;
+  --border: #d4d4da;
+  --border-2: #b6b6c0;
+  --text: #16161a;
+  --text-2: #55555f;
+  --text-3: #83838d;
+  --accent: #0b8fd6;
+  --accent-2: #0a7cbd;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcf0fb;
+  --accent-border: #0b8fd6;
+  --green: #16a34a;
+  --red: #dc2626;
+  --amber: #c98a00;
+  --sel: #d5ecfb;
+  --dirty: #fdf1cf;
+  --shadow: 0 14px 34px rgba(20, 20, 30, 0.16);
+  --shadow-sm: 0 2px 8px rgba(20, 20, 30, 0.10);
+
+  /* object-type accents (tree icons) — bright and distinct */
+  --c-connection: #c98a00;
+  --c-database: #16a34a;
+  --c-table: #0b8fd6;
+  --c-schema: #d9730b;
+  --c-view: #558b0f;
+  --c-procedure: #dc2626;
+  --c-function: #0e9c9c;
+
+  /* 代码配色兜底（= azure 浅色版），完整定义见下方「代码配色」一节 */
+  --syn-keyword: #0b47b5;
+  --syn-string: #a31515;
+  --syn-number: #098658;
+  --syn-func: #795e26;
+  --syn-type: #267f99;
+  --syn-comment: #3f8c3f;
+  --syn-operator: #3b3b44;
+  --syn-variable: #001080;
+  --syn-punct: #6e6e78;
+}

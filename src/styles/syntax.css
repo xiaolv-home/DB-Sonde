@@ -1,0 +1,278 @@
+/* ============================================================
+   代码配色 (syntax palettes)
+   与 UI 明暗独立：data-theme 管界面亮/暗，data-syntax 管代码着色。
+   每套配色都有暗色版和浅色版，切换界面明暗时自动跟随。
+   新增一套：在这里加一对 [data-syntax="x"] / [data-theme="light"][data-syntax="x"]，
+   再到 src/store/syntaxThemes.ts 的 SYNTAX_THEMES 里登记即可。
+   ============================================================ */
+
+/* —— azure：默认。蓝关键字 / 橙字符串 / 绿注释，最接近主流编辑器的手感 —— */
+:root[data-syntax="azure"] {
+  --syn-keyword: #569cd6;
+  --syn-string: #ce9178;
+  --syn-number: #b5cea8;
+  --syn-func: #dcdcaa;
+  --syn-type: #4ec9b0;
+  --syn-comment: #6a9955;
+  --syn-operator: #d4d4d4;
+  --syn-variable: #9cdcfe;
+  --syn-punct: #a8a8b2;
+}
+:root[data-theme="light"][data-syntax="azure"] {
+  --syn-keyword: #0b47b5;
+  --syn-string: #a31515;
+  --syn-number: #098658;
+  --syn-func: #795e26;
+  --syn-type: #267f99;
+  --syn-comment: #3f8c3f;
+  --syn-operator: #3b3b44;
+  --syn-variable: #001080;
+  --syn-punct: #6e6e78;
+}
+
+/* —— classic：原配色。珊瑚红关键字 / 绿字符串 / 青操作符 —— */
+:root[data-syntax="classic"] {
+  --syn-keyword: #f2827b;
+  --syn-string: #86d992;
+  --syn-number: #f0c674;
+  --syn-func: #6cb8f0;
+  --syn-type: #f0913a;
+  --syn-comment: #8e8e99;
+  --syn-operator: #43d9d9;
+  --syn-variable: #ececef;
+  --syn-punct: #9a9aa4;
+}
+:root[data-theme="light"][data-syntax="classic"] {
+  --syn-keyword: #d1242f;
+  --syn-string: #116329;
+  --syn-number: #b35900;
+  --syn-func: #0969da;
+  --syn-type: #953800;
+  --syn-comment: #83838d;
+  --syn-operator: #0e7490;
+  --syn-variable: #16161a;
+  --syn-punct: #6e6e78;
+}
+
+/* —— nord：北欧冷调。低饱和灰蓝，长时间阅读最不累 —— */
+:root[data-syntax="nord"] {
+  --syn-keyword: #81a1c1;
+  --syn-string: #a3be8c;
+  --syn-number: #b48ead;
+  --syn-func: #88c0d0;
+  --syn-type: #8fbcbb;
+  --syn-comment: #667894;
+  --syn-operator: #81a1c1;
+  --syn-variable: #d8dee9;
+  --syn-punct: #97a1b4;
+}
+:root[data-theme="light"][data-syntax="nord"] {
+  --syn-keyword: #3f6293;
+  --syn-string: #4a6b3d;
+  --syn-number: #80527a;
+  --syn-func: #2f6b7d;
+  --syn-type: #2f635c;
+  --syn-comment: #737f96;
+  --syn-operator: #3f6293;
+  --syn-variable: #2e3440;
+  --syn-punct: #5d6878;
+}
+
+/* —— amber：暖色低蓝光。橙黄为主，适合夜里长时间写 SQL —— */
+:root[data-syntax="amber"] {
+  --syn-keyword: #fe8019;
+  --syn-string: #b8bb26;
+  --syn-number: #d3869b;
+  --syn-func: #fabd2f;
+  --syn-type: #8ec07c;
+  --syn-comment: #948d7a;
+  --syn-operator: #f2a65a;
+  --syn-variable: #ebdbb2;
+  --syn-punct: #b0a48c;
+}
+:root[data-theme="light"][data-syntax="amber"] {
+  --syn-keyword: #af3a03;
+  --syn-string: #5f6b0c;
+  --syn-number: #8f3f71;
+  --syn-func: #9c6410;
+  --syn-type: #3c7150;
+  --syn-comment: #857c6c;
+  --syn-operator: #9c4a12;
+  --syn-variable: #3c3836;
+  --syn-punct: #6f6557;
+}
+
+/* —— neon：高对比霓虹。粉紫青为主，各类 token 一眼分得开 —— */
+:root[data-syntax="neon"] {
+  --syn-keyword: #ff79c6;
+  --syn-string: #f1fa8c;
+  --syn-number: #bd93f9;
+  --syn-func: #50fa7b;
+  --syn-type: #8be9fd;
+  --syn-comment: #6272a4;
+  --syn-operator: #ff79c6;
+  --syn-variable: #f8f8f2;
+  --syn-punct: #a9b1d6;
+}
+:root[data-theme="light"][data-syntax="neon"] {
+  --syn-keyword: #a8006f;
+  --syn-string: #63590a;
+  --syn-number: #6132bd;
+  --syn-func: #0a7038;
+  --syn-type: #0a6275;
+  --syn-comment: #6b7394;
+  --syn-operator: #a8006f;
+  --syn-variable: #1b1b2b;
+  --syn-punct: #565f89;
+}
+
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: 16px;
+  color: var(--text);
+  background: var(--bg);
+  /* 暗色下刻意不用 antialiased:macOS 上它会关掉次像素渲染把字变细,
+     浅字压深底本就发虚,再变细就成了「要聚焦才看得清」。浅色才启用。 */
+  overflow: hidden;
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================
+   代码配色选择器（工具栏调色板按钮）
+   ============================================================ */
+
+.syntax-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.syntax-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 248px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.syntax-menu-title {
+  padding: 5px 9px 7px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.syntax-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.syntax-item:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.syntax-item.is-active {
+  background: var(--accent-soft);
+}
+
+.syntax-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.syntax-swatch {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, 9px);
+  grid-auto-rows: 9px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.syntax-swatch i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.syntax-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.syntax-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.syntax-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.3;
+}
+
+.syntax-check {
+  flex: none;
+  margin-left: auto;
+  color: var(--accent);
+}

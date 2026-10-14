@@ -1,10 +1,10 @@
 /** 代码配色（SQL 编辑器语法高亮）。
  *
  *  和 UI 明暗是两件事：`data-theme` 管界面亮/暗，`data-syntax` 管代码着色。
- *  每套配色在 styles.css 里都有暗色和浅色两个版本，切界面明暗时自动跟随，
+ *  每套配色在 styles/syntax.css 里都有暗色和浅色两个版本，切界面明暗时自动跟随，
  *  所以这里只登记标识、名字和一句说明。
  *
- *  加一套新的：styles.css 里补一对选择器，再往下面数组里加一行。 */
+ *  加一套新的：styles/syntax.css 里补一对选择器，再往下面数组里加一行。 */
 
 export const SYNTAX_THEMES = [
   {
