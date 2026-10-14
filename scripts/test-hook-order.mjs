@@ -75,4 +75,29 @@ for (const file of files) {
 }
 
 assert.deepEqual(problems, [], `hook 调用顺序会变:\n  ${problems.join('\n  ')}\n把这些 hook 挪到所有 return 之前。`);
-console.log(`hook order: ${files.length} 个组件文件,没有条件调用的 hook`);
+
+// ── zustand 选择器必须返回稳定引用 ──────────────────────────
+// 真机:进「分析」直接黑屏。原因是 `useMetrics((s) => s.metrics.filter(...))` ——
+// 每次调用都产生一个新数组,zustand 比较出"变了"就重渲染,重渲染又产生新数组,
+// 无限循环,React 把整棵树卸掉。tsc 和构建都看不出来,只有跑起来才炸。
+// 这里用源码级检查兜住这一类:组件里不许在选择器里现做数组。
+// use<Store>((s) => s.<字段>.filter/map/slice/sort/concat(...)
+const derivedInSelector = /use[A-Z]\w*\(\s*\(\w+\)\s*=>\s*\w+\.\w+\.(filter|map|slice|sort|concat|flatMap)\s*\(/g;
+/* 选择器直接返回新对象/新数组**字面量**。
+   注意只认 `=> ({` 和 `=> [` —— `=> {` 是函数体,不是对象字面量,
+   useDrag((d) => { … }) 这种回调会被误伤。 */
+const literalInSelector = /use[A-Z]\w*\(\s*\(\w+\)\s*=>\s*(\(\s*\{|\[)/g;
+const unstable = [];
+(function walk(folder) {
+  for (const entry of readdirSync(folder, { withFileTypes: true })) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) { walk(path); continue; }
+    if (!/\.tsx?$/.test(path)) continue;
+    const text = readFileSync(path, 'utf8');
+    for (const m of [...text.matchAll(derivedInSelector), ...text.matchAll(literalInSelector)]) unstable.push(`${relative(root, path)}: ${m[0]}`);
+  }
+})(root);
+assert.deepEqual(unstable, [],
+  `选择器里现做数组/对象 = 每次都是新引用 = 无限重渲染 = 黑屏。过滤搬到 useMemo 里:\n  ${unstable.join('\n  ')}`);
+
+console.log(`hook order: ${files.length} 个组件文件,没有条件调用的 hook;store 选择器都返回稳定引用`);

@@ -75,4 +75,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
 `npm run check` 包含架构边界、行为回归、lint 和类型检查；构建前自动执行。
+它由 `scripts/run-checks.mjs` 并行跑完 `package.json` 里所有 `test:*`（加 eslint、tsc），最后一次列出全部失败项；
+新加的 `test:*` 脚本自动纳入。`npm run check -- canvas sql` 只跑名字带这些词的，`-- --serial` 逐个跑。
+新写的测试要打包前端模块时用 `scripts/lib/load-src.mjs`，别再各自复制一遍 esbuild 的样板。
 修改驱动或外部系统适配器时，还应在相应测试环境验证实际协议行为。

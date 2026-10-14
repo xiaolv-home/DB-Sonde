@@ -23,8 +23,7 @@ require_app_closed() {
 
 require_app_closed
 cd "$project_dir"
-npm run test:integration
-npm run test:workspace
+npm run check
 cargo test --manifest-path src-tauri/Cargo.toml
 # 内置运行时(本地 llama、Python)是可选的:跑过 scripts/bundle-llama.sh /
 # bundle-python.sh 才有。有就用叠加配置把它们打进去,没有就构建一个不带
