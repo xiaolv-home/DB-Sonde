@@ -87,7 +87,7 @@ fn handle_bridge(app: &tauri::AppHandle, url: &str, body: &str) -> String {
     use crate::commands::{self, AppState};
     let state = app.state::<AppState>();
     if url.starts_with("/connections") {
-        let names = tauri::async_runtime::block_on(commands::bridge_conn_names(&state));
+        let names = tauri::async_runtime::block_on(commands::query::bridge_conn_names(&state));
         return serde_json::json!({ "ok": true, "connections": names }).to_string();
     }
     if url.starts_with("/query") {
@@ -100,7 +100,7 @@ fn handle_bridge(app: &tauri::AppHandle, url: &str, body: &str) -> String {
             return err_json("sql 不能为空");
         }
         let conn = req.conn.unwrap_or_default();
-        let res = tauri::async_runtime::block_on(commands::bridge_query(
+        let res = tauri::async_runtime::block_on(commands::query::bridge_query(
             &state,
             &conn,
             req.database.as_deref(),

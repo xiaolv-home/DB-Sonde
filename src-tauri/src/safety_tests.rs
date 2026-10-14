@@ -63,17 +63,17 @@ async fn manual_queries_writes_and_reopen_stay_on_selected_database() {
     // Two SQLite handles exercise database routing without opening a server.
     register(&state, pool.clone(), DbKind::Mysql, "primary").await;
     state.database_pools.write().await.insert("c\0other".into(), other.clone());
-    commands::set_autocommit(state.clone(), "c".into(), false, Some("other".into())).await.unwrap();
+    commands::query::set_autocommit(state.clone(), "c".into(), false, Some("other".into())).await.unwrap();
     for sql in ["SELECT 1", "DELETE FROM items", "UPDATE items SET name='wrong'"] {
-        assert!(commands::run_query(state.clone(), "c".into(), Some("primary".into()), sql.into(), None, None).await.is_err());
+        assert!(commands::query::run_query(state.clone(), "c".into(), Some("primary".into()), sql.into(), None, None).await.is_err());
     }
-    assert!(commands::run_statements(state.clone(), "c".into(), Some("primary".into()), vec!["DELETE FROM items".into()]).await.is_err());
-    assert!(commands::apply_cell_edits(state.clone(), vec![req(json!(1), "before")]).await.is_err());
-    commands::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='right' WHERE id=1".into(), None, None).await.unwrap();
-    commands::commit_session(state.clone(), "c".into()).await.unwrap();
-    commands::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='rollback' WHERE id=2".into(), None, None).await.unwrap();
-    commands::rollback_session(state.clone(), "c".into()).await.unwrap();
-    commands::set_autocommit(state, "c".into(), true, None).await.unwrap();
+    assert!(commands::query::run_statements(state.clone(), "c".into(), Some("primary".into()), vec!["DELETE FROM items".into()]).await.is_err());
+    assert!(commands::query::apply_cell_edits(state.clone(), vec![req(json!(1), "before")]).await.is_err());
+    commands::query::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='right' WHERE id=1".into(), None, None).await.unwrap();
+    commands::query::commit_session(state.clone(), "c".into()).await.unwrap();
+    commands::query::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='rollback' WHERE id=2".into(), None, None).await.unwrap();
+    commands::query::rollback_session(state.clone(), "c".into()).await.unwrap();
+    commands::query::set_autocommit(state, "c".into(), true, None).await.unwrap();
     assert_eq!(db::run_query(&pool, "SELECT name FROM items WHERE id=1", None).await.unwrap().rows[0][0], json!("before"));
     assert_eq!(db::run_query(&other, "SELECT name FROM items ORDER BY id", None).await.unwrap().rows,
         vec![vec![json!("right")], vec![json!("before")], vec![json!("before")]]);
@@ -85,15 +85,15 @@ async fn reopen_failure_stays_manual_and_blocks_execution() {
     app.manage(AppState::default());
     let state = app.state::<AppState>();
     register(&state, pool.clone(), DbKind::Sqlite, "main").await;
-    commands::set_autocommit(state.clone(), "c".into(), false, None).await.unwrap();
+    commands::query::set_autocommit(state.clone(), "c".into(), false, None).await.unwrap();
     let DbPool::Sqlite(p) = &pool else { unreachable!() };
     let closing = p.clone();
     let close_task = tokio::spawn(async move { closing.close().await });
     tokio::task::yield_now().await;
     assert!(p.is_closed());
-    assert!(commands::commit_session(state.clone(), "c".into()).await.is_err());
+    assert!(commands::query::commit_session(state.clone(), "c".into()).await.is_err());
     assert_eq!(state.autocommit.read().await.get("c"), Some(&false));
-    let error = commands::run_query(state, "c".into(), None, "DELETE FROM items".into(), None, None).await.unwrap_err();
+    let error = commands::query::run_query(state, "c".into(), None, "DELETE FROM items".into(), None, None).await.unwrap_err();
     assert!(error.to_string().contains("未执行"));
     close_task.await.unwrap();
 }

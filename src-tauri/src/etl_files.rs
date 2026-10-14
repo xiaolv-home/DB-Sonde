@@ -3,6 +3,8 @@ use serde::Deserialize;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+use crate::error::{AppError, AppResult};
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InspectRequest {
@@ -69,4 +71,47 @@ pub(crate) fn run_script(request: InspectRequest, script: &str, mut config: serd
     })();
     if let Some(path) = askpass { let _ = std::fs::remove_file(path); }
     result
+}
+
+// --- 批量导入 ETL 配置:读用户选的文件夹下所有 *.json ------------------------
+
+#[derive(serde::Serialize)]
+pub struct ImportedFile {
+    pub name: String,
+    pub content: String,
+}
+
+/// Read every *.json under `dir` (recursively) as {relative name, content}.
+/// Used by the ETL center to bulk-import a folder of DataX job configs. The
+/// folder is chosen by the user via a native dialog; we only read what's there.
+// 在线程池里跑,不占界面线程(同步命令默认在主线程执行,跑多久界面就卡多久)
+#[tauri::command(async)]
+pub fn read_json_dir(dir: String) -> AppResult<Vec<ImportedFile>> {
+    let root = std::path::PathBuf::from(&dir);
+    if !root.is_dir() {
+        return Err(AppError::msg("不是一个文件夹"));
+    }
+    let mut out: Vec<ImportedFile> = Vec::new();
+    fn walk(base: &std::path::Path, cur: &std::path::Path, out: &mut Vec<ImportedFile>) {
+        if out.len() >= 4000 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(cur) else { return };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(base, &p, out);
+            } else if p.extension().and_then(|x| x.to_str()) == Some("json") {
+                if e.metadata().map(|m| m.len() > 4_000_000).unwrap_or(false) {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&p) {
+                    let name = p.strip_prefix(base).unwrap_or(&p).to_string_lossy().into_owned();
+                    out.push(ImportedFile { name, content });
+                }
+            }
+        }
+    }
+    walk(&root, &root, &mut out);
+    Ok(out)
 }
