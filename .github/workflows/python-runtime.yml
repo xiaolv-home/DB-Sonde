@@ -2,11 +2,11 @@
 #
 # 为什么单独一个 workflow、单独一个 tag：
 #   · 运行时很少变（只有 Python 版本或包清单动了才重建），不该跟应用版本绑；
-#   · 应用里把每个平台的 SHA256 **写死在 python.rs**，所以顺序必须是
+#   · 应用里把每个平台的 SHA256 **写死在 python/runtime.rs**，所以顺序必须是
 #     「先建运行时 → 拿到哈希 → 填进源码 → 再发应用」。混在一个流水线里做
 #     不到这一点。
 #
-# 跑法：Actions 页面手动触发，填 runtime_version（要和 python.rs 里的
+# 跑法：Actions 页面手动触发，填 runtime_version（要和 python/runtime.rs 里的
 # RUNTIME_VERSION、bundle-python.sh 里的一致）。跑完在 Release 页面拿哈希。
 #
 # pip 装的是**原生 wheel**（numpy / pandas / pyarrow / psycopg2 都是），
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       runtime_version:
-        description: "运行时版本号，如 py3.12.14-pkgs3（须与 python.rs 一致）"
+        description: "运行时版本号，如 py3.12.14-pkgs3（须与 python/runtime.rs 一致）"
         required: true
         type: string
 
@@ -91,5 +91,5 @@ jobs:
             --prerelease \
             --notes "$(printf '%s\n\n%s\n\n```\n%s\n```\n' \
               'DB Sonde 的 Python 工作台运行时（CPython + pandas/numpy/polars/pyarrow/matplotlib 等）。应用在用户点「一键安装」时按平台下载。' \
-              '每个包的 SHA256 由应用**写死在源码里**校验，所以换运行时必须同步更新 src-tauri/src/python.rs 的 runtime_asset()。' \
+              '每个包的 SHA256 由应用**写死在源码里**校验，所以换运行时必须同步更新 src-tauri/src/python/runtime.rs 的 runtime_asset()。' \
               "$(cat out/SHA256SUMS.txt)")"

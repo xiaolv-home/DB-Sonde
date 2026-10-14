@@ -59,25 +59,25 @@ pub fn run() {
             ai::ai_model_download,
             ai::ai_model_progress,
             scheduler::scheduler_fetch,
-            python::python_status,
-            python::python_ensure,
-            python::python_install,
-            python::python_run,
-            python::python_stop,
-            python::py_workspace_dir,
-            python::py_list_files,
-            python::py_read_file,
-            python::workspace_list_files,
-            python::py_write_file,
-            python::py_new_file,
-            python::py_delete_file,
-            python::py_rename_file,
-            python::py_pip_install,
-            python::py_playwright_install,
-            python::py_read_image,
-            python::py_lint,
-            python::py_complete,
-            python::py_sql_lineage,
+            python::runtime::python_status,
+            python::runtime::python_ensure,
+            python::runtime::python_install,
+            python::run::python_run,
+            python::run::python_stop,
+            python::workspace::py_workspace_dir,
+            python::workspace::py_list_files,
+            python::workspace::py_read_file,
+            python::workspace::workspace_list_files,
+            python::workspace::py_write_file,
+            python::workspace::py_new_file,
+            python::workspace::py_delete_file,
+            python::workspace::py_rename_file,
+            python::run::py_pip_install,
+            python::run::py_playwright_install,
+            python::workspace::py_read_image,
+            python::assist::py_lint,
+            python::assist::py_complete,
+            python::assist::py_sql_lineage,
             etl_files::inspect_etl_files,
             monitor::monitor_probe,
             monitor::monitor_open_window,
@@ -148,17 +148,43 @@ mod main_thread_guard {
     fn blocking_work_never_runs_on_the_ui_thread() {
         const BLOCKING: &[&str] = &[".output()", ".wait_with_output()", ".wait()", "read_to_string(", "fs::read(", "fs::write(", "read_dir(", "blocking::", "write_all("];
         let sources = [
-            ("python.rs", include_str!("python.rs")),
+            ("python/runtime.rs", include_str!("python/runtime.rs")),
+            ("python/run.rs", include_str!("python/run.rs")),
+            ("python/workspace.rs", include_str!("python/workspace.rs")),
+            ("python/assist.rs", include_str!("python/assist.rs")),
             ("commands.rs", include_str!("commands.rs")),
             ("export.rs", include_str!("export.rs")),
             ("ai.rs", include_str!("ai.rs")),
             ("credentials.rs", include_str!("credentials.rs")),
             ("dashboard_store.rs", include_str!("dashboard_store.rs")),
             ("dataset_store.rs", include_str!("dataset_store.rs")),
+            ("etl_files.rs", include_str!("etl_files.rs")),
+            ("monitor.rs", include_str!("monitor.rs")),
+            ("scheduler.rs", include_str!("scheduler.rs")),
+            ("store.rs", include_str!("store.rs")),
+            ("workspace_lifecycle.rs", include_str!("workspace_lifecycle.rs")),
         ];
+        // 清单本身也要守:文件拆开 / 新加命令文件后忘了登记,这条检查就悄悄少扫一块
+        let listed: std::collections::HashSet<&str> = sources.iter().map(|(f, _)| *f).collect();
+        let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut unlisted = Vec::new();
+        let mut stack = vec![src_dir.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() { stack.push(path); continue; }
+                if path.extension().is_none_or(|e| e != "rs") { continue; }
+                let text = std::fs::read_to_string(&path).unwrap();
+                let rel = path.strip_prefix(&src_dir).unwrap().to_string_lossy().replace('\\', "/");
+                if text.lines().any(|l| l.trim_start().starts_with("#[tauri::command")) && !listed.contains(rel.as_str()) {
+                    unlisted.push(rel);
+                }
+            }
+        }
+        assert!(unlisted.is_empty(), "这些文件里有 #[tauri::command],但没登记进上面的 sources:{unlisted:?}");
         let mut offenders = Vec::new();
         for (file, src) in sources {
-            // 不按 #[cfg(test)] 截断:python.rs 开头就有测试用的 thread_local,截断会漏扫整个文件
+            // 不按 #[cfg(test)] 截断:有的文件开头就有测试用的 thread_local,截断会漏扫整个文件
             for (i, chunk) in src.split("#[tauri::command]\npub fn ").enumerate().skip(1) {
                 let _ = i;
                 let name: String = chunk.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();

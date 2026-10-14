@@ -37,7 +37,8 @@ pub fn save_connections(app: &AppHandle, list: &[ConnectionConfig]) -> AppResult
 }
 
 /// Optional user-supplied catalog, separate from the application binary.
-#[tauri::command]
+// 读文件,放线程池里
+#[tauri::command(async)]
 pub fn load_semantic_catalog(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
     let path = app
         .path()

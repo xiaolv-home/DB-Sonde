@@ -35,7 +35,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # and handle self-signed TLS. rustls only, to match sqlx (no OpenSSL).
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
-# 运行时下载的 SHA256 校验(哈希写死在 python.rs,见那里的注释)
+# 运行时下载的 SHA256 校验(哈希写死在 src/python/runtime.rs,见那里的注释)
 sha2 = "0.10"
 # Tiny localhost HTTP server for the `sonde` Python bridge: user scripts POST
 # SQL back to the app to run on their live connections (returns a DataFrame).
