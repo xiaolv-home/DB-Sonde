@@ -1,15 +1,42 @@
-/* 监控中心。右边的 .mon-stage 里是 iframe;对方不让嵌时换成 .mon-blocked 提示。 */
-.mon-body { flex: 1; min-height: 0; display: flex; }
+/* 监控中心。右边的 .mon-stage 里是 iframe;对方不让嵌时换成 .mon-blocked 提示。
+   页面列表平时收在左边外面,碰到 .mon-edge 才滑出来,盖在页面上面(不挤页面的宽度)。 */
+.mon-body { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; }
+/* 全屏:原地铺满整个窗口(不搬 DOM,iframe 不重载) */
+.mon-body.full { position: fixed; inset: 0; z-index: 900; background: var(--bg); }
+.mon-edge { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; z-index: 4; }
+.mon-edge::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  width: 3px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 2px;
+  background: var(--border-2);
+  opacity: 0.7;
+}
 .mon-list {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
   width: 230px;
-  flex: 0 0 230px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 8px;
   border-right: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 8px 0 24px -12px rgba(0, 0, 0, 0.45);
   overflow-y: auto;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform var(--dur-2, 160ms) var(--ease, ease), visibility 0s linear var(--dur-2, 160ms);
 }
+.mon-list.shown { transform: none; visibility: visible; transition: transform var(--dur-2, 160ms) var(--ease, ease); }
 .mon-list-none { padding: 12px 6px; color: var(--text-3); font-size: 13px; }
 .mon-item {
   display: flex;
@@ -59,6 +86,7 @@
   background: var(--surface);
 }
 .mon-bar .icon-btn { width: 28px; height: 28px; }
+.mon-name { margin-left: 4px; font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .mon-url {
   flex: 1;
   min-width: 0;

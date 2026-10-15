@@ -3,9 +3,13 @@
  * 右边是普通 iframe。有些页面禁止被嵌(X-Frame-Options / CSP frame-ancestors),
  * 嵌进来只会是一片空白 —— 所以切到一个页面时先让后端看一眼响应头(monitorProbe),
  * 不让嵌就直接给「在独立窗口打开」:软件里开一个完整的浏览器窗口,功能一样不少。
- * 不用「主窗口里再嵌原生视图」那条路:它会让 ⌘V / ⌘C / ⌘Z / ⌘S 全部失灵(见 src-tauri/src/monitor.rs)。 */
-import { useCallback, useEffect, useState } from "react";
-import { AppWindow, ExternalLink, Globe, Pencil, Plus, RotateCw, ShieldAlert, Trash2 } from "lucide-react";
+ * 不用「主窗口里再嵌原生视图」那条路:它会让 ⌘V / ⌘C / ⌘Z / ⌘S 全部失灵(见 src-tauri/src/monitor.rs)。
+ *
+ * 左边的页面列表平时收起,把地方让给页面:鼠标碰到左边缘(或点地址栏左边的按钮)滑出来,移开就收回。
+ * 全屏:页面铺满整个窗口,窗口同时进系统全屏;退出时只撤销自己做的那一步(本来就全屏的窗口不动)。
+ * 铺满靠原地 position: fixed,不搬 DOM —— iframe 一搬就整页重载,登录和当前页都会丢。 */
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppWindow, ExternalLink, Globe, Maximize2, Minimize2, PanelLeft, Pencil, Plus, RotateCw, ShieldAlert, Trash2 } from "lucide-react";
 import AssetShell from "../assets/AssetShell";
 import { useConfirm } from "../../components/useConfirm";
 import { api } from "../../lib/api";
@@ -24,6 +28,20 @@ function openExternal(url: string) {
   void import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url)).catch(() => window.open(url, "_blank"));
 }
 
+/** 窗口进 / 出系统全屏。返回这次是不是真的切换了(本来就是这个状态就不动)。浏览器预览里没有,只铺满。 */
+async function setWindowFullscreen(on: boolean): Promise<boolean> {
+  if (!inTauri) return false;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const w = getCurrentWindow();
+    if ((await w.isFullscreen()) === on) return false;
+    await w.setFullscreen(on);
+    return true;
+  } catch {
+    return false; // 切不了系统全屏也不要紧,铺满窗口照样有效
+  }
+}
+
 function openWindow(source: MonitorSource) {
   if (!inTauri) { openExternal(source.url); return; }
   api.monitorOpenWindow(source.id, source.url, source.name).catch((error) =>
@@ -39,6 +57,11 @@ export default function MonitorCenter() {
   const [probe, setProbe] = useState<Probe | null>(null);
   /** 换这个数字就让 iframe 重新挂一次(回到首页)(跨域 iframe 拿不到它的历史和当前地址) */
   const [frameKey, setFrameKey] = useState(0);
+  /** 列表滑出来了(鼠标碰到左边缘 / 点了按钮);鼠标离开列表就收回 */
+  const [listShown, setListShown] = useState(false);
+  const [full, setFull] = useState(false);
+  /** 系统全屏是不是这里开的:退出时只撤销自己开的 */
+  const enteredNative = useRef(false);
   const active = sources.find((s) => s.id === activeId) ?? null;
   const activeUrl = active?.url ?? null;
 
@@ -52,6 +75,26 @@ export default function MonitorCenter() {
       .catch(() => { if (alive) setProbe({ url: activeUrl, state: "embed" }); });
     return () => { alive = false; };
   }, [open, activeUrl]);
+
+  const exitFull = useCallback(() => {
+    setFull(false);
+    if (enteredNative.current) { enteredNative.current = false; void setWindowFullscreen(false); }
+  }, []);
+  const enterFull = () => {
+    setFull(true);
+    setListShown(false);
+    void setWindowFullscreen(true).then((changed) => { enteredNative.current = changed; });
+  };
+  // 全屏时 Esc 退出(焦点在嵌进来的页面里时按键到不了这里,所以右上角一直留着退出按钮)
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); exitFull(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full, exitFull]);
+  // 关掉监控中心(切到别的中心、关数据资产)时顺带退出全屏
+  useEffect(() => { if (!open && full) exitFull(); }, [open, full, exitFull]);
+  useEffect(() => () => { if (enteredNative.current) void setWindowFullscreen(false); }, []);
 
   const persist = useCallback((next: MonitorSource[]) => {
     try { monitorRepository.save(next); setSources(next); return true; }
@@ -89,8 +132,10 @@ export default function MonitorCenter() {
       sub="把各系统的监控页面嵌进来,在这里直接看、直接操作"
       actions={<button className="btn sm" onClick={() => setDraft({ id: null, name: "", url: "" })}><Plus size={14} /> 添加页面</button>}
     >
-      <div className="mon-body">
-        <aside className="mon-list">
+      <div className={`mon-body ${full ? "full" : ""}`}>
+        <div className="mon-edge" onMouseEnter={() => setListShown(true)} />
+        {/* 正在加 / 改页面时表单在列表里,列表就一直开着 */}
+        <aside className={`mon-list ${listShown || draft ? "shown" : ""}`} onMouseLeave={() => setListShown(false)}>
           {draft && (
             <form className="mon-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
               <b>{draft.id ? "修改监控页" : "添加监控页"}</b>
@@ -130,12 +175,18 @@ export default function MonitorCenter() {
           {active ? (
             <>
               <div className="mon-bar">
+                <button className={`icon-btn ${listShown ? "on" : ""}`} title="页面列表(鼠标碰左边缘也会出来)" onClick={() => setListShown((v) => !v)}><PanelLeft size={14} /></button>
                 <button className="icon-btn" title="重新载入(回到首页)" onClick={() => setFrameKey((k) => k + 1)}><RotateCw size={14} /></button>
+                <span className="mon-name">{active.name}</span>
                 <span className="mon-url" title={active.url}>{active.url}</span>
                 <button className="icon-btn" title="在独立窗口打开" onClick={() => openWindow(active)}><AppWindow size={14} /></button>
                 <button className="icon-btn" title="在浏览器里打开" onClick={() => openExternal(active.url)}><ExternalLink size={14} /></button>
+                {full
+                  ? <button className="icon-btn" title="退出全屏 (Esc)" onClick={exitFull}><Minimize2 size={14} /></button>
+                  : <button className="icon-btn" title="全屏" onClick={enterFull}><Maximize2 size={14} /></button>}
               </div>
-              <div className="mon-stage">
+              {/* 鼠标一下甩进页面(没从列表上经过,收不到「离开列表」)时也收回列表 */}
+              <div className="mon-stage" onMouseEnter={() => setListShown(false)}>
                 {probe?.url === active.url && probe.state === "blocked" ? (
                   <div className="mon-blocked">
                     <ShieldAlert size={26} />
