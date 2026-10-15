@@ -141,6 +141,9 @@ export default function ResultGrid({
   // 求和条可以拖开,免得挡住数据
   const aggFloat = useFloatingCorner("sonde.aggInfoPos", AGG_DEFAULT_POS);
   const dirtyCount = edits.size + colOps.size + inserts.length + deletes.size;
+  /** 加行 / 删行得存得下去才给:表格可编辑,而且调用方接了保存行改动的通道。
+   *  只读结果、或者只能改单元格的查询结果上点了「删除行」,行会被划掉却既存不了也撤不回。 */
+  const canChangeRows = editable && !!onSaveRowChanges;
   useEffect(() => {
     onDirtyChange?.(dirtyCount > 0 || editing !== null);
   }, [dirtyCount, editing, onDirtyChange]);
@@ -434,6 +437,7 @@ export default function ResultGrid({
   /** Add a blank row right below the active/first-visible loaded row. Display
    *  order only — the eventual INSERT is order-independent. */
   const addRow = () => {
+    if (!canChangeRows) return;
     const key = `ins-${insertSeq.current++}`;
     let after = active ? loadedAt(active.r) : -1;
     if (after < 0) {
@@ -446,6 +450,7 @@ export default function ResultGrid({
     scrollToKeyRef.current = key;
   };
   const deleteRows = (pos: number) => {
+    if (!canChangeRows) return;
     if (isInsertRow(pos)) {
       const row = inserts[insertAt(pos)];
       if (!row) return;
@@ -841,7 +846,7 @@ export default function ResultGrid({
                 onContextMenu={(e) => {
                   e.preventDefault();
                   if (!inSel(vr.index, 0)) selectRow(vr.index);
-                  setGutterMenu({ x: e.clientX, y: e.clientY, vi: vr.index });
+                  if (canChangeRows) setGutterMenu({ x: e.clientX, y: e.clientY, vi: vr.index });
                 }}
               >
                 {inserted ? "＋" : loaded + 1}
