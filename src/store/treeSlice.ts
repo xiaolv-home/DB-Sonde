@@ -246,8 +246,11 @@ export const createTreeSlice: TreeSlice = (set, get) => ({
         const state = get();
         // Preserve query drafts; only object browsers for the deleted target are closed.
         for (const tab of state.tabs) {
-            if ((tab.kind === "table" || tab.kind === "database") && tab.connId === node.connId && tab.database === node.database &&
-                (droppedDatabase || tab.kind === "table" && tab.schema === (node.schema ?? "") && tab.table === (node.table ?? node.label)))
+            if (tab.connId !== node.connId || tab.database !== node.database) continue;
+            const sameObject = droppedDatabase
+                || tab.kind === "table" && tab.schema === (node.schema ?? "") && tab.table === (node.table ?? node.label)
+                || tab.kind === "routine" && tab.schema === (node.schema ?? "") && tab.routineName === node.label && tab.routineKind === node.kind;
+            if ((tab.kind === "table" || tab.kind === "database" || tab.kind === "routine") && sameObject)
                 get().closeTab(tab.id, true);
         }
         const catalogs = { ...get().catalogs };

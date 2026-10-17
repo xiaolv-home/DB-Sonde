@@ -14,6 +14,9 @@ import type { Dataset } from "../features/datasets/domain";
 import type { DatasetQueryFilter } from "../features/dashboard/query";
 import { inTauri, mockApi } from "./mockBackend";
 
+/** 能从对象树上删除的东西。PostgreSQL 的物化视图也传 view,后端会自己认出来。 */
+export type DropObjectKind = "database" | "table" | "view" | "procedure" | "function";
+
 
 /** Typed wrappers around the Rust command layer.
  *  Outside Tauri (plain browser during UI dev) they fall back to a mock. */
@@ -98,9 +101,9 @@ export const api = {
   cancelQuery: (connId: string, database: string | undefined, runId: string) =>
     inTauri ? invoke<boolean>("cancel_query", { connId, database: database || null, runId }) : Promise.resolve(false),
 
-  previewDropObject: (request: { connId: string; objectKind: "table" | "database"; database: string; schema?: string; table?: string }) =>
+  previewDropObject: (request: { connId: string; objectKind: DropObjectKind; database: string; schema?: string; table?: string }) =>
     inTauri ? invoke<string>("preview_drop_object", request) : Promise.reject(new Error("删除对象仅支持桌面端真实连接")),
-  dropObject: (request: { connId: string; objectKind: "table" | "database"; database: string; schema?: string; table?: string; confirmation: string }) =>
+  dropObject: (request: { connId: string; objectKind: DropObjectKind; database: string; schema?: string; table?: string; confirmation: string }) =>
     inTauri ? invoke<void>("drop_object", request) : Promise.reject(new Error("删除对象仅支持桌面端真实连接")),
 
   listProcesses: (connId: string) =>

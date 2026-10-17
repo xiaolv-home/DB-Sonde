@@ -52,7 +52,8 @@ pub fn statement(
         {
             Ok(format!("DROP DATABASE {}", ident(kind, database)?))
         }
-        "table" => {
+        "table" | "view" | "materialized_view" | "procedure" | "function" => {
+            let keyword = object_keyword(kind, object_kind)?;
             let namespace = match kind {
                 DbKind::Postgres | DbKind::Oracle => schema,
                 DbKind::Sqlite => {
@@ -64,16 +65,56 @@ pub fn statement(
                 }
                 _ => database,
             };
-            Ok(format!(
-                "DROP TABLE {}.{}",
-                ident(kind, namespace)?,
+            let target = if kind == DbKind::Postgres && matches!(object_kind, "procedure" | "function") {
+                pg_routine_target(table)?
+            } else {
                 ident(kind, table)?
-            ))
+            };
+            Ok(format!("DROP {keyword} {}.{target}", ident(kind, namespace)?))
         }
         _ => Err(AppError::msg(
             "此对象不支持删除；SQLite 文件和 Oracle 用户不作为数据库删除",
         )),
     }
+}
+
+/// 各引擎能删的对象类型。SQLite 没有存储过程 / 函数;ClickHouse 的函数是全局的,不挂在库下面;
+/// 物化视图只有 PostgreSQL 单独用 DROP MATERIALIZED VIEW(ClickHouse 的物化视图 DROP VIEW 就能删)。
+fn object_keyword(kind: DbKind, object_kind: &str) -> AppResult<&'static str> {
+    let supported = match object_kind {
+        "table" | "view" => true,
+        "materialized_view" => kind == DbKind::Postgres,
+        "procedure" | "function" => matches!(kind, DbKind::Mysql | DbKind::Mariadb | DbKind::Postgres | DbKind::Oracle),
+        _ => false,
+    };
+    if !supported {
+        return Err(AppError::msg("这种数据库不支持从菜单删除这类对象"));
+    }
+    Ok(match object_kind {
+        "table" => "TABLE",
+        "view" => "VIEW",
+        "materialized_view" => "MATERIALIZED VIEW",
+        "procedure" => "PROCEDURE",
+        _ => "FUNCTION",
+    })
+}
+
+/// PostgreSQL 的函数 / 存储过程可以重名(重载),树上显示的名字带着参数签名,
+/// 形如 `add(a integer, b integer)`(来自 pg_get_function_identity_arguments)。
+/// 删除时把签名原样带上,才删得准是哪一个;签名是从前端传回来的,只放行类型名里会出现的字符。
+fn pg_routine_target(label: &str) -> AppResult<String> {
+    let Some(open) = label.find('(') else {
+        return ident(DbKind::Postgres, label);
+    };
+    let (name, args) = label.split_at(open);
+    let allowed = |c: char| c.is_alphanumeric() || " _,.[]()\"".contains(c);
+    let balanced = args.ends_with(')')
+        && args.matches('(').count() == args.matches(')').count()
+        && args.matches('"').count() % 2 == 0;
+    if name.is_empty() || !balanced || !args.chars().all(allowed) {
+        return Err(AppError::msg("函数的参数签名里有不认识的字符,请在 SQL 编辑器里手动执行 DROP FUNCTION"));
+    }
+    Ok(format!("{}{args}", ident(DbKind::Postgres, name)?))
 }
 
 #[cfg(test)]
@@ -102,9 +143,45 @@ mod tests {
         );
         assert!(statement(DbKind::Mysql, "database", "mysql", "", "").is_err());
         assert!(statement(DbKind::Sqlite, "database", "main", "", "").is_err());
-        assert!(statement(DbKind::Mysql, "view", "db", "", "v").is_err());
+        assert!(statement(DbKind::Mysql, "index", "db", "", "v").is_err());
         assert!(statement(DbKind::Postgres, "table", "db", "", "t").is_err());
     }
+    #[test]
+    fn views_and_routines_use_the_right_keyword_per_engine() {
+        assert_eq!(statement(DbKind::Mysql, "view", "db", "", "v").unwrap(), "DROP VIEW `db`.`v`");
+        assert_eq!(statement(DbKind::Mariadb, "procedure", "db", "", "p`x").unwrap(), "DROP PROCEDURE `db`.`p``x`");
+        assert_eq!(statement(DbKind::Mysql, "function", "db", "", "f").unwrap(), "DROP FUNCTION `db`.`f`");
+        assert_eq!(statement(DbKind::Postgres, "view", "db", "public", "v").unwrap(), "DROP VIEW \"public\".\"v\"");
+        assert_eq!(statement(DbKind::Postgres, "materialized_view", "db", "public", "mv").unwrap(), "DROP MATERIALIZED VIEW \"public\".\"mv\"");
+        assert_eq!(statement(DbKind::Oracle, "procedure", "", "QH", "P_LOAD").unwrap(), "DROP PROCEDURE \"QH\".\"P_LOAD\"");
+        assert_eq!(statement(DbKind::Sqlite, "view", "main", "", "v").unwrap(), "DROP VIEW \"main\".\"v\"");
+        assert_eq!(statement(DbKind::Clickhouse, "view", "db", "", "mv").unwrap(), "DROP VIEW `db`.`mv`");
+        // 引擎本身没有的对象类型直接拒绝,不拼出一条注定失败的语句
+        assert!(statement(DbKind::Sqlite, "procedure", "main", "", "p").is_err());
+        assert!(statement(DbKind::Clickhouse, "function", "db", "", "f").is_err());
+        assert!(statement(DbKind::Mysql, "materialized_view", "db", "", "v").is_err());
+        // 系统库里的视图 / 过程同样不让删
+        assert!(statement(DbKind::Mysql, "view", "sys", "", "version").is_err());
+    }
+
+    #[test]
+    fn postgres_routines_keep_the_signature_and_refuse_injection() {
+        assert_eq!(
+            statement(DbKind::Postgres, "function", "db", "public", "add(a integer, b integer)").unwrap(),
+            "DROP FUNCTION \"public\".\"add\"(a integer, b integer)",
+            "带上签名才能在重载里删准是哪一个"
+        );
+        assert_eq!(
+            statement(DbKind::Postgres, "procedure", "db", "s", "load(IN d timestamp with time zone, VARIADIC x text[])").unwrap(),
+            "DROP PROCEDURE \"s\".\"load\"(IN d timestamp with time zone, VARIADIC x text[])"
+        );
+        assert_eq!(statement(DbKind::Postgres, "function", "db", "s", "noargs()").unwrap(), "DROP FUNCTION \"s\".\"noargs\"()");
+        // 签名是从前端传回来的:分号、注释、引号、签名后面再接东西(CASCADE)、括号 / 双引号不配对,一律拒绝
+        for bad in ["f(); DROP TABLE t", "f(a int) CASCADE", "f(a int); --", "f(a 'x')", "f(a int", "f(\"a) int)", "f(a int)/**/"] {
+            assert!(statement(DbKind::Postgres, "function", "db", "s", bad).is_err(), "{bad} 应该被拒绝");
+        }
+    }
+
     #[tokio::test]
     async fn drops_only_requested_table_in_disposable_database() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();

@@ -305,5 +305,30 @@ mod live_tests {
         assert!(n > 4000, "要测的是超过 4000 字的大 CLOB(实际 {n})");
         assert_eq!(cell.chars().count(), n, "CLOB 内容读全:{}", cell.chars().take(40).collect::<String>());
         println!("CLOB {n} 字全部读出");
+
+        // 从对象树删视图 / 存储过程 / 函数(Oracle 不带引号建的名字存成大写,删的时候按树上显示的大写名找)
+        let drop = |kind: &str, name: &str| crate::db::drop_object::statement(crate::models::DbKind::Oracle, kind, "", owner, name).expect("删除语句");
+        let mut made = vec![("view", "SONDE_DROP_V")];
+        super::run_query(&conn, &format!("CREATE OR REPLACE VIEW {owner}.SONDE_DROP_V AS SELECT 1 AS X FROM DUAL"), 10).await.expect("建视图");
+        // 练习库的账号不一定有建存储过程的权限;没有就只验视图(存储过程 / 函数的语句由单元测试和 MySQL 真库覆盖)
+        for (kind, name, ddl) in [
+            ("procedure", "SONDE_DROP_P", format!("CREATE OR REPLACE PROCEDURE {owner}.SONDE_DROP_P AS BEGIN NULL; END;")),
+            ("function", "SONDE_DROP_F", format!("CREATE OR REPLACE FUNCTION {owner}.SONDE_DROP_F RETURN NUMBER AS BEGIN RETURN 1; END;")),
+        ] {
+            match super::run_query(&conn, &ddl, 10).await {
+                Ok(_) => made.push((kind, name)),
+                Err(e) if e.to_string().contains("ORA-01031") => println!("{owner} 没有建 {kind} 的权限,跳过"),
+                Err(e) => panic!("建 {kind} 失败:{e}"),
+            }
+        }
+        for (kind, name) in made {
+            let sql = drop(kind, name);
+            super::run_query(&conn, &sql, 10).await.unwrap_or_else(|e| panic!("{sql} 失败:{e}"));
+            println!("{sql} ok");
+        }
+        let left_tables = super::list_tables(&conn, owner).await.expect("读表");
+        assert!(!left_tables.iter().any(|t| t.name == "SONDE_DROP_V"), "视图还在");
+        let left_routines = super::list_routines(&conn, owner).await.expect("读存储过程");
+        assert!(!left_routines.iter().any(|r| r.name.starts_with("SONDE_DROP_")), "存储过程 / 函数还在");
     }
 }

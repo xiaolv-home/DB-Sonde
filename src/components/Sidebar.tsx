@@ -362,7 +362,10 @@ export default function Sidebar() {
       },
     };
 
-    const deleteItem: MenuItem = { sep: true, danger: true, label: node.kind === "database" ? "删除库…" : "删除表…", icon: <Trash2 size={15}/>, onClick: () => { setMenu(null); setDeleteNode(node); } };
+    const deleteLabel: Partial<Record<TreeNode["kind"], string>> = { database: "删除库…", table: "删除表…", view: "删除视图…", procedure: "删除存储过程…", function: "删除函数…" };
+    const deleteItem: MenuItem = { sep: true, danger: true, label: deleteLabel[node.kind] ?? "删除…", icon: <Trash2 size={15}/>, onClick: () => { setMenu(null); setDeleteNode(node); } };
+    // ClickHouse 的函数是全局的,不挂在库下面,不从这里删
+    const canDropRoutine = cfg?.kind !== "clickhouse";
     const canDropDatabase = node.kind === "database" && ["mysql", "mariadb", "postgres", "clickhouse"].includes(cfg?.kind ?? "");
 
     const newQuery = (sql = "") => {
@@ -525,11 +528,15 @@ export default function Sidebar() {
             onClick: () => copy(node.table ?? node.label),
           },
           hideItem,
-          ...(node.kind === "table" ? [deleteItem] : []),
+          deleteItem,
         ];
       case "procedure":
       case "function":
-        return [{ label: "打开执行面板", icon: <Code2 size={15} />, onClick: () => s.openRoutineTab(node) }, { label: t("action.copyName"), icon: <Copy size={15} />, onClick: () => copy(node.label) }];
+        return [
+          { label: "打开执行面板", icon: <Code2 size={15} />, onClick: () => s.openRoutineTab(node) },
+          { label: t("action.copyName"), icon: <Copy size={15} />, onClick: () => copy(node.label) },
+          ...(canDropRoutine ? [deleteItem] : []),
+        ];
       case "column":
         return [
           { label: t("action.copyName"), icon: <Copy size={15} />, onClick: () => copy(node.label) },

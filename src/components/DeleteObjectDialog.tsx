@@ -1,15 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { api } from "../lib/api";
+import { api, type DropObjectKind } from "../lib/api";
 import { useApp, type TreeNode } from "../store/appStore";
+
+/** 弹窗里怎么称呼它、删掉会发生什么 */
+const DROP_TEXT: Record<DropObjectKind, { label: string; effect: string }> = {
+  database: { label: "数据库", effect: "将删除整个数据库及其中的所有表和数据。" },
+  table: { label: "表", effect: "将删除这张表及其中的全部数据。" },
+  view: { label: "视图", effect: "将删除这个视图的定义(底下的表和数据不受影响),依赖它的查询、视图和程序会失效。" },
+  procedure: { label: "存储过程", effect: "将删除这个存储过程的定义,调用它的作业和程序会失败。" },
+  function: { label: "函数", effect: "将删除这个函数的定义,用到它的查询、视图和程序会失败。" },
+};
 
 export default function DeleteObjectDialog({ node, onClose }: { node: TreeNode; onClose: () => void }) {
   const [sql, setSql] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
-  const objectKind = node.kind === "database" ? "database" : "table";
-  const label = objectKind === "database" ? "数据库" : "表";
+  const objectKind: DropObjectKind = node.kind === "database" || node.kind === "view" || node.kind === "procedure" || node.kind === "function" ? node.kind : "table";
+  const { label, effect } = DROP_TEXT[objectKind];
   const name = objectKind === "database" ? node.database ?? node.label : node.table ?? node.label;
   const request = { connId: node.connId, objectKind, database: node.database ?? "", schema: node.schema, table: node.table ?? node.label } as const;
   const connection = useApp(s => s.connections.find(c => c.id === node.connId));
@@ -44,7 +53,7 @@ export default function DeleteObjectDialog({ node, onClose }: { node: TreeNode; 
       <div className="modal-head"><h3 id="drop-object-title"><AlertTriangle size={16}/> 删除{label}</h3></div>
       <div className="modal-body" style={{ display: "grid", gap: 12 }}>
         <p>连接：{connection?.name} · {connection?.host}</p>
-        <p>{objectKind === "database" ? "将删除整个数据库及其中的所有表和数据。" : "将删除这张表及其中的全部数据。"}此操作无法撤销。</p>
+        <p>{effect}此操作无法撤销。</p>
         <pre className="confirm-text">{sql || "正在检查删除对象…"}</pre>
         <p>是否确认删除{label} <b>{name}</b>？</p>
         {error && <p role="alert" style={{ color: "var(--red)", whiteSpace: "pre-wrap" }}>{error}</p>}

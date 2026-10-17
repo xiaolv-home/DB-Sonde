@@ -92,14 +92,38 @@ pub async fn preview_drop_object(
     schema: Option<String>,
     table: Option<String>,
 ) -> AppResult<String> {
-    let (kind, _) = pool_for(&state, &conn_id).await?;
-    db::drop_object::statement(
-        kind,
-        &object_kind,
-        &database,
-        schema.as_deref().unwrap_or(""),
-        table.as_deref().unwrap_or(""),
-    )
+    drop_sql(&state, &conn_id, &object_kind, &database, schema.as_deref().unwrap_or(""), table.as_deref().unwrap_or("")).await
+}
+
+/// 生成删除语句。PostgreSQL 的物化视图在树上和普通视图一样显示成「视图」,
+/// 可它只能用 DROP MATERIALIZED VIEW 删 —— 这里先查一下它到底是哪种。
+async fn drop_sql(
+    state: &State<'_, AppState>,
+    conn_id: &str,
+    object_kind: &str,
+    database: &str,
+    schema: &str,
+    name: &str,
+) -> AppResult<String> {
+    let (kind, _) = pool_for(state, conn_id).await?;
+    let mut object_kind = object_kind;
+    if kind == DbKind::Postgres && object_kind == "view" {
+        let (_, pool) = pool_for_database(state, conn_id, Some(database)).await?;
+        if let DbPool::Postgres(pg) = &pool {
+            let relkind: Option<String> = sqlx::query_scalar(
+                "SELECT c.relkind::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                 WHERE n.nspname = $1 AND c.relname = $2",
+            )
+            .bind(schema)
+            .bind(name)
+            .fetch_optional(pg)
+            .await?;
+            if relkind.as_deref() == Some("m") {
+                object_kind = "materialized_view";
+            }
+        }
+    }
+    db::drop_object::statement(kind, object_kind, database, schema, name)
 }
 
 #[tauri::command]
@@ -137,14 +161,9 @@ pub async fn drop_object(
             c.session_password.clone(),
         )
     };
-    let sql = db::drop_object::statement(
-        kind,
-        &object_kind,
-        &database,
-        schema.as_deref().unwrap_or(""),
-        table.as_deref().unwrap_or(""),
-    )?;
-    if object_kind == "table" {
+    let sql = drop_sql(&state, &conn_id, &object_kind, &database, schema.as_deref().unwrap_or(""), table.as_deref().unwrap_or("")).await?;
+    // 表、视图、存储过程、函数都在所属库的连接上删;只有删整个库要另开一条不在那个库里的连接
+    if object_kind != "database" {
         let (_, pool) = pool_for_database(&state, &conn_id, Some(&database)).await?;
         db::run_query(&pool, &sql, Some(0)).await?;
     } else {

@@ -79,6 +79,18 @@ async fn live_mysql_family_everyday_operations() {
             _ => Ok(r),
         }
     }), |r| format!("{:?}", r.iter().map(|x| (x.name.clone(), x.return_type.clone())).collect::<Vec<_>>()));
+    // 从对象树删除视图 / 存储过程 / 函数:用的就是菜单「删除…」生成的那条语句
+    let drop_sql = |object_kind: &str, name: &str| super::drop_object::statement(crate::models::DbKind::Mysql, object_kind, &db, "", name).expect("删除语句");
+    rep.step("建视图", q(run_query(&pool, &format!("CREATE VIEW `{db}`.`v_t` AS SELECT id, name FROM {t}"), None).await), |_| "ok".into());
+    rep.step("删视图(菜单生成的语句)", q(run_query(&pool, &drop_sql("view", "v_t"), None).await), |_| drop_sql("view", "v_t"));
+    rep.step("视图真没了、表还在", introspect::list_tables(&pool, &db, &db).await.map_err(|e| e.to_string()).and_then(|ts| {
+        let names: Vec<_> = ts.iter().map(|t| t.name.clone()).collect();
+        if names.contains(&"v_t".to_string()) || !names.contains(&"t".to_string()) { Err(format!("还剩 {names:?}")) } else { Ok(names) }
+    }), |n| format!("{n:?}"));
+    if !doris {
+        rep.step("建存储过程", q(run_query(&pool, &format!("CREATE PROCEDURE `{db}`.p_touch() SELECT 1"), None).await), |_| "ok".into());
+        rep.step("删存储过程", q(run_query(&pool, &drop_sql("procedure", "p_touch"), None).await), |_| drop_sql("procedure", "p_touch"));
+    }
     rep.step("树:索引", introspect::list_indexes(&pool, &db, &db, "t").await.map_err(|e| e.to_string()), |ix| format!("{} 个", ix.len()));
     rep.step("DDL", introspect::get_object_ddl(&pool, &db, &db, "t", "table").await.map_err(|e| e.to_string()), |s| s.lines().next().unwrap_or("").to_string());
     rep.step("改单元格", edit::apply_edits(&pool, &[UpdateCellRequest {
@@ -92,6 +104,12 @@ async fn live_mysql_family_everyday_operations() {
     rep.step("带停止标记的语句", q(run_query(&pool, &format!("/* sonde:qlive-1 */ SELECT COUNT(*) FROM {t}"), None).await), rows_of);
     rep.step("停止(按标记找正在跑的语句)", super::cancel_marked_query(&pool, "sonde:qlive-404").await.map_err(|e| e.to_string()), |n| format!("取消了 {n} 条"));
     rep.step("DELETE", q(run_query(&pool, &format!("DELETE FROM {t} WHERE id = 3"), None).await), |r| format!("{:?}", r.rows_affected));
+    if !doris {
+        rep.step("删函数", q(run_query(&pool, &drop_sql("function", "f_name"), None).await), |_| drop_sql("function", "f_name"));
+        rep.step("存储过程和函数都删干净了", introspect::list_routines(&pool, &db, &db).await.map_err(|e| e.to_string()).and_then(|r| {
+            if r.is_empty() { Ok(r) } else { Err(format!("还剩 {:?}", r.iter().map(|x| x.name.clone()).collect::<Vec<_>>())) }
+        }), |_| "空".into());
+    }
     rep.step("DROP DATABASE", q(run_query(&pool, &format!("DROP DATABASE `{db}`"), None).await), |_| "ok".into());
 
     let mut failed = 0;
