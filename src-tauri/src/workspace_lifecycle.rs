@@ -15,6 +15,11 @@ pub fn finish_workspace_exit(app: AppHandle, state: tauri::State<'_, ExitGuard>)
     state.approved.store(true, Ordering::SeqCst);
     app.exit(0);
 }
+/// 关这个窗口是不是等于退出应用。只有主窗口是 —— 链路画布、监控中心开的独立窗口关掉就只关它自己,
+/// 以前它们也被当成退出,点一下红色关闭按钮整个应用就没了。
+pub fn closing_exits_app(label: &str) -> bool {
+    label == "main"
+}
 pub fn should_intercept(app: &AppHandle) -> bool {
     let guard = app.state::<ExitGuard>();
     guard.should_intercept()
@@ -35,6 +40,12 @@ impl ExitGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_the_main_window_closes_the_app() {
+        assert!(closing_exits_app("main"));
+        assert!(!closing_exits_app(crate::canvas_window::CANVAS_LABEL));
+        assert!(!closing_exits_app("monitor-win-abc"));
+    }
     #[test]
     fn exit_requires_frontend_approval_after_guard_is_ready() {
         let guard = ExitGuard::default();

@@ -41,7 +41,8 @@ pub fn run() {
         .manage(workspace_lifecycle::ExitGuard::default())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if workspace_lifecycle::should_intercept(window.app_handle()) {
+                // 只有关主窗口才等于退出应用;画布、监控这些独立窗口点关闭就只关它自己
+                if workspace_lifecycle::closing_exits_app(window.label()) && workspace_lifecycle::should_intercept(window.app_handle()) {
                     api.prevent_close();
                     workspace_lifecycle::request_exit(window.app_handle());
                 }
