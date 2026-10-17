@@ -24,7 +24,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
   BringToFront, ClipboardPaste, Copy, Database, Download, GitFork, ImageDown, Network, Paintbrush,
-  Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2,
+  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
 import { useConfirm } from "../../../components/useConfirm";
@@ -34,13 +34,13 @@ import type { Graph } from "../lineageModel";
 import {
   ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
   FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, SHAPES, SHAPE_LABEL,
-  alignBoxes, autoLayout, contentKey, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor,
+  alignBoxes, autoLayout, contentKey, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
   type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode,
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Pos, type ShapeKind,
 } from "./canvasModel";
 import { blobToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
-import { canvasRepository } from "./canvasRepository";
+import { canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
 import {
   ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
   type FlowEdge, type FlowNode, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
@@ -63,11 +63,18 @@ const ALIGN_ICON: Record<AlignKind, [ReactNode, string]> = {
   vmiddle: [<AlignCenterHorizontal size={14} />, "垂直居中"], bottom: [<AlignEndHorizontal size={14} />, "底对齐"],
 };
 
-function Editor({ doc, graph, onSave, onDirty }: {
+/** 保存的结果:ok=真的写进去了;fixed=存之前自动修掉的问题;error=没写进去的原因(这时已另存了草稿) */
+type SaveResult = { ok: boolean; fixed: string[]; error?: string };
+
+function Editor({ doc, graph, versions, onSave, onDirty }: {
   doc: CanvasDoc;
   graph: Graph;
-  onSave: (nodes: CanvasNode[], edges: CanvasEdge[]) => void;
-  onDirty: (dirty: boolean) => void;
+  /** 这张画布的历史版本(旧的在前) */
+  versions: CanvasVersion[];
+  /** milestone:这次一定新记一份历史(恢复历史版本时),不顶掉前一份 */
+  onSave: (docId: string, nodes: CanvasNode[], edges: CanvasEdge[], milestone: boolean) => SaveResult;
+  /** dirty:有改动还没写进去;failed:上一次保存失败了(离开要拦一下) */
+  onDirty: (state: { dirty: boolean; failed: boolean }) => void;
 }) {
   const flow = useReactFlow<FlowNode, FlowEdge>();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -115,6 +122,13 @@ function Editor({ doc, graph, onSave, onDirty }: {
     setNodes(snap.nodes.map(toFlowNode));
     setEdges(snap.edges.map((e) => toFlowEdge(e)));
   }, []);
+  /** 恢复到某个历史版本:算一次改动(能 ⌘Z 撤回),随后自动保存,恢复前的样子也会留在历史里 */
+  const restoreVersion = (v: CanvasVersion) => {
+    milestoneRef.current = true;
+    beginChange();
+    restore({ nodes: v.nodes, edges: v.edges });
+    toast({ kind: "success", text: `已恢复到 ${new Date(v.at).toLocaleTimeString("zh-CN")} 的版本,不满意可以 ⌘Z 撤回` });
+  };
   const undo = useCallback(() => {
     const prev = pastRef.current[pastRef.current.length - 1];
     if (!prev) return;
@@ -137,13 +151,39 @@ function Editor({ doc, graph, onSave, onDirty }: {
     [nodes, edges],
   );
   const dirty = currentKey !== savedKey;
-  useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
+  /** 上一次保存为什么没写进去(没有就是 null)。一直挂在顶栏上,不是弹一下就没了 */
+  const [saveError, setSaveError] = useState<string | null>(null);
+  useEffect(() => { onDirty({ dirty, failed: !!saveError }); }, [dirty, saveError, onDirty]);
 
-  const save = useCallback(() => {
+  /* 只有真的写进去了才算「已保存」—— 以前不管写没写进去都标成已保存,
+     存储拒收时只弹一下红字,人一退出,画的东西就回退到上一次真正存上的样子。 */
+  const milestoneRef = useRef(false);
+  const save = useCallback((auto = false) => {
     const snap = snapshot();
-    onSave(snap.nodes, snap.edges);
-    setSavedKey(contentKey({ name: "", ...snap }));
-  }, [onSave, snapshot]);
+    const result = onSave(doc.id, snap.nodes, snap.edges, milestoneRef.current);
+    if (result.ok) milestoneRef.current = false;
+    if (result.ok) {
+      setSavedKey(contentKey({ name: "", ...snap }));
+      setSaveError(null);
+      if (!auto) toast({ kind: "success", text: result.fixed.length ? `画布已保存(顺手修了 ${result.fixed.length} 处:${result.fixed[0]}…)` : "画布已保存" });
+    } else {
+      const why = (result.error ?? "保存失败").replace(/^Error:\s*/, "").replace(/[。.]+$/, "");
+      setSaveError(why);
+      toast({ kind: "error", text: `画布没保存上:${why}。已另存一份草稿,内容不会丢。` });
+    }
+  }, [doc.id, onSave, snapshot, toast]);
+
+  /* 自动保存:改完停 0.8 秒就存;离开画布(返回血缘、切到别的画布、关掉数据资产)那一刻再存一次。
+     存不进去时不会每 0.8 秒刷一遍红字 —— 失败后要等内容再变才会重试。 */
+  const saveRef = useRef(save); saveRef.current = save;
+  const pendingRef = useRef(false); pendingRef.current = dirty;
+  const lastTriedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!dirty || lastTriedRef.current === currentKey) return;
+    const timer = window.setTimeout(() => { lastTriedRef.current = currentKey; saveRef.current(true); }, 800);
+    return () => window.clearTimeout(timer);
+  }, [dirty, currentKey]);
+  useEffect(() => () => { if (pendingRef.current) saveRef.current(true); }, []);
 
   /* ---------- React Flow 回调 ---------- */
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
@@ -433,7 +473,7 @@ function Editor({ doc, graph, onSave, onDirty }: {
     let handled = true;
     if (mod && key === "z") { if (e.shiftKey) redo(); else undo(); }
     else if (mod && key === "y") redo();
-    else if (mod && key === "s") save();
+    else if (mod && key === "s") save(false);
     else if (mod && key === "d") duplicateSelected();
     else if (mod && e.altKey && e.code === "KeyC") pickStyle();   // ⌥ 会把 c 变成 ç,按物理键认
     else if (mod && key === "c") handled = copySelected();
@@ -508,10 +548,27 @@ function Editor({ doc, graph, onSave, onDirty }: {
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("svg"); }}><Download size={13} /> 导出 SVG<small>矢量,PPT 里放大不糊</small></button>
             </>}
           </Menu>
-          <span className={`cv-dirty ${dirty ? "on" : ""}`}>{dirty ? "未保存" : "已保存"}</span>
-          <button className="btn sm primary" onClick={save} disabled={!dirty} title="保存 (⌘S)"><Save size={14} /> 保存</button>
+          <Menu label="历史" icon={<History size={14} />} title="自动留的历史版本(每张画布最近 30 份,约每 2 分钟一份),挑一个恢复">
+            {(close) => versions.length === 0
+              ? <div className="cv-menu-empty">还没有历史版本</div>
+              : [...versions].reverse().map((v, i) => (
+                <button key={v.at} className="cv-menu-item" onClick={() => { close(); restoreVersion(v); }}>
+                  {new Date(v.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  <small>{i === 0 ? "最新 · " : ""}{v.nodes.length} 个形状 · {v.edges.length} 根线</small>
+                </button>
+              ))}
+          </Menu>
+          <span className={`cv-dirty ${saveError ? "err" : dirty ? "on" : ""}`} title={saveError ?? undefined}>
+            {saveError ? "没保存上" : dirty ? "保存中…" : "已自动保存"}
+          </span>
+          <button className="btn sm primary" onClick={() => save(false)} title="保存 (⌘S)"><Save size={14} /> 保存</button>
         </div>
 
+        {saveError && (
+          <div className="cv-save-error" role="alert">
+            画布没保存上:{saveError}。已另存一份草稿;改一下再保存会自动重试,修不好的话把这段话发给我。
+          </div>
+        )}
         <div className="cv-stage">
           <div className="cv-palette" aria-label="形状">
             {SHAPES.map((s) => (
@@ -704,14 +761,26 @@ function Editor({ doc, graph, onSave, onDirty }: {
 export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClose: () => void }) {
   const { askConfirm, confirmDialog } = useConfirm();
   const [docs, setDocs] = useState<CanvasDoc[]>(() => canvasRepository.load());
+  /* 编辑器卸载时(离开画布那一刻)还要存一次,那时这里的 state 可能已经不是最新的 —— 存盘一律从 ref 取 */
+  const docsRef = useRef(docs); docsRef.current = docs;
+  const [history, setHistory] = useState<CanvasHistory>(() => {
+    // 第一次用历史功能时,把每张画布现在的样子先记成第一份
+    let h = canvasHistoryRepository.load();
+    for (const d of docs) if (!h[d.id]?.length) h = pushVersion(h, d.id, d.nodes, d.edges, d.updatedAt);
+    return h;
+  });
+  const historyRef = useRef(history); historyRef.current = history;
   const [activeId, setActiveId] = useState<string | null>(() => docs[0]?.id ?? null);
   const [dirty, setDirty] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const onEditorState = useCallback((st: { dirty: boolean; failed: boolean }) => { setDirty(st.dirty); setSaveFailed(st.failed); }, []);
   const [renaming, setRenaming] = useState<string | null>(null);
   const active = docs.find((d) => d.id === activeId) ?? null;
 
   const persist = useCallback((next: CanvasDoc[]) => {
     try {
       canvasRepository.save(next);
+      docsRef.current = next;
       setDocs(next);
       return true;
     } catch (error) {
@@ -719,8 +788,14 @@ export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClos
       return false;
     }
   }, []);
+  const forgetHistory = (id: string) => {
+    const { [id]: _gone, ...rest } = historyRef.current;
+    void _gone;
+    try { canvasHistoryRepository.save(rest); setHistory(rest); } catch { /* 历史写不进去不影响画布本身 */ }
+  };
+  /* 平时离开画布不用问:编辑器卸载时会把最后的改动存上。只有上一次保存失败了才拦一下 */
   const guard = async (): Promise<boolean> =>
-    !dirty || askConfirm("当前画布有没保存的修改,离开后这些修改会丢掉。", "放弃未保存的修改?", "放弃修改");
+    !saveFailed || askConfirm("这张画布最近的修改没保存上(原因见画布顶上的红条),已经另存了一份草稿。仍要离开吗?", "修改没保存上", "仍要离开");
 
   const create = async () => {
     if (!(await guard())) return;
@@ -748,13 +823,38 @@ export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClos
     const doc = docs.find((d) => d.id === id);
     if (!doc || !(await askConfirm(`「${doc.name}」会被删除,删除后找不回来。`, "删除这张画布?", "删除"))) return;
     const next = docs.filter((d) => d.id !== id);
-    if (persist(next) && id === activeId) { setActiveId(next[0]?.id ?? null); setDirty(false); }
+    if (persist(next)) {
+      forgetHistory(id);
+      if (id === activeId) { setActiveId(next[0]?.id ?? null); setDirty(false); }
+    }
   };
-  const save = useCallback((nodes: CanvasNode[], edges: CanvasEdge[]) => {
-    if (!activeId) return;
-    if (persist(docs.map((d) => d.id === activeId ? { ...d, nodes, edges, updatedAt: Date.now() } : d)))
-      useApp.getState().showToast({ kind: "success", text: "画布已保存" });
-  }, [activeId, docs, persist]);
+  /** 存一张画布。存之前先把能自动修的修掉;还是不合格就原样另存草稿,并说清楚哪里不对 */
+  const save = useCallback((docId: string, nodes: CanvasNode[], edges: CanvasEdge[], milestone: boolean): { ok: boolean; fixed: string[]; error?: string } => {
+    const current = docsRef.current;
+    const old = current.find((d) => d.id === docId);
+    if (!old) return { ok: false, fixed: [], error: "这张画布已经被删除了" };
+    const repaired = repairCanvas(nodes, edges);
+    const doc: CanvasDoc = { ...old, nodes: repaired.nodes, edges: repaired.edges, updatedAt: Date.now() };
+    const problem = explainCanvasProblem(doc);
+    if (problem) {
+      saveDraft({ ...old, nodes, edges, updatedAt: Date.now() });
+      return { ok: false, fixed: repaired.fixed, error: problem };
+    }
+    try {
+      canvasRepository.save(current.map((d) => d.id === docId ? doc : d));
+    } catch (error) {
+      saveDraft(doc);
+      return { ok: false, fixed: repaired.fixed, error: String(error) };
+    }
+    const next = current.map((d) => d.id === docId ? doc : d);
+    docsRef.current = next;
+    setDocs(next);
+    try {
+      const h = pushVersion(historyRef.current, docId, doc.nodes, doc.edges, doc.updatedAt, milestone);
+      if (h !== historyRef.current) { canvasHistoryRepository.save(h); historyRef.current = h; setHistory(h); }
+    } catch { /* 历史写不进去不影响画布本身 */ }
+    return { ok: true, fixed: repaired.fixed };
+  }, []);
   const close = async () => { if (await guard()) onClose(); };
 
   return createPortal(
@@ -795,7 +895,7 @@ export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClos
       <main className="cv-main">
         {active ? (
           <ReactFlowProvider key={active.id}>
-            <Editor doc={active} graph={graph} onSave={save} onDirty={setDirty} />
+            <Editor doc={active} graph={graph} versions={history[active.id] ?? []} onSave={save} onDirty={onEditorState} />
           </ReactFlowProvider>
         ) : (
           <div className="cv-blank">

@@ -309,6 +309,59 @@ try {
     ok('画布对象和纯数据互转:字段不丢、坐标取整、叠放、线型箭头、改连');
   }
 
+  // ── 存盘前体检:能修的自动修,修不了的说清楚哪里不对(以前一处不对整张就存不进去,还显示「已保存」) ──
+  {
+    const a = m.newNode('pill', 0, 0), b = m.newNode('pill', 200, 0), c = m.newNode('rounded', 400, 0);
+    const good = m.newEdge(a.id, b.id, { flow: true, flowStyle: 'comet', flowColor: 'blue' });
+    const dangling = m.newEdge(b.id, 'n_已经删掉的');
+    const dup = { ...m.newEdge(b.id, c.id), id: good.id };
+    const nulls = { ...m.newEdge(a.id, c.id), fromHandle: null, width: '2', flowSpeed: 9 };
+    const badNode = { ...c, z: Number.NaN, fill: 'weird' };
+    const r = m.repairCanvas([a, b, badNode, { ...b }], [good, dangling, dup, nulls]);
+    const doc = { ...m.newCanvas('t'), nodes: r.nodes, edges: r.edges };
+    assert(m.isCanvasDoc(doc), '修完必须是合格的画布:' + m.explainCanvasProblem(doc));
+    assert.equal(r.edges.length, 3, '悬空的线去掉,其余留着');
+    assert.equal(new Set(r.edges.map((e) => e.id)).size, 3, '重复的线 id 换新');
+    assert.equal(new Set(r.nodes.map((x) => x.id)).size, 4, '重复的形状 id 换新,形状一个不少');
+    assert(r.edges.some((e) => e.flowStyle === 'comet' && e.flowColor === 'blue'), '正常的彗星蓝色流动原样保留');
+    assert(r.fixed.length >= 4, '修了什么要说出来:' + JSON.stringify(r.fixed));
+    const clean = m.repairCanvas([a, b], [good]);
+    assert.deepEqual(clean.fixed, [], '没毛病就什么都不改');
+    assert.deepEqual(clean.edges, [good]);
+    assert.equal(m.explainCanvasProblem({ ...m.newCanvas('t'), nodes: [{ ...a, w: Number.NaN }], edges: [] }).includes('第 1 个形状的 w'), true, '说清楚是哪个形状的哪个字段');
+    assert.equal(m.explainCanvasProblem(doc), null);
+    ok('存盘前体检:悬空的线 / 重复 id / 坏的可选值自动修,修不了的指出哪一处');
+  }
+
+  // ── 历史版本:内容没变不记,固定 2 分钟一段、同段只留最后一份,第一份永远留着,恢复算里程碑,最多 30 份 ──
+  {
+    const repoFile = join(dir, 'r.cjs');
+    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasRepository.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: repoFile, logLevel: 'silent' });
+    const repo = createRequire(import.meta.url)(repoFile);
+    const G = repo.HISTORY_GAP_MS;
+    const a = m.newNode('pill', 0, 0);
+    const t0 = 100 * G;                     // 一段的开头
+    let h = repo.pushVersion({}, 'd', [a], [], t0);
+    assert.equal(h.d.length, 1);
+    assert.equal(repo.pushVersion(h, 'd', [a], [], t0 + 5), h, '内容没变就不记');
+    h = repo.pushVersion(h, 'd', [a, m.newNode('pill', 1, 1)], [], t0 + 1000);
+    assert.equal(h.d.length, 2, '第一份永远留着,不被同一段的改动顶掉');
+    h = repo.pushVersion(h, 'd', [a, m.newNode('pill', 2, 2)], [], t0 + 2000);
+    assert.equal(h.d.length, 2, '同一段里只留最后一份');
+    // 连续画 10 分钟、每 10 秒存一次:应该留下按段的多份,而不是一直替换成一份
+    let c = repo.pushVersion({}, 'c', [a], [], t0 - G);
+    for (let s = 0; s < 60; s += 1) c = repo.pushVersion(c, 'c', [{ ...a, x: s }], [], t0 + s * 10_000);
+    assert(c.c.length >= 5, `连续画 10 分钟要留下多份,实际 ${c.c.length}`);
+    // 恢复历史版本是里程碑:不能把恢复前的那份顶掉
+    const before = c.c.length;
+    c = repo.pushVersion(c, 'c', [a], [], t0 + 595_000, true);
+    assert.equal(c.c.length, before + 1, '恢复前的样子要留在历史里');
+    for (let i = 0; i < 50; i += 1) h = repo.pushVersion(h, 'd', [{ ...a, x: i }], [], t0 + (i + 10) * G);
+    assert.equal(h.d.length, repo.HISTORY_KEEP, '最多留 30 份');
+    assert.equal(h.d[h.d.length - 1].nodes[0].x, 49, '留下的是最新的');
+    ok('历史版本:去重、按 2 分钟分段、首份保留、恢复不顶掉前一份、最多 30 份');
+  }
+
   console.log(`lineage canvas: ${n} 项通过`);
 } finally {
   rmSync(dir, { recursive: true, force: true });

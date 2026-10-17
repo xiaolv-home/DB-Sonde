@@ -441,3 +441,15 @@
 @media (prefers-reduced-motion: reduce) {
   .cv-flow .react-flow__edge-path { animation: none !important; }
 }
+
+/* 保存失败:状态变红,顶上挂一条一直在的说明(不是弹一下就没了) */
+.cv-dirty.err { color: var(--red); font-weight: 600; cursor: help; }
+.cv-save-error {
+  padding: 7px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 12%, var(--surface));
+  color: var(--red);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.cv-menu-empty { padding: 8px 12px; color: var(--text-3); font-size: 12.5px; }

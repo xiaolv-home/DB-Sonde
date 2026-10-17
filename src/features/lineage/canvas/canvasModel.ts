@@ -152,6 +152,75 @@ export function isCanvasDoc(v: unknown): v is CanvasDoc {
 }
 export const isCanvasList = (v: unknown): v is CanvasDoc[] => isIdentifiedList(v, isCanvasDoc);
 
+/* ---------- 存盘前的体检 ----------
+   以前格式有一处不对,整张画布就存不进去,只弹一下红字 —— 画了半天的东西退出就没了。
+   现在存之前先把能自动修的修掉;修不了的,说清楚是哪个形状 / 哪根线的哪个字段。 */
+
+const NODE_OPTIONAL: Partial<Record<keyof CanvasNode, (v: unknown) => boolean>> = {
+  bold: (v) => typeof v === "boolean", fill: (v) => oneOf(FILLS, v), dashed: (v) => typeof v === "boolean",
+  z: finite, ref: isText,
+};
+const EDGE_OPTIONAL: Partial<Record<keyof CanvasEdge, (v: unknown) => boolean>> = {
+  fromHandle: isText, toHandle: isText, dashed: (v) => typeof v === "boolean", flow: (v) => typeof v === "boolean",
+  width: (v) => (LINE_WIDTHS as readonly number[]).includes(v as number), flowStyle: (v) => oneOf(FLOW_STYLES, v),
+  flowSpeed: (v) => (FLOW_SPEEDS as readonly number[]).includes(v as number), flowColor: (v) => oneOf(COLORS, v),
+};
+
+/** 把能修的修掉:可选字段里的坏值(null / 不认识的值)去掉,重复的 id 换新的,另一头形状已经不在的线删掉。 */
+export function repairCanvas(nodes: CanvasNode[], edges: CanvasEdge[]): { nodes: CanvasNode[]; edges: CanvasEdge[]; fixed: string[] } {
+  const fixed: string[] = [];
+  const strip = <T extends object>(item: T, rules: Partial<Record<keyof T, (v: unknown) => boolean>>, what: string): T => {
+    let out = item;
+    for (const [key, ok] of Object.entries(rules) as [keyof T, (v: unknown) => boolean][]) {
+      const v = out[key];
+      if (v !== undefined && !ok(v)) {
+        if (out === item) out = { ...item };
+        delete out[key];
+        fixed.push(`${what}的 ${String(key)} 值无效,已去掉`);
+      }
+    }
+    return out;
+  };
+  const seenNodes = new Set<string>();
+  const nodesOut = nodes.map((n) => {
+    let m = strip(n, NODE_OPTIONAL, `形状「${n.text || n.id}」`);
+    if (seenNodes.has(m.id)) { m = { ...m, id: uid("n_") }; fixed.push(`形状「${n.text || n.id}」id 重复,已换新`); }
+    seenNodes.add(m.id);
+    return m;
+  });
+  const seenEdges = new Set<string>();
+  const edgesOut: CanvasEdge[] = [];
+  for (const e of edges) {
+    if (!seenNodes.has(e.from) || !seenNodes.has(e.to)) { fixed.push("一根线另一头的形状已经删了,这根线去掉了"); continue; }
+    let f = strip(e, EDGE_OPTIONAL, "一根线");
+    if (typeof f.label !== "string") { f = { ...f, label: "" }; fixed.push("一根线的标签无效,已清空"); }
+    if (seenEdges.has(f.id)) { f = { ...f, id: uid("e_") }; fixed.push("一根线 id 重复,已换新"); }
+    seenEdges.add(f.id);
+    edgesOut.push(f);
+  }
+  return { nodes: nodesOut, edges: edgesOut, fixed };
+}
+
+/** 修完还不合格的话,说清楚是哪一处(给保存失败的提示用) */
+export function explainCanvasProblem(doc: unknown): string | null {
+  if (isCanvasDoc(doc)) return null;
+  if (!isRecord(doc)) return "画布数据不是对象";
+  const nodes = Array.isArray(doc.nodes) ? doc.nodes : [];
+  const edges = Array.isArray(doc.edges) ? doc.edges : [];
+  const badNode = nodes.findIndex((n) => !isCanvasNode(n));
+  if (badNode >= 0) {
+    const n = nodes[badNode] as Record<string, unknown>;
+    const field = ["id", "shape", "x", "y", "w", "h", "text", "color", "fontSize"].find((k) => {
+      const v = n?.[k];
+      return k === "shape" ? !oneOf(SHAPES, v) : k === "color" ? !oneOf(COLORS, v) : ["id", "text"].includes(k) ? !isText(v) : !finite(v);
+    });
+    return `第 ${badNode + 1} 个形状的 ${field ?? "某个字段"} 不对(${JSON.stringify(field ? n?.[field] : n)?.slice(0, 60)})`;
+  }
+  const badEdge = edges.findIndex((e) => !isCanvasEdge(e));
+  if (badEdge >= 0) return `第 ${badEdge + 1} 根线的字段不对(${JSON.stringify(edges[badEdge])?.slice(0, 120)})`;
+  return "形状或线的 id 重复,或者线连到了不存在的形状";
+}
+
 let seq = 0;
 export const uid = (prefix: string) => `${prefix}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
