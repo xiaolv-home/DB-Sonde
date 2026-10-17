@@ -103,6 +103,78 @@ async fn live_mysql_family_everyday_operations() {
     rep.step("拒绝事务后连接没被弄坏", q(run_query(&pool, &format!("SELECT COUNT(*) FROM {t}"), None).await), rows_of);
     rep.step("带停止标记的语句", q(run_query(&pool, &format!("/* sonde:qlive-1 */ SELECT COUNT(*) FROM {t}"), None).await), rows_of);
     rep.step("停止(按标记找正在跑的语句)", super::cancel_marked_query(&pool, "sonde:qlive-404").await.map_err(|e| e.to_string()), |n| format!("取消了 {n} 条"));
+    // ── 表结构页:双击改注释 / 数据类型 ──
+    {
+        use super::alter_column::{apply, plan, Change, TableRef};
+        let kind = crate::models::DbKind::Mysql;
+        let line_of = |create: &str, col: &str| create.lines().map(str::trim).find(|l| l.starts_with(&format!("`{col}` "))).unwrap_or("").trim_end_matches(',').to_string();
+        let show = |tbl: &str| format!("SHOW CREATE TABLE `{db}`.`{tbl}`");
+        if doris {
+            let target = TableRef { pool: &pool, kind, database: &db, schema: &db, table: "t", column: Some("name") };
+            rep.step("Doris:改列注释", apply(&target, &Change::Comment { text: "名字 it's".into() }).await.map_err(|e| e.to_string()), |_| "ok".into());
+            rep.step("Doris:改完读回列注释", introspect::list_columns(&pool, &db, &db, "t").await.map_err(|e| e.to_string()).and_then(|cs| {
+                let c = cs.iter().find(|c| c.name == "name").and_then(|c| c.comment.clone());
+                if c.as_deref() == Some("名字 it's") { Ok(c) } else { Err(format!("读回 {c:?}")) }
+            }), |c| format!("{c:?}"));
+            let table_target = TableRef { pool: &pool, kind, database: &db, schema: &db, table: "t", column: None };
+            rep.step("Doris:改表注释", apply(&table_target, &Change::Comment { text: "测试表2".into() }).await.map_err(|e| e.to_string()), |_| "ok".into());
+            rep.step("Doris:改类型应清楚拒绝", match plan(&target, &Change::Type { to: "varchar(80)".into() }).await {
+                Err(e) if e.to_string().contains("schema change") => Ok(e.to_string()), Err(e) => Err(e.to_string()), Ok(p) => Err(format!("不该放行:{}", p.sql)),
+            }, |s| s.clone());
+        } else {
+            rep.step("建改类型的测试表", q(run_query(&pool, &format!(
+                "CREATE TABLE `{db}`.`t2` (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY COMMENT '主键', \
+                 code VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '0' COMMENT '编码', \
+                 amt DECIMAL(12,3), ts DATETIME) COMMENT '改类型'"), None).await), |_| "ok".into());
+            rep.step("灌数据", q(run_query(&pool, &format!(
+                "INSERT INTO `{db}`.`t2` (code, amt, ts) VALUES ('12', 1.500, '2026-10-01 00:00:00'), ('abc', 2.125, '2026-10-01 08:30:00'), ('99999999999', 3.000, NULL)"), None).await),
+                |r| format!("{:?}", r.rows_affected));
+            let col = |c: &'static str| TableRef { pool: &pool, kind, database: &db, schema: &db, table: "t2", column: Some(c) };
+            rep.step("varchar→int:查出两行转不了", plan(&col("code"), &Change::Type { to: "int".into() }).await.map_err(|e| e.to_string()).and_then(|p| {
+                let pr = p.problem.as_ref().ok_or("应该查出问题")?;
+                let whys: Vec<_> = pr.samples.iter().map(|s| format!("{}:{}", s.value, s.why)).collect();
+                if pr.bad_rows == 2 && whys.iter().any(|w| w.starts_with("abc:不是数字")) && whys.iter().any(|w| w.contains("超出范围")) { Ok(whys) } else { Err(format!("{} 行 {whys:?}", pr.bad_rows)) }
+            }), |w| format!("{w:?}"));
+            rep.step("有问题时执行要被拒绝、表不动", match apply(&col("code"), &Change::Type { to: "int".into() }).await {
+                Err(e) => Ok(e.to_string()), Ok(()) => Err("居然改了".into()),
+            }, |s| s.clone());
+            rep.step("decimal(12,3)→(12,2):查出四舍五入", plan(&col("amt"), &Change::Type { to: "decimal(12,2)".into() }).await.map_err(|e| e.to_string()).and_then(|p| {
+                let pr = p.problem.ok_or("应该查出 2.125")?;
+                if pr.bad_rows == 1 && pr.samples[0].why.contains("四舍五入") { Ok(pr.samples[0].value.clone()) } else { Err(format!("{} 行", pr.bad_rows)) }
+            }), |v| v.clone());
+            rep.step("datetime→date:查出丢时分秒", plan(&col("ts"), &Change::Type { to: "date".into() }).await.map_err(|e| e.to_string()).and_then(|p| {
+                let pr = p.problem.ok_or("应该查出 08:30")?;
+                if pr.bad_rows == 1 && pr.samples[0].why.contains("时分秒") { Ok(pr.samples[0].value.clone()) } else { Err(format!("{} 行 {:?}", pr.bad_rows, pr.samples.iter().map(|s| &s.why).collect::<Vec<_>>())) }
+            }), |v| v.clone());
+            rep.step("把脏数据修好", q(run_query(&pool, &format!("UPDATE `{db}`.`t2` SET code = '7' WHERE code = 'abc'"), None).await), |r| format!("{:?}", r.rows_affected));
+            rep.step("varchar→bigint:全部能转", plan(&col("code"), &Change::Type { to: "BIGINT".into() }).await.map_err(|e| e.to_string()).and_then(|p| {
+                if p.problem.is_none() && p.checked_rows == Some(3) { Ok(p.sql) } else { Err(format!("{:?} {:?}", p.checked_rows, p.problem.map(|x| x.bad_rows))) }
+            }), |s| s.clone());
+            rep.step("varchar→bigint:执行", apply(&col("code"), &Change::Type { to: "BIGINT".into() }).await.map_err(|e| e.to_string()), |_| "ok".into());
+            rep.step("改完类型:非空 / 默认值 / 注释都还在,字符集去掉", q(run_query(&pool, &show("t2"), None).await).and_then(|r| {
+                let create = r.rows[0][1].as_str().unwrap_or_default().to_string();
+                let l = line_of(&create, "code");
+                if l == "`code` bigint NOT NULL DEFAULT '0' COMMENT '编码'" { Ok(l) } else { Err(l) }
+            }), |l| l.clone());
+            rep.step("数据转对了", q(run_query(&pool, &format!("SELECT code FROM `{db}`.`t2` ORDER BY id"), None).await), rows_of);
+            let tricky = "主键 it's \\ 说明".to_string();
+            rep.step("改列注释(带引号和反斜杠)", apply(&col("id"), &Change::Comment { text: tricky.clone() }).await.map_err(|e| e.to_string()), |_| "ok".into());
+            rep.step("改完注释:自增 / 主键都还在,注释原样", introspect::list_columns(&pool, &db, &db, "t2").await.map_err(|e| e.to_string()).and_then(|cs| {
+                let c = cs.iter().find(|c| c.name == "id").ok_or("没有 id")?;
+                if c.auto_increment && c.is_primary_key && c.comment.as_deref() == Some(tricky.as_str()) { Ok(c.comment.clone()) } else { Err(format!("{c:?}")) }
+            }), |c| format!("{c:?}"));
+            rep.step("清空列注释", apply(&col("amt"), &Change::Comment { text: String::new() }).await.map_err(|e| e.to_string()), |_| "ok".into());
+            let table_target = TableRef { pool: &pool, kind, database: &db, schema: &db, table: "t2", column: None };
+            rep.step("改表注释", apply(&table_target, &Change::Comment { text: "门店信息表 v2".into() }).await.map_err(|e| e.to_string()), |_| "ok".into());
+            rep.step("改完读回表注释", introspect::list_tables(&pool, &db, &db).await.map_err(|e| e.to_string()).and_then(|ts| {
+                let c = ts.iter().find(|t| t.name == "t2").and_then(|t| t.comment.clone());
+                if c.as_deref() == Some("门店信息表 v2") { Ok(c) } else { Err(format!("{c:?}")) }
+            }), |c| format!("{c:?}"));
+            rep.step("不认识的类型直接拒绝", match plan(&col("code"), &Change::Type { to: "int; DROP TABLE t2".into() }).await {
+                Err(e) => Ok(e.to_string()), Ok(p) => Err(p.sql),
+            }, |s| s.clone());
+        }
+    }
     rep.step("DELETE", q(run_query(&pool, &format!("DELETE FROM {t} WHERE id = 3"), None).await), |r| format!("{:?}", r.rows_affected));
     if !doris {
         rep.step("删函数", q(run_query(&pool, &drop_sql("function", "f_name"), None).await), |_| drop_sql("function", "f_name"));

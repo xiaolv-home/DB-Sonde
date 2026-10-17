@@ -330,5 +330,21 @@ mod live_tests {
         assert!(!left_tables.iter().any(|t| t.name == "SONDE_DROP_V"), "视图还在");
         let left_routines = super::list_routines(&conn, owner).await.expect("读存储过程");
         assert!(!left_routines.iter().any(|r| r.name.starts_with("SONDE_DROP_")), "存储过程 / 函数还在");
+
+        // 表结构页改注释(建一张临时表来改,不动练习库里原有的表)
+        use crate::db::alter_column::{apply, Change, TableRef};
+        let _ = super::run_query(&conn, &format!("DROP TABLE {owner}.SONDE_ALTER_T"), 10).await;
+        super::run_query(&conn, &format!("CREATE TABLE {owner}.SONDE_ALTER_T (ID NUMBER PRIMARY KEY, NAME VARCHAR2(20))"), 10).await.expect("建表");
+        let pool = crate::db::DbPool::Oracle(conn.clone());
+        let col = TableRef { pool: &pool, kind: crate::models::DbKind::Oracle, database: "", schema: owner, table: "SONDE_ALTER_T", column: Some("NAME") };
+        apply(&col, &Change::Comment { text: "名字 it's".into() }).await.expect("改列注释");
+        let tbl = TableRef { column: None, ..col };
+        apply(&tbl, &Change::Comment { text: "临时表".into() }).await.expect("改表注释");
+        let cols = super::list_columns(&conn, owner, "SONDE_ALTER_T").await.expect("读字段");
+        assert_eq!(cols.iter().find(|c| c.name == "NAME").and_then(|c| c.comment.clone()).as_deref(), Some("名字 it's"));
+        let tables = super::list_tables(&conn, owner).await.expect("读表");
+        assert_eq!(tables.iter().find(|t| t.name == "SONDE_ALTER_T").and_then(|t| t.comment.clone()).as_deref(), Some("临时表"));
+        super::run_query(&conn, &format!("DROP TABLE {owner}.SONDE_ALTER_T"), 10).await.expect("删临时表");
+        println!("Oracle 改表 / 列注释 ok");
     }
 }

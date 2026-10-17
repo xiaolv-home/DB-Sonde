@@ -41,6 +41,7 @@ import type {
   TableInfo,
 } from "../types";
 import ResultGrid, { type FilterOp, type GridSort } from "./ResultGrid";
+import { EditableText, useStructureEditor } from "./StructureEditing";
 import { useI18n } from "../hooks/useI18n";
 
 type Section = "properties" | "columns" | "indexes" | "ddl" | "data";
@@ -58,7 +59,7 @@ function formatBytes(value?: number | null): string {
 }
 
 
-function PropertiesPanel({ tab, info }: { tab: TableTab; info?: TableInfo }) {
+function PropertiesPanel({ tab, info, onComment }: { tab: TableTab; info?: TableInfo; onComment?: (text: string) => void }) {
   const { t } = useI18n();
   const fields = [
     [t("inspector.objectName"), tab.table],
@@ -80,13 +81,17 @@ function PropertiesPanel({ tab, info }: { tab: TableTab; info?: TableInfo }) {
       ))}
       <div className="full">
         <b>{t("inspector.comment")}</b>
-        <span>{info?.comment || t("inspector.noComment")}</span>
+        <span><EditableText value={info?.comment ?? ""} display={info?.comment || t("inspector.noComment")} onCommit={onComment} placeholder="表注释 · 回车保存 · Esc 取消" /></span>
       </div>
     </div>
   );
 }
 
-function ColumnsPanel({ columns }: { columns: ColumnInfo[] }) {
+function ColumnsPanel({ columns, onComment, onType }: {
+  columns: ColumnInfo[];
+  onComment?: (column: string) => (text: string) => void;
+  onType?: (column: string) => (to: string) => void;
+}) {
   const { t } = useI18n();
   return (
     <table className="object-grid">
@@ -103,12 +108,12 @@ function ColumnsPanel({ columns }: { columns: ColumnInfo[] }) {
           <tr key={column.name}>
             <td className="numeric">{column.ordinalPosition ?? index + 1}</td>
             <td className="object-name">{column.name}</td>
-            <td>{column.dataType}</td>
+            <td><EditableText value={column.dataType} onCommit={onType?.(column.name)} placeholder="新类型,比如 varchar(50) · 回车检查" mono /></td>
             <td>{column.nullable ? "" : "✓"}</td>
             <td>{column.autoIncrement ? "✓" : column.generated ? t("inspector.generated") : ""}</td>
             <td>{column.isPrimaryKey ? "PRI" : ""}</td>
             <td className="mono">{column.defaultValue ?? "—"}</td>
-            <td>{column.comment || "—"}</td>
+            <td><EditableText value={column.comment ?? ""} display={column.comment || "—"} onCommit={onComment?.(column.name)} placeholder="列注释 · 回车保存 · Esc 取消" /></td>
           </tr>
         ))}
       </tbody>
@@ -601,6 +606,8 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
     };
   }, [tab.connId, tab.database, tab.schema, tab.table, tab.objectKind, tab.objectInfo, metadataReloadKey]);
 
+  // 双击改注释 / 数据类型;改成功后重新读一遍表结构(DDL、列、注释都跟着变)
+  const structure = useStructureEditor(tab, info?.estimatedRows, () => setMetadataReloadKey((value) => value + 1));
   const hasPrimaryKey = columns.some((column) => column.isPrimaryKey);
   const editable = tab.objectKind === "table" && hasPrimaryKey;
   const editHint = tab.objectKind === "view"
@@ -714,9 +721,9 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
             <>
             {notice && <div className="object-notice">{notice}</div>}
             {section === "properties" ? (
-            <PropertiesPanel tab={tab} info={info} />
+            <PropertiesPanel tab={tab} info={info} onComment={structure.onTableComment} />
             ) : section === "columns" ? (
-              <ColumnsPanel columns={columns} />
+              <ColumnsPanel columns={columns} onComment={structure.onColumnComment} onType={structure.onColumnType} />
             ) : section === "indexes" ? (
               <IndexesPanel indexes={indexes} />
             ) : section === "ddl" ? (
@@ -738,6 +745,7 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
           </div>}
         </div>
       </section>
+      {structure.dialog}
     </div>
   );
 }

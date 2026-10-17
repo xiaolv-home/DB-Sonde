@@ -17,6 +17,19 @@ import { inTauri, mockApi } from "./mockBackend";
 /** 能从对象树上删除的东西。PostgreSQL 的物化视图也传 view,后端会自己认出来。 */
 export type DropObjectKind = "database" | "table" | "view" | "procedure" | "function";
 
+/** 表结构页双击改的东西:注释,或者列的数据类型 */
+export type ColumnChange = { kind: "comment"; text: string } | { kind: "type"; to: string };
+export interface ColumnChangePlan {
+  /** 确认后会执行的语句 */
+  sql: string;
+  /** 改类型时检查了多少行非空数据 */
+  checkedRows?: number | null;
+  /** 有转不过去的数据:多少行、几个例子和原因。有它就不能改 */
+  problem?: { badRows: number; samples: { value: string; why: string }[] } | null;
+  normalizedType?: string | null;
+}
+type ColumnTarget = { connId: string; database: string; schema?: string; table: string; column?: string | null };
+
 
 /** Typed wrappers around the Rust command layer.
  *  Outside Tauri (plain browser during UI dev) they fall back to a mock. */
@@ -105,6 +118,13 @@ export const api = {
     inTauri ? invoke<string>("preview_drop_object", request) : Promise.reject(new Error("删除对象仅支持桌面端真实连接")),
   dropObject: (request: { connId: string; objectKind: DropObjectKind; database: string; schema?: string; table?: string; confirmation: string }) =>
     inTauri ? invoke<void>("drop_object", request) : Promise.reject(new Error("删除对象仅支持桌面端真实连接")),
+
+  planColumnChange: (target: ColumnTarget, change: ColumnChange) =>
+    inTauri ? invoke<ColumnChangePlan>("plan_column_change", { ...target, column: target.column ?? null, change })
+      : Promise.reject(new Error("改表结构仅支持桌面端真实连接")),
+  applyColumnChange: (target: ColumnTarget, change: ColumnChange) =>
+    inTauri ? invoke<void>("apply_column_change", { ...target, column: target.column ?? null, change })
+      : Promise.reject(new Error("改表结构仅支持桌面端真实连接")),
 
   listProcesses: (connId: string) =>
     inTauri ? invoke<QueryResult>("list_processes", { connId }) : Promise.resolve({ columns: [], rows: [], elapsedMs: 0, truncated: false } as QueryResult),

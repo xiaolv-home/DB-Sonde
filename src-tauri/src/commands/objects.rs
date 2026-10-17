@@ -222,3 +222,41 @@ pub async fn execute_routine(state: State<'_, AppState>, conn_id:String, databas
         _=>return Err(AppError::msg("该数据库不支持此例程执行面板")),
     };Ok(db::routines::combine(sets))
 }
+
+/// 表结构页双击改注释 / 数据类型:先预检查(会执行什么、改类型时整列数据能不能转),确认后再执行。
+#[tauri::command]
+pub async fn plan_column_change(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: String,
+    schema: Option<String>,
+    table: String,
+    column: Option<String>,
+    change: db::alter_column::Change,
+) -> AppResult<db::alter_column::Plan> {
+    let (kind, pool) = pool_for_database(&state, &conn_id, Some(&database)).await?;
+    let target = db::alter_column::TableRef {
+        pool: &pool, kind, database: &database, schema: schema.as_deref().unwrap_or(""), table: &table, column: column.as_deref(),
+    };
+    db::alter_column::plan(&target, &change).await
+}
+
+#[tauri::command]
+pub async fn apply_column_change(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: String,
+    schema: Option<String>,
+    table: String,
+    column: Option<String>,
+    change: db::alter_column::Change,
+) -> AppResult<()> {
+    if state.autocommit.read().await.get(&conn_id) == Some(&false) {
+        return Err(AppError::msg("请先处理当前事务并切回自动提交模式,再改表结构"));
+    }
+    let (kind, pool) = pool_for_database(&state, &conn_id, Some(&database)).await?;
+    let target = db::alter_column::TableRef {
+        pool: &pool, kind, database: &database, schema: schema.as_deref().unwrap_or(""), table: &table, column: column.as_deref(),
+    };
+    db::alter_column::apply(&target, &change).await
+}

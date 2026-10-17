@@ -843,3 +843,21 @@
   line-height: 1.75;
   white-space: pre-wrap;
 }
+
+/* ---- 表结构页:双击改注释 / 数据类型 ---- */
+.struct-editable { display: block; min-width: 2em; cursor: text; border-radius: 4px; }
+.struct-editable:hover { background: var(--surface-2); box-shadow: 0 0 0 3px var(--surface-2); }
+.struct-edit-input { width: 100%; min-width: 140px; box-sizing: border-box; height: 26px; padding: 2px 6px; font-size: 13px; }
+.struct-edit-input.mono { font-family: var(--mono); }
+.struct-type-modal { width: min(560px, 92vw); }
+.struct-type-body { display: grid; gap: 10px; }
+.struct-type-body p { margin: 0; line-height: 1.6; }
+.struct-checking, .struct-good, .struct-bad, .struct-warn { display: flex; align-items: flex-start; gap: 6px; }
+.struct-checking svg, .struct-good svg, .struct-bad svg { flex: none; margin-top: 4px; }
+.struct-good { color: var(--green); }
+.struct-bad { color: var(--red); }
+.struct-warn { color: var(--amber); }
+.struct-samples { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.struct-samples th, .struct-samples td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.struct-samples th { color: var(--text-3); font-weight: 500; }
+.struct-samples td.mono { font-family: var(--mono); overflow-wrap: anywhere; }

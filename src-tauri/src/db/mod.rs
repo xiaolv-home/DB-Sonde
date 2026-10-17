@@ -1,3 +1,4 @@
+pub mod alter_column;
 pub mod clickhouse_driver;
 pub mod edit;
 pub mod drop_object;

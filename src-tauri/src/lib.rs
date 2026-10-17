@@ -101,6 +101,8 @@ pub fn run() {
             commands::query::cancel_query,
             commands::objects::preview_drop_object,
             commands::objects::drop_object,
+            commands::objects::plan_column_change,
+            commands::objects::apply_column_change,
             commands::query::run_read_only_query,
             dashboard_store::dashboard_storage_path,
             commands::query::list_processes,
