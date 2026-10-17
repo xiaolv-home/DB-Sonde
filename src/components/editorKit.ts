@@ -28,6 +28,11 @@ const listenMenu = inTauri
     }
   : undefined;
 
+/** 没有代码编辑器的窗口(独立的链路画布窗口)也要接菜单栏转来的 ⌘A 这些,不然会被系统菜单吃掉 */
+export function installAppEditKeys(): void {
+  installEditShortcuts({ currentEditor, run, listenMenu });
+}
+
 /** 放进编辑器 extensions 里。basicSetup 要关掉 searchKeymap(用我们自己的查找条)。 */
 export function editorKit(): Extension {
   installEditShortcuts({ currentEditor, run, listenMenu });

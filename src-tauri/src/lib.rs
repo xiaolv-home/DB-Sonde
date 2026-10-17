@@ -1,5 +1,6 @@
 mod ai;
 mod app_menu;
+mod canvas_window;
 mod etl_files;
 mod monitor;
 mod commands;
@@ -101,6 +102,7 @@ pub fn run() {
             commands::query::cancel_query,
             commands::objects::preview_drop_object,
             commands::objects::drop_object,
+            canvas_window::open_canvas_window,
             commands::objects::plan_column_change,
             commands::objects::apply_column_change,
             commands::query::run_read_only_query,
@@ -154,6 +156,7 @@ mod main_thread_guard {
             ("python/run.rs", include_str!("python/run.rs")),
             ("python/workspace.rs", include_str!("python/workspace.rs")),
             ("python/assist.rs", include_str!("python/assist.rs")),
+            ("canvas_window.rs", include_str!("canvas_window.rs")),
             ("commands/connections.rs", include_str!("commands/connections.rs")),
             ("commands/objects.rs", include_str!("commands/objects.rs")),
             ("commands/query.rs", include_str!("commands/query.rs")),

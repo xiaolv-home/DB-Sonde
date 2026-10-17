@@ -30,6 +30,8 @@ import LineageGraph from "./LineageGraph";
 import { useMetrics } from "../metrics/metricsStore";
 import { useEtl } from "../etl/etlStore";
 import { useApp } from "../../store/appStore";
+import { api } from "../../lib/api";
+import { inTauri } from "../../lib/mockBackend";
 import { relevantUpstream } from "./columnFocus";
 import AssetShell from "../assets/AssetShell";
 import "./lineage.css";
@@ -431,6 +433,10 @@ export default function LineageCenter() {
   const [canvasMod, setCanvasMod] = useState<CanvasModule | null>(canvasModule);
   useEffect(() => { void preloadCanvas().then(setCanvasMod).catch(() => { canvasLoading = null; }); }, []);
   const openCanvas = () => {
+    if (inTauri) {
+      api.openCanvasWindow().catch((error) => useApp.getState().showToast({ kind: "error", text: `画布窗口打开失败:${String(error)}` }));
+      return;
+    }
     if (canvasMod) { setCanvasOpen(true); return; }
     void preloadCanvas().then((m) => { setCanvasMod(m); setCanvasOpen(true); })
       .catch((error) => { canvasLoading = null; useApp.getState().showToast({ kind: "error", text: `画布加载失败:${String(error)}` }); });

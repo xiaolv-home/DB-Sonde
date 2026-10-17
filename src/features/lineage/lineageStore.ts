@@ -57,6 +57,8 @@ interface LineageState {
   selected: string | null;
 
   setOpen: (open: boolean) => void;
+  /** 从本地存储重新读一遍扫描出的边(别的窗口重新扫描之后) */
+  reload: () => void;
   select: (id: string | null) => void;
   clearScanned: () => void;
   /** 把一个节点从血缘里摘掉(表删了、作业下线了)。
@@ -80,6 +82,7 @@ export const useLineage = create<LineageState>((set, get) => ({
   selected: null,
 
   setOpen: (open) => set({ open }),
+  reload: () => set({ scanned: lineageEdges.load() }),
   select: (id) => set({ selected: id }),
 
   clearScanned: () => {

@@ -119,6 +119,9 @@ export const api = {
   dropObject: (request: { connId: string; objectKind: DropObjectKind; database: string; schema?: string; table?: string; confirmation: string }) =>
     inTauri ? invoke<void>("drop_object", request) : Promise.reject(new Error("删除对象仅支持桌面端真实连接")),
 
+  /** 链路画布单独开一个系统窗口(已开着就拉到前面) */
+  openCanvasWindow: () => invoke<void>("open_canvas_window"),
+
   planColumnChange: (target: ColumnTarget, change: ColumnChange) =>
     inTauri ? invoke<ColumnChangePlan>("plan_column_change", { ...target, column: target.column ?? null, change })
       : Promise.reject(new Error("改表结构仅支持桌面端真实连接")),

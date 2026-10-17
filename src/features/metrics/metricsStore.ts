@@ -130,6 +130,8 @@ export function newDraft(connId = "", connName = "", database?: string): Metric 
 }
 
 interface MetricsState {
+  /** 从本地存储重新读一遍(别的窗口改过之后) */
+  reload: () => void;
   open: boolean;
   metrics: Metric[];
   editing: Metric | null;
@@ -149,6 +151,7 @@ interface MetricsState {
 export const useMetrics = create<MetricsState>((set, get) => ({
   open: false,
   metrics: load(),
+  reload: () => set({ metrics: load() }),
   editing: null,
 
   setOpen: (open) => set({ open }),

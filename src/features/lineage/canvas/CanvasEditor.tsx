@@ -24,7 +24,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
   BringToFront, ClipboardPaste, Copy, Database, Download, GitFork, ImageDown, Network, Paintbrush,
-  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2,
+  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
 import { useConfirm } from "../../../components/useConfirm";
@@ -183,7 +183,13 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     const timer = window.setTimeout(() => { lastTriedRef.current = currentKey; saveRef.current(true); }, 800);
     return () => window.clearTimeout(timer);
   }, [dirty, currentKey]);
-  useEffect(() => () => { if (pendingRef.current) saveRef.current(true); }, []);
+  useEffect(() => {
+    const flush = () => { if (pendingRef.current) saveRef.current(true); };
+    // 整个窗口关掉 / 应用退出时组件来不及卸载,靠页面卸载事件兜底
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => { window.removeEventListener("pagehide", flush); window.removeEventListener("beforeunload", flush); flush(); };
+  }, []);
 
   /* ---------- React Flow 回调 ---------- */
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
@@ -758,7 +764,12 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
 }
 
 /* ---------- 外层:画布列表 + 编辑器,全屏盖在数据资产上面 ---------- */
-export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClose: () => void }) {
+export default function CanvasOverlay({ graph, onClose, standalone = false }: {
+  graph: Graph;
+  onClose: () => void;
+  /** 在独立窗口里:左上角是「关闭窗口」,不是「返回血缘」 */
+  standalone?: boolean;
+}) {
   const { askConfirm, confirmDialog } = useConfirm();
   const [docs, setDocs] = useState<CanvasDoc[]>(() => canvasRepository.load());
   /* 编辑器卸载时(离开画布那一刻)还要存一次,那时这里的 state 可能已经不是最新的 —— 存盘一律从 ref 取 */
@@ -861,7 +872,9 @@ export default function CanvasOverlay({ graph, onClose }: { graph: Graph; onClos
     <div className="cv-overlay" role="dialog" aria-modal="true" aria-label="链路画布">
       <aside className="cv-side">
         <div className="cv-side-head">
-          <button className="icon-btn" title="返回血缘" onClick={close}><ArrowLeft size={16} /></button>
+          {standalone
+            ? <button className="icon-btn" title="关闭画布窗口" onClick={close}><X size={16} /></button>
+            : <button className="icon-btn" title="返回血缘" onClick={close}><ArrowLeft size={16} /></button>}
           <b>链路画布</b>
           <div className="toolbar-spacer" />
           <button className="icon-btn" title="新建画布" onClick={create}><Plus size={16} /></button>

@@ -88,7 +88,7 @@
   background: var(--surface);
 }
 .cv-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
-.cv-dirty { font-size: 13px; color: var(--text-3); margin-right: 4px; }
+.cv-dirty { font-size: 13px; color: var(--text-3); margin-right: 4px; white-space: nowrap; flex: none; }
 .cv-dirty.on { color: var(--amber, #d9a514); }
 
 /* 选中东西后浮在画布上方的属性条 —— 浮着不占行,选中 / 取消选中时画布不会上下跳 */

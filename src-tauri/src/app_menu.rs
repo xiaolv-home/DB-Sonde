@@ -72,6 +72,10 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
     }
     let focused = app.webview_windows().into_iter().find(|(_, w)| w.is_focused().unwrap_or(false));
     match focused {
+        // 画布窗口里也是我们自己的页面:交给页面处理(⌘A = 选中全部形状)
+        Some((label, _)) if label == crate::canvas_window::CANVAS_LABEL => {
+            let _ = app.emit_to(label.as_str(), EDIT_EVENT, id);
+        }
         Some((label, window)) if label != "main" => {
             if id == "edit.select_all" {
                 let _ = window.eval("document.execCommand('selectAll')");

@@ -45,6 +45,8 @@ interface EtlState {
   selectedId: string | null;
 
   setOpen: (open: boolean) => void;
+  /** 从本地存储重新读一遍(别的窗口改过之后,比如独立的画布窗口要最新的血缘) */
+  reload: () => void;
   select: (id: string | null) => void;
   /** Create a source by parsing config text with the chosen adapter. */
   addSource: (name: string, kind: EtlKind, text: string) => void;
@@ -66,6 +68,7 @@ export const useEtl = create<EtlState>((set, get) => ({
   selectedId: null,
 
   setOpen: (open) => set({ open }),
+  reload: () => set({ sources: load() }),
   select: (id) => set({ selectedId: id }),
 
   addSource: (name, kind, text) => {
