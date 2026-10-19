@@ -176,6 +176,24 @@ function labelSvg(n: CanvasNode, measure: Measure): string {
 export type EdgeFx = (e: CanvasEdge, path: string, stroke: { color: string; width: number }) =>
   { dash?: string; stroke?: string; inner?: string; over?: string } | null;
 
+/** 注释标记放在哪(相对形状左上角):贴在形状右上方的轮廓线上 —— 胶囊 / 圆角 / 椭圆在弧线上 45° 的地方,
+ *  菱形在右上那条边的中点,方框在角上,分组框和文字放在右上角里面一点。画布和导出网页用同一个位置。 */
+export function commentBadgeAt(n: Pick<CanvasNode, "shape" | "w" | "h">): { x: number; y: number } {
+  const { w, h } = n, k = Math.SQRT1_2;
+  const onArc = (r: number) => ({ x: w - r + r * k, y: r - r * k });
+  switch (n.shape) {
+    case "pill": return onArc(Math.min(w, h) / 2);
+    case "rounded": return onArc(Math.min(12, w / 2, h / 2));
+    case "ellipse": return { x: w / 2 + (w / 2) * k, y: h / 2 - (h / 2) * k };
+    case "diamond": return { x: (w * 3) / 4, y: h / 4 };
+    case "cylinder": return { x: w, y: h * 0.115 };
+    case "group": case "text": return { x: w - 10, y: 10 };
+    default: return { x: w, y: 0 };
+  }
+}
+/** 注释标记:形状颜色的小圆点 + 白色 i,外面一圈白边和轮廓线分开 */
+export const COMMENT_BADGE_R = 6;
+
 /** 整张画布 → SVG 文本。没有形状时返回 null。 */
 export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, fx?: EdgeFx,
   opts: { background?: string | null; comments?: boolean } = {}): { svg: string; width: number; height: number } | null {
@@ -224,9 +242,9 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
   const nodeSvg = (n: CanvasNode) => {
     const drawn = shapeSvg(n) + labelSvg(n, measure);
     if (!opts.comments || !n.comment) return drawn;
-    const bx = n.x + n.w - 2, by = n.y + 2;
-    const badge = `<circle cx="${bx}" cy="${by}" r="7" fill="#ffffff" stroke="${COLOR_VALUE[n.color]}" stroke-width="1.5"/>`
-      + `<text x="${bx}" y="${by + 3.5}" font-size="10" font-weight="700" fill="${COLOR_VALUE[n.color]}" text-anchor="middle">i</text>`;
+    const at = commentBadgeAt(n), bx = +(n.x + at.x).toFixed(1), by = +(n.y + at.y).toFixed(1);
+    const badge = `<circle class="cmt-dot" cx="${bx}" cy="${by}" r="${COMMENT_BADGE_R}" fill="${COLOR_VALUE[n.color]}" stroke="#ffffff" stroke-width="1.5"/>`
+      + `<text x="${bx}" y="${(by + 3).toFixed(1)}" font-size="8.5" font-weight="700" font-family="Georgia, serif" fill="#ffffff" text-anchor="middle">i</text>`;
     return `<g class="cmt" data-cmt="${esc(n.comment)}">${drawn}${badge}</g>`;
   };
   const body = [

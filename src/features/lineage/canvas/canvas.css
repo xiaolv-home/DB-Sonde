@@ -493,7 +493,21 @@
 .cv-props-tip { font-size: 12px; color: var(--text-3); }
 
 /* 注释:有注释的形状左上角一个小标记;只选中一个形状时下面弹出注释卡片(不跟着画布缩放) */
-.cv-cmt-badge { position: absolute; top: 3px; left: 5px; color: var(--c); opacity: 0.85; z-index: 2; line-height: 0; }
+/* 位置由 commentBadgeAt 算(贴在右上方的轮廓线上),和导出网页里的一样 */
+.cv-cmt-badge {
+  position: absolute;
+  z-index: 2;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 1.5px var(--surface);
+  color: #fff;
+  font: 700 8.5px/12px Georgia, serif;
+  text-align: center;
+  pointer-events: none;
+}
 .cv-cmt { max-width: 340px; }
 .cv-cmt-view, .cv-cmt-add, .cv-cmt-edit {
   border: 1px solid var(--border-2);

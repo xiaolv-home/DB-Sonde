@@ -28,7 +28,9 @@ const VIEWER_JS = `
     card.style.top = top + "px";
   };
   const showCard = (g) => {
+    if (shown) shown.classList.remove("on");
     shown = g;
+    if (g) g.classList.add("on");
     card.hidden = !g;
     if (g) { card.textContent = g.dataset.cmt; placeCard(); }
   };
@@ -89,7 +91,7 @@ const PAGE_CSS = `
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; color: #1f2328; background: #f6f7f9; }
-#stage { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none;
+#stage { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
   background-color: #f6f7f9; background-image: radial-gradient(#d3d7de 1px, transparent 1px); background-size: 20px 20px; }
 #stage.grab { cursor: grabbing; }
 #board { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
@@ -102,6 +104,8 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI",
 .bar button { font: inherit; padding: 4px 10px; border-radius: 7px; border: 1px solid #e3e5e8; background: #fff; color: #1f2328; cursor: pointer; }
 .bar button:hover { background: #f0f2f5; }
 g.cmt { cursor: pointer; }
+g.cmt:hover .cmt-dot, g.cmt.on .cmt-dot { r: 7; }
+g.cmt.on { filter: drop-shadow(0 0 5px rgba(47, 142, 230, .55)); }
 .cmt-card { position: fixed; z-index: 5; max-width: min(360px, calc(100vw - 16px)); padding: 9px 12px; border-radius: 9px; background: #fff;
   border: 1px solid #e3e5e8; box-shadow: 0 8px 24px rgba(0,0,0,.14); font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 @media (max-width: 560px) { .bar .tip { display: none; } }

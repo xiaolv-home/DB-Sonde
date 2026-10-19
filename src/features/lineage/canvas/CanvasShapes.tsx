@@ -4,12 +4,12 @@ import {
   BaseEdge, EdgeLabelRenderer, EdgeText, Handle, NodeResizer, NodeToolbar, Position, ViewportPortal, useInternalNode, useReactFlow, useViewport,
   type EdgeProps, type NodeProps,
 } from "@xyflow/react";
-import { Link2, MessageSquarePlus, MessageSquareText, Pencil } from "lucide-react";
+import { Link2, MessageSquarePlus, Pencil } from "lucide-react";
 import {
   COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, textColorValue, travelSeconds,
-  type CanvasEdge, type FlowStyle, type Guide, type ShapeKind,
+  type CanvasEdge, type CanvasNode, type FlowStyle, type Guide, type ShapeKind,
 } from "./canvasModel";
-import { bendFor, linePath, type PathArgs } from "./canvasExport";
+import { bendFor, commentBadgeAt, linePath, type PathArgs } from "./canvasExport";
 import { cometTiming, cometTrip } from "./canvasAnimation";
 import { FlowSyncContext, ShapeContext, type FlowEdge, type FlowNode } from "./canvasFlow";
 
@@ -29,7 +29,7 @@ function ShapeOutline({ shape }: { shape: ShapeKind }) {
 const SIDES = ["top", "right", "bottom", "left"] as const;
 const SIDE_POSITION = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left } as const;
 
-export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodeProps<FlowNode>) {
+export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, height }: NodeProps<FlowNode>) {
   const ctx = useContext(ShapeContext)!;
   const editing = ctx.editingId === id;
   const [draft, setDraft] = useState(data.text);
@@ -55,7 +55,7 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
       <ShapeOutline shape={data.shape} />
       {SIDES.map((side) => <Handle key={side} id={side} type="source" className="cv-handle" position={SIDE_POSITION[side]} />)}
       {data.ref && <span className="cv-ref" title={`来自血缘:${data.ref}`}><Link2 size={11} /></span>}
-      {data.comment && <span className="cv-cmt-badge" title="有注释:点一下形状就能看"><MessageSquareText size={11} /></span>}
+      {data.comment && <CommentBadge shape={data.shape} w={width ?? data.w} h={height ?? data.h} />}
       <CommentCard id={id} comment={data.comment} visible={ctx.soloId === id && !editing} />
       {editing ? (
         <textarea
@@ -80,6 +80,12 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
 
 /* 注释卡片:只选中这一个形状时在它下面弹出来。有注释就显示(点「改」或双击文字改),没有就给个「添加注释」。
    卡片不跟着画布缩放,字始终看得清;回车换行,⌘↩ 或点别处保存,Esc 不改。 */
+/* 有注释的标记:贴在形状右上方的轮廓线上(位置和导出网页的一样) */
+function CommentBadge(box: Pick<CanvasNode, "shape" | "w" | "h">) {
+  const at = commentBadgeAt(box);
+  return <span className="cv-cmt-badge" style={{ left: at.x, top: at.y }} title="有注释:点一下形状就能看">i</span>;
+}
+
 const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 function CommentCard({ id, comment, visible }: { id: string; comment?: string; visible: boolean }) {
   const ctx = useContext(ShapeContext)!;

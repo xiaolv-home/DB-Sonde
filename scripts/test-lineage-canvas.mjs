@@ -315,7 +315,16 @@ try {
     const live = x.canvasToSvg([a, b], [], measure, undefined, { comments: true }).svg;
     assert(live.includes('data-cmt="口径:含储值 &lt;消费&gt; &amp; 退款\n第二行"'), '网页里注释跟着形状走,转义好');
     assert.equal((live.match(/class="cmt"/g) ?? []).length, 1, '没注释的形状不包');
-    ok('注释:存得下、坏值去掉、格式刷不带;图片里隐藏,网页里点形状能看');
+    // 标记贴在轮廓线上,不悬在外框的直角外面
+    const pill = x.commentBadgeAt({ shape: 'pill', w: 200, h: 44 });
+    assert(Math.abs(Math.hypot(pill.x - (200 - 22), pill.y - 22) - 22) < 0.01 && pill.x > 178 && pill.y < 22, '胶囊:在右边半圆的右上方弧线上');
+    const ell = x.commentBadgeAt({ shape: 'ellipse', w: 140, h: 72 });
+    assert(Math.abs(((ell.x - 70) / 70) ** 2 + ((ell.y - 36) / 36) ** 2 - 1) < 0.01, '椭圆:在椭圆线上');
+    const dia = x.commentBadgeAt({ shape: 'diamond', w: 140, h: 90 });
+    assert(Math.abs(dia.y - (90 / 140) * (dia.x - 70)) < 0.01, '菱形:在右上那条边上');
+    assert.deepEqual(x.commentBadgeAt({ shape: 'rect', w: 160, h: 56 }), { x: 160, y: 0 }, '方框:在角上');
+    assert(live.includes('class="cmt-dot" cx="'), '网页里画的是标记圆点');
+    ok('注释:存得下、坏值去掉、格式刷不带;图片里隐藏,网页里点形状能看;标记贴在轮廓线上');
   }
 
   // ── 导出动图:按时间逐帧画流动效果,首尾无缝 ──
