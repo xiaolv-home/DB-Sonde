@@ -56,8 +56,8 @@ export const fromFlowEdge = (e: FlowEdge): CanvasEdge => ({
 });
 
 /* 格式刷带走的样式 */
-export type NodeStyle = Pick<CanvasNode, "color" | "fill" | "dashed" | "fontSize" | "bold">;
-export const styleOf = (n: CanvasNode): NodeStyle => ({ color: n.color, fill: n.fill, dashed: n.dashed, fontSize: n.fontSize, bold: n.bold });
+export type NodeStyle = Pick<CanvasNode, "color" | "fill" | "dashed" | "fontSize" | "bold" | "textColor">;
+export const styleOf = (n: CanvasNode): NodeStyle => ({ color: n.color, fill: n.fill, dashed: n.dashed, fontSize: n.fontSize, bold: n.bold, textColor: n.textColor });
 
 /* 形状节点双击改字、改大小前记撤销,都走编辑器;节点组件从这里拿 */
 export interface ShapeCtx {

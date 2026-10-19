@@ -142,6 +142,9 @@
 }
 .cv-swatch:hover { transform: scale(1.15); }
 .cv-swatch.on { border-color: var(--c); }
+/* 黑 / 白两个色块:白的在浅色底上看不见边,加一圈细框;选中用强调色框 */
+.cv-swatch-ink { box-shadow: inset 0 0 0 2px var(--surface), 0 0 0 1px var(--border-2); }
+.cv-swatch-ink.on { border-color: var(--accent); }
 .cv-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
 .cv-seg button {
   padding: 2px 9px;

@@ -44,16 +44,20 @@ fn available_path(directory: &Path, base_name: &str, extension: &str) -> PathBuf
     ))
 }
 
+/// 图片(PNG / 动图 GIF)走 base64 文本传过来,这里解回二进制再写,并核对文件头 ——
+/// 写出去的东西扩展名和内容对不上,微信、PPT 打开就是一张裂图。
 fn export_bytes(format: &str, content: String) -> AppResult<Vec<u8>> {
-    if format != "png" {
-        return Ok(content.into_bytes());
-    }
+    let (magic, kind): (&[&[u8]], &str) = match format {
+        "png" => (&[b"\x89PNG\r\n\x1a\n"], "PNG"),
+        "gif" => (&[b"GIF89a", b"GIF87a"], "GIF"),
+        _ => return Ok(content.into_bytes()),
+    };
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content.trim())
         .map_err(|_| AppError::msg("图片数据损坏,导出失败"))?;
-    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err(AppError::msg("图片数据不是 PNG,导出失败"));
+    if !magic.iter().any(|m| bytes.starts_with(m)) {
+        return Err(AppError::msg(format!("图片数据不是 {kind},导出失败")));
     }
     Ok(bytes)
 }
@@ -72,7 +76,8 @@ pub fn save_export(
         "svg" => "svg",
         // 图片走 base64 文本传过来,这里解回二进制再写
         "png" => "png",
-        _ => return Err(AppError::msg("Only CSV, JSON, SVG and PNG exports are supported.")),
+        "gif" => "gif",
+        _ => return Err(AppError::msg("Only CSV, JSON, SVG, PNG and GIF exports are supported.")),
     };
     if content.len() > MAX_EXPORT_BYTES {
         return Err(AppError::msg("The export exceeds the 100 MB safety limit."));
@@ -115,12 +120,16 @@ mod tests {
     }
 
     #[test]
-    fn png_exports_are_decoded_and_checked() {
+    fn image_exports_are_decoded_and_checked() {
         assert_eq!(export_bytes("svg", "<svg/>".into()).unwrap(), b"<svg/>");
         // 1x1 透明 PNG
         let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
         assert!(export_bytes("png", png.into()).unwrap().starts_with(b"\x89PNG"));
         assert!(export_bytes("png", "not base64!".into()).is_err());
         assert!(export_bytes("png", "aGVsbG8=".into()).is_err(), "解出来不是 PNG 也要拒");
+        // GIF 文件头(后面的内容这里不管)
+        let gif = "R0lGODlhAQABAAAAACw=";
+        assert!(export_bytes("gif", gif.into()).unwrap().starts_with(b"GIF89a"));
+        assert!(export_bytes("gif", png.into()).is_err(), "PNG 冒充 GIF 也要拒");
     }
 }

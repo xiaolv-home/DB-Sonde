@@ -3,7 +3,7 @@ import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CS
 import { BaseEdge, EdgeText, Handle, NodeResizer, Position, ViewportPortal, useViewport, type EdgeProps, type NodeProps } from "@xyflow/react";
 import { Link2 } from "lucide-react";
 import {
-  COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, travelSeconds,
+  COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, textColorValue, travelSeconds,
   type CanvasEdge, type FlowStyle, type Guide, type ShapeKind,
 } from "./canvasModel";
 import { linePath } from "./canvasExport";
@@ -57,7 +57,7 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
           }}
         />
       ) : (
-        <span className="cv-label">{data.text}</span>
+        <span className="cv-label" style={data.textColor ? { color: textColorValue(data.textColor) } : undefined}>{data.text}</span>
       )}
     </div>
   );

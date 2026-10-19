@@ -1,9 +1,9 @@
 /* 把画布画成一张独立的 SVG(矢量,插进 PPT / Keynote 不糊,还能拆成形状改),
- * 再按需转成 PNG。不截屏:截屏拿不到 CSS 变量和箭头定义,导出来常常缺线少色。
+ * 再按需转成 PNG;动图(GIF)也是逐帧调这里画,见 canvasAnimation。不截屏:截屏拿不到 CSS 变量和箭头定义,导出来常常缺线少色。
  * 导出一律按浅色底画 —— 贴进文档、幻灯片时最常见的就是白底。
  * 线的走法用和画布同一套算法(React Flow 的 getBezierPath 等),导出来和屏幕上一致。 */
 import { getBezierPath, getSmoothStepPath, getStraightPath, Position } from "@xyflow/react";
-import { COLOR_VALUE, STROKE_PX, hi, lo, markerSize, type CanvasEdge, type CanvasNode } from "./canvasModel";
+import { COLOR_VALUE, STROKE_PX, hi, lo, markerSize, textColorValue, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 const PAD = 40;
 const TEXT = "#1f2328";
@@ -120,7 +120,8 @@ function labelSvg(n: CanvasNode, measure: Measure): string {
   const padY = n.shape === "cylinder" ? 16 : n.shape === "diamond" ? 10 : topLeft ? (n.shape === "note" ? 10 : 8) : 6;
   const lines = wrapText(n.text, Math.max(10, n.w - padX * 2), n.fontSize, bold, measure);
   const lh = n.fontSize * 1.35;
-  const color = n.shape === "group" ? COLOR_VALUE[n.color] : (n.fill === "solid" && n.shape !== "text" ? "#ffffff" : TEXT);
+  const color = n.textColor ? textColorValue(n.textColor)
+    : n.shape === "group" ? COLOR_VALUE[n.color] : (n.fill === "solid" && n.shape !== "text" ? "#ffffff" : TEXT);
   const weight = bold ? 650 : 400;
   const x = topLeft ? n.x + padX : n.x + n.w / 2;
   const anchorAttr = topLeft ? "start" : "middle";
@@ -129,8 +130,12 @@ function labelSvg(n: CanvasNode, measure: Measure): string {
   return `<text font-size="${n.fontSize}" font-weight="${weight}" fill="${color}" text-anchor="${anchorAttr}">${tspans}</text>`;
 }
 
+/** 流动线在某一刻长什么样(导出动图逐帧画时用;不给就画成静止的样子)。
+ *  dash:替换线本身的虚线属性(比如带上 stroke-dashoffset);stroke:线本身换颜色;over:叠在线上面的光点 / 彗星 / 光晕。 */
+export type EdgeFx = (e: CanvasEdge, path: string, stroke: { color: string; width: number }) => { dash?: string; stroke?: string; over?: string } | null;
+
 /** 整张画布 → SVG 文本。没有形状时返回 null。 */
-export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure): { svg: string; width: number; height: number } | null {
+export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, fx?: EdgeFx): { svg: string; width: number; height: number } | null {
   if (!nodes.length) return null;
   const minX = lo(nodes.map((n) => n.x)) - PAD, minY = lo(nodes.map((n) => n.y)) - PAD;
   const width = Math.ceil(hi(nodes.map((n) => n.x + n.w)) + PAD - minX);
@@ -159,8 +164,11 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
     const ms = e.arrow === "both" ? ` marker-start="url(#${marker(color, sw)})"` : "";
     // 图片是静止的:虚线流动画成虚线,光点 / 彗星 / 呼吸就画成线本身(用户设了虚线就虚线)
     const flowDash = e.flow && (e.flowStyle ?? "dash") === "dash";
-    const dash = flowDash ? ` stroke-dasharray="6 5"` : e.dashed ? ` stroke-dasharray="6 4"` : "";
-    edgeParts.push(`<path d="${g.path}" fill="none" stroke="${color}" stroke-width="${sw}"${dash}${m}${ms}/>`);
+    const still = flowDash ? ` stroke-dasharray="6 5"` : e.dashed ? ` stroke-dasharray="6 4"` : "";
+    const live = e.flow ? fx?.(e, g.path, { color, width: sw }) : null;
+    const dash = live?.dash ?? still;
+    edgeParts.push(`<path d="${g.path}" fill="none" stroke="${live?.stroke ?? color}" stroke-width="${sw}"${dash}${m}${ms}/>`);
+    if (live?.over) edgeParts.push(live.over);
     if (e.label) {
       const w = measure(e.label, 12, false) + 12;
       labelParts.push(`<rect x="${(g.labelX - w / 2).toFixed(1)}" y="${(g.labelY - 10).toFixed(1)}" width="${w.toFixed(1)}" height="20" rx="4" fill="#ffffff" stroke="#e3e5e8"/>`
@@ -181,28 +189,36 @@ ${body}
   return { svg, width, height };
 }
 
-/** SVG → PNG(放大 scale 倍,贴进幻灯片也清楚)。 */
-export async function svgToPng(svg: string, width: number, height: number, scale = 2): Promise<Blob> {
+/** SVG 画到一块 canvas 上(放大 scale 倍)。画布太大时降低倍数,别超过浏览器能画的上限。 */
+export async function svgToCanvas(svg: string, width: number, height: number, scale: number): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }> {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const img = new Image();
     await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error("图片生成失败")); img.src = url; });
     const canvas = document.createElement("canvas");
-    // 画布太大时降低倍数,别超过浏览器能画的上限
     const s = Math.min(scale, 16000 / Math.max(width, height));
     canvas.width = Math.round(width * s); canvas.height = Math.round(height * s);
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) throw new Error("图片生成失败");
     ctx.scale(s, s);
     ctx.drawImage(img, 0, 0, width, height);
-    return await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => b ? resolve(b) : reject(new Error("图片生成失败")), "image/png"));
+    return { canvas, ctx };
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
+/** SVG → PNG(放大 scale 倍,贴进幻灯片也清楚)。 */
+export async function svgToPng(svg: string, width: number, height: number, scale = 2): Promise<Blob> {
+  const { canvas } = await svgToCanvas(svg, width, height, scale);
+  return await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => b ? resolve(b) : reject(new Error("图片生成失败")), "image/png"));
+}
+
 export async function blobToBase64(blob: Blob): Promise<string> {
-  const buf = new Uint8Array(await blob.arrayBuffer());
+  return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
+}
+
+export function bytesToBase64(buf: Uint8Array): string {
   let bin = "";
   for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
   return btoa(bin);

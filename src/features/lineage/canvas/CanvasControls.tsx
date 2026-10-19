@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import type { Graph } from "../lineageModel";
-import { COLOR_LABEL, COLOR_VALUE, PALETTE_ORDER, type ColorKey } from "./canvasModel";
+import { COLOR_LABEL, COLOR_VALUE, PALETTE_ORDER, TEXT_INKS, TEXT_INK_LABEL, type ColorKey, type TextColor } from "./canvasModel";
 
 /* 顶栏上的下拉菜单 */
 export function Menu({ label, icon, title, children }: { label: string; icon: ReactNode; title?: string; children: (close: () => void) => ReactNode }) {
@@ -22,7 +22,7 @@ export function Menu({ label, icon, title, children }: { label: string; icon: Re
   );
 }
 
-export function Swatches({ value, onPick }: { value: ColorKey | null; onPick: (c: ColorKey) => void }) {
+export function Swatches({ value, onPick }: { value: string | null; onPick: (c: ColorKey) => void }) {
   return (
     <div className="cv-swatches" role="radiogroup" aria-label="颜色">
       {PALETTE_ORDER.map((c) => (
@@ -30,6 +30,23 @@ export function Swatches({ value, onPick }: { value: ColorKey | null; onPick: (c
           title={COLOR_LABEL[c]} aria-checked={c === value} role="radio" onClick={() => onPick(c)} />
       ))}
     </div>
+  );
+}
+
+/* 文字颜色:自动 / 黑 / 白 / 色板上的颜色 */
+export function TextColorPicker({ value, onPick }: { value: TextColor | undefined; onPick: (c: TextColor | undefined) => void }) {
+  const inks = Object.keys(TEXT_INKS) as (keyof typeof TEXT_INKS)[];
+  return (
+    <>
+      <button className={`btn xs ${value ? "" : "on"}`} title="跟着填充走:实色底白字,分组框用框的颜色,其余深色字" onClick={() => onPick(undefined)}>自动</button>
+      <div className="cv-swatches" role="radiogroup" aria-label="文字颜色">
+        {inks.map((k) => (
+          <button key={k} className={`cv-swatch cv-swatch-ink ${k === value ? "on" : ""}`} style={{ "--c": TEXT_INKS[k] } as CSSProperties}
+            title={TEXT_INK_LABEL[k]} aria-checked={k === value} role="radio" onClick={() => onPick(k)} />
+        ))}
+      </div>
+      <Swatches value={value ?? null} onPick={onPick} />
+    </>
   );
 }
 

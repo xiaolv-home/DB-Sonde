@@ -4,7 +4,7 @@
  * 这里只管:改动怎么进撤销栈、什么时候算「未保存」、怎么存,以及顶栏 / 属性栏 / 右键菜单。
  * 对齐 / 等距 / 自动排版 / 吸附 / 分层上色这些「算位置、算颜色」的事都在 canvasModel 里(纯函数,有测试),
  * 形状和流动的线怎么画在 CanvasShapes,纯数据和画布对象的换算在 canvasFlow,
- * 顶栏上的小部件在 CanvasControls,导出图片在 canvasExport。
+ * 顶栏上的小部件在 CanvasControls,导出图片在 canvasExport,导出动图在 canvasAnimation。
  *
  * 状态以 React Flow 的 nodes/edges 为准(选中、拖动都在它身上),
  * 存盘、撤销时换算成 canvasModel 里的纯数据。 */
@@ -23,7 +23,7 @@ import {
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
-  BringToFront, ClipboardPaste, Copy, Database, Download, GitFork, ImageDown, Network, Paintbrush,
+  BringToFront, ClipboardPaste, Copy, Database, Download, Film, GitFork, ImageDown, Loader2, Network, Paintbrush,
   History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
@@ -39,14 +39,15 @@ import {
   type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode,
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Pos, type ShapeKind,
 } from "./canvasModel";
-import { blobToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
+import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
+import { animationFrames, encodeGif, svgPathProbe } from "./canvasAnimation";
 import { canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
 import {
   ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
   type FlowEdge, type FlowNode, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
 } from "./canvasFlow";
 import { FlowFxEdge, GuideLines, ShapeIcon, ShapeNode } from "./CanvasShapes";
-import { LineagePicker, Menu, Seg, Swatches } from "./CanvasControls";
+import { LineagePicker, Menu, Seg, Swatches, TextColorPicker } from "./CanvasControls";
 
 /* 剪贴板放在模块里:在一张画布 ⌘C,换到另一张画布 ⌘V 也能贴 */
 let clipboard: { docId: string; nodes: CanvasNode[]; edges: CanvasEdge[]; pastes: number } | null = null;
@@ -98,6 +99,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const [picker, setPicker] = useState(false);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [painter, setPainter] = useState<NodeStyle | null>(null);
+  /** 正在生成动图时的进度(0~1),没在生成是 null */
+  const [gifProgress, setGifProgress] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge" } | null>(null);
   const nudgeAt = useRef(0);
   /** 上一次挑的流动效果:给下一根打开「流动」的线直接用上 */
@@ -251,7 +254,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     }
     const base = src.data;
     const shape: ShapeKind = base.shape === "group" || base.shape === "text" || base.shape === "note" ? "rounded" : base.shape;
-    const n = newNode(shape, 0, 0, { color: base.color, fill: base.fill, dashed: base.dashed, fontSize: base.fontSize, text: "" });
+    const n = newNode(shape, 0, 0, { color: base.color, fill: base.fill, dashed: base.dashed, fontSize: base.fontSize, textColor: base.textColor, text: "" });
     n.w = Math.round(srcBox.w); n.h = Math.round(srcBox.h);
     n.x = Math.round((at.x - n.w / 2) / 8) * 8; n.y = Math.round((at.y - n.h / 2) / 8) * 8;
     const sides = facingSides(srcBox, n);
@@ -466,6 +469,32 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     }
   };
 
+  /* 动图:流动的线在里面真的会动,微信直接发、PPT 放映、Word 里都会播 */
+  const exportGif = async () => {
+    if (gifProgress !== null) return;
+    const snap = snapshot();
+    if (!snap.nodes.length) { toast({ kind: "info", text: "画布是空的" }); return; }
+    if (!snap.edges.some((e) => e.flow)) {
+      toast({ kind: "info", text: "画布上没有流动的线,导出动图也不会动 —— 先给线打开「流动」,或者直接导出 PNG" });
+      return;
+    }
+    if (!inTauri) { toast({ kind: "error", text: "导出失败:浏览器预览里不能存文件,请用桌面版" }); return; }
+    const probe = svgPathProbe();
+    setGifProgress(0);
+    try {
+      const anim = animationFrames(snap.nodes, snap.edges, canvasMeasure(), probe)!;
+      const bytes = await encodeGif(anim.frames, anim.width, anim.height, setGifProgress);
+      const path = await api.saveExport(doc.name || "链路画布", "gif", bytesToBase64(bytes));
+      const size = bytes.length >= 1024 * 1024 ? `${(bytes.length / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes.length / 1024)} KB`;
+      toast({ kind: "success", text: `已导出动图到 ${path}(${size})。微信直接发,拖进 PPT / Word 都会动` });
+    } catch (error) {
+      toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      probe.dispose();
+      setGifProgress(null);
+    }
+  };
+
   /* ---------- 快捷键 ----------
      挂在 window 的捕获阶段并截住:主界面也有 ⌘S(保存 SQL 标签)等快捷键,
      画布开着时这些键归画布。 */
@@ -552,6 +581,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("clipboard"); }}><Copy size={13} /> 复制为图片<small>直接粘进 PPT、微信</small></button>
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("png"); }}><Download size={13} /> 导出 PNG<small>存到「下载」</small></button>
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("svg"); }}><Download size={13} /> 导出 SVG<small>矢量,PPT 里放大不糊</small></button>
+              <button className="cv-menu-item" disabled={gifProgress !== null} onClick={() => { close(); void exportGif(); }}><Film size={13} /> 导出动图 GIF<small>会动,发微信 / 放 PPT</small></button>
             </>}
           </Menu>
           <Menu label="历史" icon={<History size={14} />} title="自动留的历史版本(每张画布最近 30 份,约每 2 分钟一份),挑一个恢复">
@@ -708,9 +738,16 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                         <Swatches value={oneEdge.flowColor ?? null} onPick={(flowColor) => patchFlow({ flowColor })} />
                       </div>
                     )}
+                    {selNodes.length > 0 && one && (
+                      <div className="cv-props-row">
+                        <span className="cv-props-label">文字颜色</span>
+                        <TextColorPicker value={one.textColor} onPick={(textColor) => patchNodes({ textColor })} />
+                      </div>
+                    )}
               </div>
             )}
             {painter && <div className="cv-painter-tip"><Paintbrush size={13} /> 格式刷:点形状刷上样式 · 点空白或 Esc 放下</div>}
+            {gifProgress !== null && <div className="cv-painter-tip"><Loader2 size={13} className="spin" /> 正在生成动图 {Math.round(gifProgress * 100)}%</div>}
 
             {menu && (
               <div className="cv-ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>

@@ -38,6 +38,15 @@ export const COLOR_LABEL: Record<ColorKey, string> = {
 };
 export const PALETTE_ORDER: ColorKey[] = ["gray", "slate", "blue", "indigo", "cyan", "teal", "green", "yellow", "orange", "red", "pink", "purple"];
 
+/** 文字颜色:色板上的 12 种,外加黑、白。不写 = 自动(实色底白字、分组框用框的颜色、其余深色字)。 */
+export const TEXT_INKS = { ink: "#1f2328", white: "#ffffff" } as const;
+export type TextColor = ColorKey | keyof typeof TEXT_INKS;
+export const TEXT_INK_LABEL: Record<keyof typeof TEXT_INKS, string> = { ink: "黑", white: "白" };
+// 不用 `in`:"toString" 之类原型上的名字也会被当成颜色
+const isInk = (v: unknown): v is keyof typeof TEXT_INKS => v === "ink" || v === "white";
+export const isTextColor = (v: unknown): v is TextColor => isInk(v) || (COLORS as readonly unknown[]).includes(v);
+export const textColorValue = (c: TextColor): string => (isInk(c) ? TEXT_INKS[c] : COLOR_VALUE[c]);
+
 /** 填充:浅色底(默认)/ 实色底白字 / 只有边框 */
 export const FILLS = ["soft", "solid", "outline"] as const;
 export type FillKind = (typeof FILLS)[number];
@@ -79,6 +88,8 @@ export interface CanvasNode {
   color: ColorKey;
   fontSize: number;
   bold?: boolean;
+  /** 文字颜色,不写 = 自动 */
+  textColor?: TextColor;
   /** 不写 = 浅色底 */
   fill?: FillKind;
   /** 边框画成虚线 */
@@ -127,6 +138,7 @@ export function isCanvasNode(v: unknown): v is CanvasNode {
     && finite(v.x) && finite(v.y) && finite(v.w) && v.w > 0 && finite(v.h) && v.h > 0
     && isText(v.text) && oneOf(COLORS, v.color) && finite(v.fontSize) && v.fontSize > 0
     && (v.bold === undefined || typeof v.bold === "boolean")
+    && (v.textColor === undefined || isTextColor(v.textColor))
     && (v.fill === undefined || oneOf(FILLS, v.fill))
     && (v.dashed === undefined || typeof v.dashed === "boolean")
     && (v.z === undefined || finite(v.z))
@@ -157,7 +169,7 @@ export const isCanvasList = (v: unknown): v is CanvasDoc[] => isIdentifiedList(v
    现在存之前先把能自动修的修掉;修不了的,说清楚是哪个形状 / 哪根线的哪个字段。 */
 
 const NODE_OPTIONAL: Partial<Record<keyof CanvasNode, (v: unknown) => boolean>> = {
-  bold: (v) => typeof v === "boolean", fill: (v) => oneOf(FILLS, v), dashed: (v) => typeof v === "boolean",
+  bold: (v) => typeof v === "boolean", textColor: isTextColor, fill: (v) => oneOf(FILLS, v), dashed: (v) => typeof v === "boolean",
   z: finite, ref: isText,
 };
 const EDGE_OPTIONAL: Partial<Record<keyof CanvasEdge, (v: unknown) => boolean>> = {

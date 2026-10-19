@@ -277,12 +277,79 @@ try {
     ok('流动效果:四种样式 / 三档流速 / 单独颜色都认,时长按线长算,导出静态图合理');
   }
 
+  // ── 文字颜色:黑 / 白 / 色板上的颜色,不写 = 自动;画布和导出图片都按它来 ──
+  {
+    const measure = (t, size) => t.length * size * 0.6;
+    const t = { ...m.newNode('text', 0, 0), text: '说明' };
+    for (const textColor of ['ink', 'white', 'red', 'cyan']) assert(m.isCanvasNode({ ...t, textColor }), textColor);
+    for (const textColor of ['toString', 'constructor', 'gold', '#ff0000', 1]) assert(!m.isCanvasNode({ ...t, textColor }), `${textColor} 不是能存的文字颜色`);
+    assert.equal(m.textColorValue('ink'), '#1f2328');
+    assert.equal(m.textColorValue('red'), m.COLOR_VALUE.red);
+    const fillOf = (node) => x.canvasToSvg([node], [], measure).svg.match(/<text [^>]*fill="([^"]+)"/)[1];
+    assert.equal(fillOf(t), '#1f2328', '自动:文字框是深色字');
+    assert.equal(fillOf({ ...t, textColor: 'red' }), m.COLOR_VALUE.red, '设了颜色导出就是那个颜色');
+    const solid = { ...m.newNode('rect', 0, 0), fill: 'solid' };
+    assert.equal(fillOf(solid), '#ffffff', '自动:实色底白字');
+    assert.equal(fillOf({ ...solid, textColor: 'ink' }), '#1f2328', '实色底也能改成黑字');
+    assert.equal(fillOf({ ...m.newNode('group', 0, 0), textColor: 'white' }), '#ffffff', '分组框的标题也能改');
+    ok('文字颜色:黑白 + 色板都认,原型上的名字不认,导出图片按设的颜色画');
+  }
+
+  // ── 导出动图:按时间逐帧画流动效果,首尾无缝 ──
+  {
+    const animFile = join(dir, 'anim.cjs');
+    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasAnimation.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: animFile, logLevel: 'silent' });
+    const an = createRequire(import.meta.url)(animFile);
+    const measure = (t, size) => t.length * size * 0.6;
+    // 假的量线工具:只认直线(M x,y L x,y),够测了
+    const probe = {
+      length: (d) => { const v = d.match(/-?[\d.]+/g).map(Number); return Math.hypot(v[v.length - 2] - v[0], v[v.length - 1] - v[1]); },
+      point: (d, at) => {
+        const v = d.match(/-?[\d.]+/g).map(Number);
+        const [x0, y0, x1, y1] = [v[0], v[1], v[v.length - 2], v[v.length - 1]];
+        const k = at / Math.hypot(x1 - x0, y1 - y0);
+        return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k };
+      },
+    };
+    const a = m.newNode('rect', 0, 0), b = m.newNode('rect', 600, 0);
+    const edge = (extra) => m.newEdge(a.id, b.id, { line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, ...extra });
+    for (const flowStyle of m.FLOW_STYLES) for (const flowSpeed of m.FLOW_SPEEDS) {
+      const e = edge({ flowStyle, flowSpeed });
+      const out = an.animationFrames([a, b], [e], measure, probe);
+      const loop = (out.frames.length * an.FRAME_MS) / 1000;
+      assert(loop >= an.LOOP_MIN_S - 0.06 && loop <= an.LOOP_MAX_S + 0.06, `${flowStyle}/${flowSpeed} 循环 ${loop}s 超出范围`);
+      const at = (sec) => x.canvasToSvg([a, b], [e], measure, an.flowFxAt(sec, loop, probe)).svg;
+      assert.equal(at(loop), at(0), `${flowStyle}/${flowSpeed}:最后接回第一帧要一模一样(首尾无缝)`);
+      assert.equal(out.frames[0], at(0));
+      assert.notEqual(out.frames[1], out.frames[0], `${flowStyle}/${flowSpeed}:相邻两帧要不一样(真的在动)`);
+      const period = an.fitPeriod(an.naturalPeriod(e, 500), loop);
+      assert(Math.abs(loop / period - Math.round(loop / period)) < 1e-9, '每根线的周期正好整除循环长度');
+    }
+    // 几种效果各自画对:虚线往前走、光点从起点出发、呼吸在半圈时最亮
+    const dash = x.canvasToSvg([a, b], [edge({})], measure, an.flowFxAt(0.1, 1.2, probe)).svg;
+    assert.match(dash, /stroke-dasharray="6 5" stroke-dashoffset="-\d/, '虚线的偏移往负方向走(和画布上一样往终点流)');
+    const dot = x.canvasToSvg([a, b], [edge({ flowStyle: 'dot' })], measure, an.flowFxAt(0, 1.2, probe)).svg;
+    assert.match(dot, /<circle cx="160\.00" cy="28\.00"/, '第 0 秒第一个光点在线的起点');
+    const pulse = (sec) => Number(x.canvasToSvg([a, b], [edge({ flowStyle: 'pulse' })], measure, an.flowFxAt(sec, 1.6, probe)).svg.match(/opacity="([\d.]+)"\/>$/m)[1]);
+    assert(pulse(0.8) > pulse(0.2) && pulse(0.8) > pulse(1.4) && pulse(0) === 0, '呼吸:半圈最亮,前后两头暗,开头是灭的');
+    assert(x.canvasToSvg([a, b], [edge({ flowColor: 'red' })], measure, an.flowFxAt(0, 1.2, probe)).svg.includes(`stroke="${m.COLOR_VALUE.red}"`), '虚线流动单独设的颜色要带上');
+    // 没有流动的线:只有一帧;不流动的线不受影响
+    assert.equal(an.animationFrames([a, b], [m.newEdge(a.id, b.id)], measure, probe).frames.length, 1);
+    assert.equal(an.animationFrames([], [], measure, probe), null);
+    // 几根线快慢不同:循环按最慢的定(不超过上限),快的在里面跑整数圈
+    assert.equal(an.loopFrames([0.2, 0.5]), Math.round(an.LOOP_MIN_S * 1000 / an.FRAME_MS), '都很快:用最短循环');
+    assert.equal(an.loopFrames([30]), Math.round(an.LOOP_MAX_S * 1000 / an.FRAME_MS), '特别慢:截到最长循环');
+    assert.equal(an.fitPeriod(5, 2), 2, '周期比循环还长:压成一圈');
+    assert(an.gifScale(800, 500) === 1.5 && an.gifScale(4000, 1000) <= 0.5, '小图放大、大图缩到发得出去');
+    ok('导出动图:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度和缩放合理');
+  }
+
   // ── 纯数据 <-> React Flow 画布对象:存盘、撤销都靠它换回来,字段一个都不能丢 ──
   {
     const flowFile = join(dir, 'f.cjs');
     await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
     const f = createRequire(import.meta.url)(flowFile);
-    const node = m.newNode('cylinder', 10, 20, { w: 150, h: 70, text: 'ods.raw', color: 'teal', fontSize: 15, bold: true, fill: 'solid', dashed: true, z: 3, ref: 'shop.ods_raw' });
+    const node = m.newNode('cylinder', 10, 20, { w: 150, h: 70, text: 'ods.raw', color: 'teal', fontSize: 15, bold: true, textColor: 'yellow', fill: 'solid', dashed: true, z: 3, ref: 'shop.ods_raw' });
     const fn = f.toFlowNode(node);
     assert.deepEqual(f.fromFlowNode(fn), node, '每个字段都要原样换回来(漏一个,存盘后就悄悄没了)');
     assert.equal(fn.zIndex, 3);
@@ -305,7 +372,7 @@ try {
     const re = f.fromFlowEdge({ ...fe, target: c.id, targetHandle: null });
     assert.equal(re.to, c.id, '改连之后存的是新的那一头');
     assert.equal(re.toHandle, undefined, '没有连接点就不存(不存 null)');
-    assert.deepEqual(f.styleOf(node), { color: 'teal', fill: 'solid', dashed: true, fontSize: 15, bold: true }, '格式刷只带走样式,不带文字和位置');
+    assert.deepEqual(f.styleOf(node), { color: 'teal', fill: 'solid', dashed: true, fontSize: 15, bold: true, textColor: 'yellow' }, '格式刷只带走样式(含文字颜色),不带文字和位置');
     ok('画布对象和纯数据互转:字段不丢、坐标取整、叠放、线型箭头、改连');
   }
 
@@ -316,7 +383,7 @@ try {
     const dangling = m.newEdge(b.id, 'n_已经删掉的');
     const dup = { ...m.newEdge(b.id, c.id), id: good.id };
     const nulls = { ...m.newEdge(a.id, c.id), fromHandle: null, width: '2', flowSpeed: 9 };
-    const badNode = { ...c, z: Number.NaN, fill: 'weird' };
+    const badNode = { ...c, z: Number.NaN, fill: 'weird', textColor: 'toString' };
     const r = m.repairCanvas([a, b, badNode, { ...b }], [good, dangling, dup, nulls]);
     const doc = { ...m.newCanvas('t'), nodes: r.nodes, edges: r.edges };
     assert(m.isCanvasDoc(doc), '修完必须是合格的画布:' + m.explainCanvasProblem(doc));
@@ -324,7 +391,8 @@ try {
     assert.equal(new Set(r.edges.map((e) => e.id)).size, 3, '重复的线 id 换新');
     assert.equal(new Set(r.nodes.map((x) => x.id)).size, 4, '重复的形状 id 换新,形状一个不少');
     assert(r.edges.some((e) => e.flowStyle === 'comet' && e.flowColor === 'blue'), '正常的彗星蓝色流动原样保留');
-    assert(r.fixed.length >= 4, '修了什么要说出来:' + JSON.stringify(r.fixed));
+    assert(r.fixed.length >= 5, '修了什么要说出来:' + JSON.stringify(r.fixed));
+    assert.equal(r.nodes.find((x) => x.id === c.id).textColor, undefined, '不认识的文字颜色去掉(回到自动),形状留着');
     const clean = m.repairCanvas([a, b], [good]);
     assert.deepEqual(clean.fixed, [], '没毛病就什么都不改');
     assert.deepEqual(clean.edges, [good]);

@@ -14,3 +14,23 @@ declare module "*?inline-min" {
   const source: string;
   export default source;
 }
+
+/* gifenc 没带类型声明,这里只写画布导出动图用到的几个 */
+declare module "gifenc" {
+  export type Palette = number[][];
+  export interface FrameOptions {
+    palette?: Palette;
+    delay?: number;
+    repeat?: number;
+    transparent?: boolean;
+    transparentIndex?: number;
+    dispose?: number;
+  }
+  export function GIFEncoder(): {
+    writeFrame(index: Uint8Array, width: number, height: number, opts?: FrameOptions): void;
+    finish(): void;
+    bytes(): Uint8Array;
+  };
+  export function quantize(rgba: Uint8Array | Uint8ClampedArray, maxColors: number): Palette;
+  export function applyPalette(rgba: Uint8Array | Uint8ClampedArray, palette: Palette): Uint8Array;
+}
