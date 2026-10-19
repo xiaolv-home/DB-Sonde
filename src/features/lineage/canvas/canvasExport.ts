@@ -170,12 +170,16 @@ function labelSvg(n: CanvasNode, measure: Measure): string {
   return `<text font-size="${n.fontSize}" font-weight="${weight}" fill="${color}" text-anchor="${anchorAttr}">${tspans}</text>`;
 }
 
-/** 流动线在某一刻长什么样(导出动图逐帧画时用;不给就画成静止的样子)。
- *  dash:替换线本身的虚线属性(比如带上 stroke-dashoffset);stroke:线本身换颜色;over:叠在线上面的光点 / 彗星 / 光晕。 */
-export type EdgeFx = (e: CanvasEdge, path: string, stroke: { color: string; width: number }) => { dash?: string; stroke?: string; over?: string } | null;
+/** 流动线怎么画(导出动图逐帧画、导出网页画成会动的;不给就画成静止的样子)。
+ *  dash:替换线本身的虚线属性(比如带上 stroke-dashoffset);stroke:线本身换颜色;
+ *  inner:放进线本身里面的东西(比如让虚线走起来的 <animate>);over:叠在线上面的光点 / 彗星 / 光晕。 */
+export type EdgeFx = (e: CanvasEdge, path: string, stroke: { color: string; width: number }) =>
+  { dash?: string; stroke?: string; inner?: string; over?: string } | null;
 
 /** 整张画布 → SVG 文本。没有形状时返回 null。 */
-export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, fx?: EdgeFx): { svg: string; width: number; height: number } | null {
+export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, fx?: EdgeFx,
+  opts: { background?: string | null } = {}): { svg: string; width: number; height: number } | null {
+  const background = opts.background === undefined ? "#ffffff" : opts.background;
   if (!nodes.length) return null;
   const minX = lo(nodes.map((n) => n.x)) - PAD, minY = lo(nodes.map((n) => n.y)) - PAD;
   const width = Math.ceil(hi(nodes.map((n) => n.x + n.w)) + PAD - minX);
@@ -207,7 +211,8 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
     const still = flowDash ? ` stroke-dasharray="6 5"` : e.dashed ? ` stroke-dasharray="6 4"` : "";
     const live = e.flow ? fx?.(e, g.path, { color, width: sw }) : null;
     const dash = live?.dash ?? still;
-    edgeParts.push(`<path d="${g.path}" fill="none" stroke="${live?.stroke ?? color}" stroke-width="${sw}"${dash}${m}${ms}/>`);
+    const attrs = `d="${g.path}" fill="none" stroke="${live?.stroke ?? color}" stroke-width="${sw}"${dash}${m}${ms}`;
+    edgeParts.push(live?.inner ? `<path ${attrs}>${live.inner}</path>` : `<path ${attrs}/>`);
     if (live?.over) edgeParts.push(live.over);
     if (e.label) {
       const w = measure(e.label, 12, false) + 12;
@@ -223,7 +228,7 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
   ].join("\n");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${minX} ${minY} ${width} ${height}" font-family='${FONT}'>
 <defs>${[...markers.values()].join("")}</defs>
-<rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="#ffffff"/>
+${background ? `<rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="${background}"/>` : ""}
 ${body}
 </svg>`;
   return { svg, width, height };

@@ -377,6 +377,22 @@ try {
     const mixed = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255]);
     assert.deepEqual([...vid.rgbaToI420(mixed, 2, 2, false)].slice(0, 4), [235, 16, 16, 235], '亮度逐像素,不糊成平均');
     ok('导出动图 / 视频:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度、尺寸、时长合理');
+
+    // 导出网页:浏览器自己播动画(SVG 的 animate),标题转义,不带白底(网页自己画点阵底),带平移缩放
+    const htmlFile = join(dir, 'html.cjs');
+    buildSync({ entryPoints: [resolve('src/features/lineage/canvas/canvasHtml.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: htmlFile, logLevel: 'silent' });
+    const hx = createRequire(import.meta.url)(htmlFile);
+    const live = (flowStyle, extra = {}) => hx.canvasToHtml([a, b], [edge({ flowStyle, ...extra })], measure, probe, '堂食 <链路> & 说明');
+    const page = live('dash');
+    assert(page.startsWith('<!doctype html>') && page.includes('<title>堂食 &lt;链路&gt; &amp; 说明</title>'), '标题要转义');
+    assert(page.includes('<animate attributeName="stroke-dashoffset" from="0" to="-11"'), '虚线流动在网页里真的走');
+    assert(!page.includes('<rect x="-40"'), '网页里不铺白底,用页面的点阵底');
+    assert(page.includes('id="fit"') && page.includes('addEventListener("wheel"'), '带适应窗口和滚轮缩放');
+    assert.equal((live('dot').match(/<animateMotion /g) ?? []).length, 3 * m.dotCount(440), '光点:每个光点三层都沿线跑(这根线长 440)');
+    assert.equal((live('comet').match(/attributeName="stroke-dashoffset"/g) ?? []).length, 4, '彗星:四层拖尾');
+    assert.equal((live('pulse').match(/attributeName="opacity"/g) ?? []).length, 2, '呼吸:两层光晕');
+    assert(live('dot').includes('begin="-'), '几个光点错开出发(负的开始时间,打开就均匀分布)');
+    assert.equal(hx.canvasToHtml([], [], measure, probe, 'x'), null);
   }
 
   // ── 拖线改弧度:两头不动,线经过拖到的那个点;四种线型都认;导出的图也按它画 ──

@@ -23,7 +23,7 @@ import {
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
-  BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, GitFork, ImageDown, Loader2, Network, Paintbrush,
+  BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, GitFork, Globe, ImageDown, Loader2, Network, Paintbrush,
   History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Split, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
@@ -42,6 +42,7 @@ import {
 import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
 import { animationFrames, encodeGif, svgPathProbe } from "./canvasAnimation";
 import { encodeMp4 } from "./canvasVideo";
+import { canvasToHtml } from "./canvasHtml";
 import { canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
 import {
   ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
@@ -501,6 +502,23 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     }
   };
 
+  /* 网页:浏览器打开就是画布原样(尺寸、弧度、流动都在),能缩放平移。最接近原样的导出 */
+  const exportHtml = async () => {
+    const snap = snapshot();
+    if (!snap.nodes.length) { toast({ kind: "info", text: "画布是空的" }); return; }
+    if (!inTauri) { toast({ kind: "error", text: "导出失败:浏览器预览里不能存文件,请用桌面版" }); return; }
+    const probe = svgPathProbe();
+    try {
+      const html = canvasToHtml(snap.nodes, snap.edges, canvasMeasure(), probe, doc.name)!;
+      const path = await api.saveExport(doc.name || "链路画布", "html", html);
+      toast({ kind: "success", text: `已导出到 ${path}。双击用浏览器打开就是画布原样:线在流,滚轮缩放、拖动平移;发给别人也一样能看` });
+    } catch (error) {
+      toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      probe.dispose();
+    }
+  };
+
   /* 会动的导出:流动的线真的在流。
      视频(MP4):发微信能全屏放大看,PPT / WPS「插入 → 视频」能播;动图(GIF):Keynote / Word 里会动,WPS 只在放映时动。 */
   const exportAnimated = async (kind: "gif" | "mp4") => {
@@ -627,6 +645,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("clipboard"); }}><Copy size={13} /> 复制为图片<small>直接粘进 PPT、微信</small></button>
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("png"); }}><Download size={13} /> 导出 PNG<small>存到「下载」</small></button>
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("svg"); }}><Download size={13} /> 导出 SVG<small>矢量,PPT 里放大不糊</small></button>
+              <button className="cv-menu-item" onClick={() => { close(); void exportHtml(); }}><Globe size={13} /> 导出网页 HTML<small>浏览器打开就是原样 · 线在流、能缩放</small></button>
               <button className="cv-menu-item" disabled={animProgress !== null} onClick={() => { close(); void exportAnimated("mp4"); }}><Clapperboard size={13} /> 导出视频 MP4<small>会动 · 发微信、放 PPT / WPS</small></button>
               <button className="cv-menu-item" disabled={animProgress !== null} onClick={() => { close(); void exportAnimated("gif"); }}><Film size={13} /> 导出动图 GIF<small>会动 · Keynote / Word</small></button>
             </>}

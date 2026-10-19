@@ -107,6 +107,50 @@ export function flowFxAt(t: number, loop: number, probe: PathProbe): EdgeFx {
   };
 }
 
+/** 会动的流动线(导出网页用):用 SVG 自带的动画(<animate> / <animateMotion>),浏览器打开就一直流,
+ *  和画布上(CanvasShapes 的 LineEdge)一模一样的画法和时长 —— 不用循环取整,也就没有动图那种微调。 */
+export function liveFlowFx(probe: PathProbe): EdgeFx {
+  return (e, path, stroke) => {
+    const kind = styleOf(e), speed = speedOf(e);
+    const fc = COLOR_VALUE[e.flowColor ?? e.color];
+    const sw = stroke.width;
+    const loop = (dur: number, begin = 0) => `dur="${dur.toFixed(3)}s" repeatCount="indefinite"${begin ? ` begin="${begin.toFixed(3)}s"` : ""}`;
+    if (kind === "dash") {
+      return {
+        dash: ` stroke-dasharray="6 5"`, stroke: e.flowColor ? fc : undefined,
+        inner: `<animate attributeName="stroke-dashoffset" from="0" to="-11" ${loop(11 / DASH_PX_PER_S[speed])}/>`,
+      };
+    }
+    if (kind === "pulse") {
+      const anim = `<animate attributeName="opacity" values="0;{max};0" ${loop(PULSE_SECONDS[speed])}/>`;
+      return {
+        over: `<path d="${path}" fill="none" stroke="${fc}" stroke-width="${f2(sw + 8)}" stroke-linecap="round" opacity="0">${anim.replace("{max}", "0.28")}</path>`
+          + `<path d="${path}" fill="none" stroke="${fc}" stroke-width="${f2(sw + 2.5)}" stroke-linecap="round" opacity="0">${anim.replace("{max}", "0.7")}</path>`,
+      };
+    }
+    const len = probe.length(path);
+    if (len <= 1) return null;
+    if (kind === "dot") {
+      const n = dotCount(len), dur = travelSeconds(len, speed), r = sw * 0.9 + 1.4;
+      const dots = Array.from({ length: n }, (_, i) => {
+        const motion = `<animateMotion path="${path}" ${loop(dur, (-i * dur) / n)}/>`;
+        return `<circle r="${f2(r * 2.6)}" fill="${fc}" opacity="0.22">${motion}</circle><circle r="${f2(r)}" fill="${fc}">${motion}</circle>`
+          + `<circle r="${f2(r * 0.45)}" fill="#fff" opacity="0.85">${motion}</circle>`;
+      });
+      return { over: dots.join("") };
+    }
+    const c = cometLength(len), head = c * 0.3, dur = travelSeconds(len + c, speed);
+    const seg = (w: number, length: number, opacity: number, from: number, to: number, color = fc) =>
+      `<path d="${path}" fill="none" stroke="${color}" stroke-width="${f2(w)}" stroke-linecap="round" opacity="${opacity}" stroke-dasharray="${f2(length)} ${f2(len + c)}">`
+      + `<animate attributeName="stroke-dashoffset" from="${f2(from)}" to="${f2(to)}" ${loop(dur)}/></path>`;
+    return {
+      over: seg(sw + 7, c, 0.12, c, -len) + seg(sw + 2.5, c, 0.45, c, -len)
+        + seg(sw + 3, head, 0.95, head, -len - (c - head))
+        + seg(Math.max(1, sw * 0.6), head * 0.6, 0.9, head * 0.6, -len - (c - head * 0.6), "#fff"),
+    };
+  };
+}
+
 /** 动图的每一帧(SVG 文本)。没有形状返回 null;没有流动的线就只有一帧。 */
 export function animationFrames(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe, frameMs = FRAME_MS):
   { frames: string[]; width: number; height: number } | null {

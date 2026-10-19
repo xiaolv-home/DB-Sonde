@@ -80,7 +80,8 @@ pub fn save_export(
         "png" => "png",
         "gif" => "gif",
         "mp4" => "mp4",
-        _ => return Err(AppError::msg("Only CSV, JSON, SVG, PNG, GIF and MP4 exports are supported.")),
+        "html" => "html",
+        _ => return Err(AppError::msg("Only CSV, JSON, SVG, PNG, GIF, MP4 and HTML exports are supported.")),
     };
     if content.len() > MAX_EXPORT_BYTES {
         return Err(AppError::msg("The export exceeds the 100 MB safety limit."));
