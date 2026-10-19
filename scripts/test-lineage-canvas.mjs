@@ -378,41 +378,61 @@ try {
     assert.deepEqual([...vid.rgbaToI420(mixed, 2, 2, false)].slice(0, 4), [235, 16, 16, 235], '亮度逐像素,不糊成平均');
     ok('导出动图 / 视频:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度、尺寸、时长合理');
 
-    // 同一处出发的彗星共用节拍:同时出发、流速一样,短的先到、等最长的那根
+    // 彗星的接力和同步:过分叉点接力(头到圆点的那一刻分支一起出发),同一处出发的同时出发
     {
       const comet = (id, from, to) => ({ id, from, to, flow: true, flowStyle: 'comet' });
-      const own = new Map([['x1', 1], ['x2', 3], ['x3', 2], ['y1', 1.5], ['z1', 9]]);
-      const es = [comet('x1', 'j', 'p'), comet('x2', 'j', 'q'), comet('x3', 'j', 'r'), comet('y1', 'k', 'p'), { ...comet('z1', 'j', 's'), flowStyle: 'dot' }];
-      const sy = m.syncedCycles(es, own);
-      assert.deepEqual([sy.get('x1'), sy.get('x2'), sy.get('x3')], [3, 3, 3], '同一个分叉点出去的三根彗星用同一个节拍(最长那根的)');
-      assert.equal(sy.get('y1'), 1.5, '别处出发的不受影响');
-      assert.equal(sy.get('z1'), undefined, '光点不参与(它是连续的,不分波)');
-      assert.equal(an.cometTiming(1, 3).keyTimes, '0;0.3333;1', '跑一趟占节拍的三分之一');
-      assert.equal(an.cometTiming(1, 3).values(10, -100), '10.00;-100.00;-100.00', '跑完停在终点外面等');
-      assert.equal(an.cometTiming(2, 2).keyTimes, '0;1', '自己就是最长的:照常一口气跑');
+      const own = new Map([['in', { trip: 3, arrive: 2.5 }], ['x1', { trip: 1, arrive: 0.8 }], ['x2', { trip: 4, arrive: 3.5 }], ['x3', { trip: 2, arrive: 1.6 }],
+        ['k1', { trip: 1.5, arrive: 1.2 }], ['k2', { trip: 2.5, arrive: 2 }], ['deep', { trip: 1, arrive: 0.9 }], ['z1', { trip: 9, arrive: 8 }]]);
+      const es = [comet('in', 'src', 'J'), comet('x1', 'J', 'p'), comet('x2', 'J', 'q'), comet('x3', 'J', 'J2'), comet('deep', 'J2', 'r'),
+        comet('k1', 'k', 'p'), comet('k2', 'k', 'q'), { ...comet('z1', 'J', 's'), flowStyle: 'dot' }];
+      const sc = m.cometSchedule(es, new Set(['J', 'J2']), own);
+      assert.equal(sc.get('in').start, 0, '流进分叉点的那根先走');
+      assert.deepEqual(['x1', 'x2', 'x3'].map((id) => sc.get(id).start), [2.5, 2.5, 2.5], '分支在彗星头碰到圆点(第 2.5 秒)时一起出发');
+      assert.equal(sc.get('deep').start, 2.5 + 1.6, '分叉后面再分叉:接着往下接力');
+      assert.equal(sc.get('in').cycle, 2.5 + 4, '整组节拍 = 最后一颗到终点的时间');
+      assert(['x1', 'x2', 'x3', 'deep'].every((id) => sc.get(id).cycle === sc.get('in').cycle), '一整组共用一个节拍');
+      assert.deepEqual([sc.get('k1'), sc.get('k2')], [{ start: 0, cycle: 2.5 }, { start: 0, cycle: 2.5 }], '同一个形状出发的同时出发、共用节拍');
+      assert.equal(sc.get('z1'), undefined, '光点不参与(它是连续的,不分波)');
+      // 分叉点接成环也不能死循环
+      const loop = m.cometSchedule([comet('a', 'J', 'K'), comet('b', 'K', 'J')], new Set(['J', 'K']), new Map([['a', { trip: 1, arrive: 1 }], ['b', { trip: 1, arrive: 1 }]]));
+      assert.equal(loop.size, 2);
+      // SMIL 时间表
+      const t = an.cometTiming(1, { start: 2, cycle: 4 });
+      assert.equal(t.keyTimes, '0;0.5000;0.7500;1', '第 2 秒出发、跑 1 秒、等到第 4 秒');
+      assert.equal(t.values(10, -100), '10.00;10.00;-100.00;-100.00', '没轮到停在起点外,跑完停在终点外');
+      assert.equal(t.dur, 4);
+      assert.equal(an.cometTiming(1, { start: 0, cycle: 3 }).keyTimes, '0;0.3333;1', '一出发就跑,跑完等');
+      assert.equal(an.cometTiming(2).keyTimes, '0;1', '没有时间表:照常一口气跑');
+      assert.equal(an.cometTiming(1, { start: 3, cycle: 4 }).keyTimes, '0;0.7500;1', '最后一个出发的:跑完正好一轮结束');
     }
     {
-      // 一长一短两根从同一个形状出发:逐帧看,同时出发、速度一样,短的先跑完停住
-      const near = m.newNode('rect', 260, 0), far = m.newNode('rect', 600, 0);
-      const short = m.newEdge(a.id, near.id, { id: 'short', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet' });
-      const long = m.newEdge(a.id, far.id, { id: 'long', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet' });
-      const ns = [a, near, far], es = [short, long];
+      // 逐帧看:a → 分叉点 → 两根分支。分支在流进来的彗星头碰到圆点时一起出发、一样快;短的先到停住
+      const jn = { ...m.newNode('junction', 290, 18), id: 'J' };
+      const near = m.newNode('rect', 460, 0), far = m.newNode('rect', 800, 0);
+      const inn = m.newEdge(a.id, 'J', { id: 'in', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet', arrow: 'none' });
+      const short = m.newEdge('J', near.id, { id: 'short', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet' });
+      const long = m.newEdge('J', far.id, { id: 'long', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet' });
+      const ns = [a, jn, near, far], es = [inn, short, long];
       const sync = an.cometSync(ns, es, measure, probe);
-      assert.equal(sync.get('short'), sync.get('long'), '共用一个节拍');
+      const go = sync.get('short').start;
+      assert(go > 0 && go === sync.get('long').start, '两根分支同时出发,而且是在流进来的那根之后');
       const offsets = (sec) => {
-        const svg = x.canvasToSvg(ns, es, measure, an.flowFxAt(sec, 6, probe, sync)).svg;
+        const loopS = sync.get('in').cycle;
+        const svg = x.canvasToSvg(ns, es, measure, an.flowFxAt(sec, loopS, probe, sync)).svg;
         return [...svg.matchAll(/stroke-width="8\.60"[^>]*stroke-dashoffset="(-?[\d.]+)"/g)].map((mm) => Number(mm[1]));
       };
-      const [s0, l0] = offsets(0), [s1, l1] = offsets(0.2);
-      assert.deepEqual([s0 > 0, l0 > 0], [true, true], '第 0 秒两颗彗星都在起点(还没出发)');
-      assert(Math.abs((s0 - s1) - (l0 - l1)) < 0.5, `同时出发、流速一样:0.2 秒都走了一样远(${s0 - s1} vs ${l0 - l1})`);
-      const loopS = 6 / Math.round(6 / sync.get('long'));
-      const [sEnd, lEnd] = offsets(loopS * 0.9);
-      const [sEnd2, lEnd2] = offsets(loopS * 0.95);
+      const [iB, sB, lB] = offsets(0);   // 第 0 秒:都在各自的起点外面
+      const [i0, s0, l0] = offsets(go * 0.5);
+      assert(i0 < iB && s0 === sB && l0 === lB, '流进来的彗星还在路上时,分支上的彗星停在起点外面等');
+      const [, s1, l1] = offsets(go + 0.3);
+      assert(s1 < sB && Math.abs((sB - s1) - (lB - l1)) < 0.5, `头碰到圆点后两根分支同时出发、一样快(${sB - s1} vs ${lB - l1})`);
+      const cyc = sync.get('in').cycle;
+      const [, sEnd, lEnd] = offsets(cyc * 0.93), [, sEnd2, lEnd2] = offsets(cyc * 0.97);
       assert.equal(sEnd, sEnd2, '短的跑完了就停住等');
       assert(lEnd2 < lEnd, '长的还在跑');
       const page = x.canvasToSvg(ns, es, measure, an.liveFlowFx(probe, sync)).svg;
-      assert(/keyTimes="0;0\.\d+;1"/.test(page), '网页里短的那根也是跑完等一等');
+      assert(/keyTimes="0;0\.\d+;0\.\d+;1"/.test(page) || /keyTimes="0;0\.\d+;1"/.test(page), '网页里也按接力的时间表走');
+      assert.equal((page.match(/keyTimes="0;0\.\d+;/g) ?? []).length >= 8, true, '分支的彗星(四层)都带着出发时间');
     }
     // 导出网页:浏览器自己播动画(SVG 的 animate),标题转义,不带白底(网页自己画点阵底),带平移缩放
     const htmlFile = join(dir, 'html.cjs');

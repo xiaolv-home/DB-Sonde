@@ -10,7 +10,7 @@ import {
   type CanvasEdge, type FlowStyle, type Guide, type ShapeKind,
 } from "./canvasModel";
 import { bendFor, linePath, type PathArgs } from "./canvasExport";
-import { cometTiming } from "./canvasAnimation";
+import { cometTiming, cometTrip } from "./canvasAnimation";
 import { FlowSyncContext, ShapeContext, type FlowEdge, type FlowNode } from "./canvasFlow";
 
 function ShapeOutline({ shape }: { shape: ShapeKind }) {
@@ -103,11 +103,11 @@ export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
   }, [path, len, e.flow]);
   const kind: FlowStyle = e.flowStyle ?? "dash";
   const speed = e.flowSpeed ?? 2;
-  // 彗星:报自己跑一趟多久,拿回和同一处出发的线共用的节拍(同时出发,短的先到等一等)
+  // 彗星:报上自己跑一趟要多久,拿回自己在这一组里的时间表(过分叉点接力、同一处出发同步)
   const sync = useContext(FlowSyncContext);
   const report = sync?.report;
-  const ownTrip = e.flow && kind === "comet" && len > 1 ? travelSeconds(len + cometLength(len), speed) : 0;
-  useEffect(() => { if (ownTrip) report?.(id, ownTrip); }, [ownTrip, id, report]);
+  const own = e.flow && kind === "comet" && len > 1 ? cometTrip(len, speed) : null;
+  useEffect(() => { if (own) report?.(id, own); }, [own?.trip, own?.arrive, id, report]); // eslint-disable-line react-hooks/exhaustive-deps -- 按数值比,own 每次都是新对象
   const fc = COLOR_VALUE[e.flowColor ?? e.color];
   const sw = Number((style as CSSProperties | undefined)?.strokeWidth ?? 1.6);
   const base: CSSProperties = { ...style };
@@ -139,11 +139,11 @@ export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
   if (e.flow && len > 1 && kind === "comet") {
     const c = cometLength(len);
     const head = c * 0.3;
-    const cycle = Math.max(ownTrip, sync?.cycleOf(id) ?? ownTrip);
-    const { values, keyTimes } = cometTiming(ownTrip, cycle);
-    const dur = `${cycle.toFixed(3)}s`;
+    const timing = cometTiming(own!.trip, sync?.slotOf(id));
+    const { values, keyTimes } = timing;
+    const dur = `${timing.dur.toFixed(3)}s`;
     // 一段长 c 的实线、后面空出整根线那么长:一次只露一颗彗星。dashoffset 从 c 走到 -len,正好从起点外划到终点外;
-    // 跑完了还没到节拍(同一处出发的线里它不是最长的),就停在终点外面等下一波
+    // 没轮到(接力还没传到这根)就停在起点外面,跑完了停在终点外面,等这一轮结束
     const seg = (w: number, length: number, opacity: number, from: number, to: number, color = fc) => (
       <path d={path} fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" opacity={opacity} strokeDasharray={`${length} ${len + c}`}>
         <animate attributeName="stroke-dashoffset" values={values(from, to)} keyTimes={keyTimes} dur={dur} repeatCount="indefinite" />

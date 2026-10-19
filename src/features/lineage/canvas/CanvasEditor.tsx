@@ -34,9 +34,9 @@ import type { Graph } from "../lineageModel";
 import {
   ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
   FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, DRAWN_SHAPES, SHAPE_LABEL, SHAPE_SIZE,
-  alignBoxes, autoLayout, branchHandles, branchStyle, syncedCycles, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
+  alignBoxes, autoLayout, branchHandles, branchStyle, cometSchedule, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
-  type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode,
+  type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode, type CometTrip,
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
 } from "./canvasModel";
 import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
@@ -293,17 +293,21 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const bendEdge = useCallback((id: string, bend: CanvasEdge["bend"]) => {
     setEdges((es) => es.map((e) => e.id === id ? { ...e, data: { ...e.data!, bend } } : e));
   }, []);
-  /* 同一处出发的彗星共用节拍:线报上自己跑一趟多久,这里按起点分组取最长的 */
-  const [ownTrips, setOwnTrips] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const reportTrip = useCallback((id: string, seconds: number) => {
-    setOwnTrips((prev) => Math.abs((prev.get(id) ?? -1) - seconds) < 0.02 ? prev : new Map(prev).set(id, seconds));
+  /* 彗星的接力和同步:线报上自己跑一趟要多久,这里排出整张画布的时间表(过分叉点接力、同一处出发同步) */
+  const [ownTrips, setOwnTrips] = useState<ReadonlyMap<string, CometTrip>>(() => new Map());
+  const reportTrip = useCallback((id: string, own: CometTrip) => {
+    setOwnTrips((prev) => {
+      const old = prev.get(id);
+      return old && Math.abs(old.trip - own.trip) < 0.02 && Math.abs(old.arrive - own.arrive) < 0.02 ? prev : new Map(prev).set(id, own);
+    });
   }, []);
-  const synced = syncedCycles(edges.map((e) => e.data as CanvasEdge), ownTrips);
+  const junctionIds = new Set(nodes.filter((n) => n.data.shape === "junction").map((n) => n.id));
+  const schedule = cometSchedule(edges.map((e) => e.data as CanvasEdge), junctionIds, ownTrips);
   // 内容没变就还用上一份,线不跟着白重画
-  const syncKey = [...synced].map(([k, v]) => `${k}:${v.toFixed(2)}`).join("|");
-  const flowSync = useMemo<FlowSync>(() => ({ report: reportTrip, cycleOf: (id) => synced.get(id) }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- synced 跟着 syncKey 走
-    [reportTrip, syncKey]);
+  const scheduleKey = [...schedule].map(([k, v]) => `${k}:${v.start.toFixed(2)}/${v.cycle.toFixed(2)}`).join("|");
+  const flowSync = useMemo<FlowSync>(() => ({ report: reportTrip, slotOf: (id) => schedule.get(id) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- schedule 跟着 scheduleKey 走
+    [reportTrip, scheduleKey]);
   const ctx = useMemo<ShapeCtx>(() => ({
     editingId, startEdit: setEditingId, commitText, cancelEdit: () => setEditingId(null), beginChange, bendEdge,
   }), [editingId, commitText, beginChange, bendEdge]);

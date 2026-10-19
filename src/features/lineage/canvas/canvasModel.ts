@@ -709,23 +709,38 @@ export function nearestOnPath(total: number, pointAt: (s: number) => Point, p: P
   return pointAt((lo2 + hi2) / 2);
 }
 
-/* ---------- 同一处出发的彗星一起走 ----------
-   彗星按线长定时长(流速一样),从同一个形状 / 分叉点出去的几根线长短不一,几圈下来就错开了。
-   让它们共用一个节拍:节拍 = 其中最长那根跑一趟的时间。大家同时出发、流速不变,
-   短的先到、等一等,下一波再一起出发。 */
+/* ---------- 彗星的接力和同步 ----------
+   彗星按线长定时长(流速一样)。两条规则,让一组彗星看起来是同一股流:
+   · 接力:分叉点是「一根线分成几根」—— 彗星顺着流进分叉点的线走,头碰到圆点的那一刻,
+     几条分支上的彗星同时出发(分叉点后面再分叉,接着往下接力);
+   · 同步:从同一个形状出发的几根彗星线同时出发。
+   一整组共用一个节拍(最后一颗到终点的时间),到了再一起从头来;短的先到、等一等。 */
 
-/** own:每根彗星线自己跑一趟要多久(秒)。返回每根线该用的节拍(同一个起点出去的取最大)。 */
-export function syncedCycles(edges: CanvasEdge[], own: ReadonlyMap<string, number>): Map<string, number> {
-  const groupMax = new Map<string, number>();
-  for (const e of edges) {
-    const t = own.get(e.id);
-    if (t === undefined || !e.flow || e.flowStyle !== "comet") continue;
-    groupMax.set(e.from, Math.max(groupMax.get(e.from) ?? 0, t));
-  }
-  const out = new Map<string, number>();
-  for (const e of edges) {
-    const t = own.get(e.id);
-    if (t !== undefined && e.flow && e.flowStyle === "comet") out.set(e.id, groupMax.get(e.from) ?? t);
-  }
-  return out;
+/** 一根彗星线自己的时间:trip = 跑一趟(从起点外到终点外)多久,arrive = 彗星头到终点要多久(接力从这一刻开始) */
+export interface CometTrip { trip: number; arrive: number }
+/** 排出来的时间表:start = 这一轮里第几秒出发,cycle = 整组的节拍 */
+export interface CometSlot { start: number; cycle: number }
+
+/** own:每根彗星线自己的时间;junctions:分叉点的 id。返回每根彗星线的时间表。 */
+export function cometSchedule(edges: CanvasEdge[], junctions: ReadonlySet<string>, own: ReadonlyMap<string, CometTrip>): Map<string, CometSlot> {
+  const comets = edges.filter((e) => e.flow && e.flowStyle === "comet" && own.has(e.id));
+  // 流进分叉点的那根彗星线(有几根就认第一根)
+  const into = new Map<string, CanvasEdge>();
+  for (const e of comets) if (junctions.has(e.to) && !into.has(e.to)) into.set(e.to, e);
+  const start = new Map<string, number>(), root = new Map<string, CanvasEdge>();
+  const place = (e: CanvasEdge, seen: Set<string>): void => {
+    if (start.has(e.id)) return;
+    const parent = junctions.has(e.from) ? into.get(e.from) : undefined;
+    if (!parent || seen.has(parent.id)) { start.set(e.id, 0); root.set(e.id, e); return; }   // 没有上家(或者接成了环):自己是起头
+    seen.add(e.id);
+    place(parent, seen);
+    start.set(e.id, start.get(parent.id)! + own.get(parent.id)!.arrive);
+    root.set(e.id, root.get(parent.id)!);
+  };
+  for (const e of comets) place(e, new Set());
+  // 起头那根从哪儿出发,决定是哪一组:同一个形状出发的几股流一起走
+  const groupOf = (e: CanvasEdge) => root.get(e.id)!.from;
+  const cycle = new Map<string, number>();
+  for (const e of comets) cycle.set(groupOf(e), Math.max(cycle.get(groupOf(e)) ?? 0, start.get(e.id)! + own.get(e.id)!.trip));
+  return new Map(comets.map((e) => [e.id, { start: start.get(e.id)!, cycle: cycle.get(groupOf(e))! }]));
 }

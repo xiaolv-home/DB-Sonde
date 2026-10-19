@@ -2,7 +2,7 @@
  * 存盘、撤销时从画布对象换回纯数据 —— 字段一个都不能丢,有往返测试守着(test-lineage-canvas)。 */
 import { createContext } from "react";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import { COLOR_VALUE, STROKE_PX, markerSize, type Box, type CanvasEdge, type CanvasNode } from "./canvasModel";
+import { COLOR_VALUE, STROKE_PX, markerSize, type Box, type CanvasEdge, type CanvasNode, type CometSlot, type CometTrip } from "./canvasModel";
 
 export type ShapeData = CanvasNode & Record<string, unknown>;
 export type EdgeData = CanvasEdge & Record<string, unknown>;
@@ -70,10 +70,10 @@ export interface ShapeCtx {
 }
 export const ShapeContext = createContext<ShapeCtx | null>(null);
 
-/* 同一处出发的彗星共用节拍(canvasModel 的 syncedCycles):每根线报自己跑一趟多久,拿回该用的节拍。
-   单独一个 context,只有线订阅,节拍变了不会让所有形状重画 */
+/* 彗星的接力和同步(canvasModel 的 cometSchedule):每根线报上自己跑一趟要多久,拿回自己的时间表。
+   单独一个 context,只有线订阅,时间表变了不会让所有形状重画 */
 export interface FlowSync {
-  report: (id: string, seconds: number) => void;
-  cycleOf: (id: string) => number | undefined;
+  report: (id: string, own: CometTrip) => void;
+  slotOf: (id: string) => CometSlot | undefined;
 }
 export const FlowSyncContext = createContext<FlowSync | null>(null);
