@@ -453,6 +453,11 @@ try {
       { color: 'blue', line: 'smooth', width: 2, dashed: undefined, flow: true, flowStyle: 'comet', flowSpeed: undefined, flowColor: 'cyan', arrow: 'end' });
     assert.equal(m.branchStyle(doc.nodes, doc.edges, a.id), null, '不是分叉点就照常用默认样式');
     assert(!m.DRAWN_SHAPES.includes('junction'), '分叉点不出现在工具栏里');
+    // 分支接哪边:用户松手落在哪个连接点就接哪个,分叉点从对面出去;没指定才自动(优先横着走)
+    assert.deepEqual(m.branchHandles(j, b, 'top'), { fromHandle: 'bottom', toHandle: 'top' }, '松在目标顶上的连接点:就接顶上,不能自己改到侧边');
+    assert.deepEqual(m.branchHandles(j, b, 'right'), { fromHandle: 'left', toHandle: 'right' });
+    assert.deepEqual(m.branchHandles(j, b), { fromHandle: 'right', toHandle: 'left' }, '没指定:目标在右边就横着连过去');
+    assert.deepEqual(m.branchHandles(j, b, 'nope'), { fromHandle: 'right', toHandle: 'left' }, '不认识的连接点当没指定');
     // 找线上离右键位置最近的点:分叉点落在线上
     const line = (s2) => ({ x: s2, y: 2 * s2 });
     const near = m.nearestOnPath(Math.hypot(100, 200), (len) => line(len / Math.sqrt(5)), { x: 50, y: 60 });

@@ -34,7 +34,7 @@ import type { Graph } from "../lineageModel";
 import {
   ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
   FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, DRAWN_SHAPES, SHAPE_LABEL, SHAPE_SIZE,
-  alignBoxes, autoLayout, branchStyle, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
+  alignBoxes, autoLayout, branchHandles, branchStyle, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
   type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode,
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
@@ -224,11 +224,10 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     });
   }, []);
   const connect = useCallback((from: string, to: string, fromHandle?: string, toHandle?: string) => {
-    // 从分叉点拖出的分支:样式跟流进来的那根线一样;两头按方位接(优先横着走),不管按的、松的是哪个连接点 ——
-    // 不然松手时离哪个连接点近就接哪个,常常从别的形状身上穿过去
+    // 从分叉点拖出的分支:样式跟流进来的那根线一样;目标那头接用户松手的那个连接点,分叉点那头配合着从对面出去
     const branch = branchStyle(nodesRef.current.map((n) => n.data), edgesRef.current.map((e) => e.data as CanvasEdge), from);
     const src = nodesRef.current.find((n) => n.id === from), dst = nodesRef.current.find((n) => n.id === to);
-    const sides = branch && src && dst ? facingSides(boxOf(src), boxOf(dst), false) : { fromHandle, toHandle };
+    const sides = branch && src && dst ? branchHandles(boxOf(src), boxOf(dst), toHandle) : { fromHandle, toHandle };
     const edge = newEdge(from, to, { ...sides, ...edgeStyle, ...branch });
     setEdges((es) => [...es, toFlowEdge(edge)]);
   }, [edgeStyle]);
@@ -257,7 +256,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     beginChange();
     if (hit) {
       const sides = facingSides(srcBox, boxOf(hit));
-      connect(src.id, hit.id, state.fromHandle?.id ?? sides.fromHandle, sides.toHandle);
+      // 从分叉点拖出来松在形状身上(没对准连接点):接哪边交给 connect 按方位选
+      connect(src.id, hit.id, state.fromHandle?.id ?? sides.fromHandle, src.data.shape === "junction" ? undefined : sides.toHandle);
       return;
     }
     const base = src.data;
@@ -278,7 +278,15 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const onReconnect = useCallback((old: FlowEdge, c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return;
     beginChange();
-    setEdges((es) => reconnectEdge(old, c, es, { shouldReplaceId: false }).map((e) => e.id === old.id ? toFlowEdge(fromFlowEdge(e), !!e.selected) : e));
+    const fromJunction = nodesRef.current.find((n) => n.id === c.source)?.data.shape === "junction";
+    setEdges((es) => reconnectEdge(old, c, es, { shouldReplaceId: false }).map((e) => {
+      if (e.id !== old.id) return e;
+      const d = fromFlowEdge(e);
+      // 从分叉点出来的线改接到目标的另一边:分叉点那头也跟着换到对面出去,不然线会先往反方向绕
+      const src = nodesRef.current.find((n) => n.id === d.from), dst = nodesRef.current.find((n) => n.id === d.to);
+      const fixed = fromJunction && src && dst ? { ...d, ...branchHandles(boxOf(src), boxOf(dst), d.toHandle) } : d;
+      return toFlowEdge(fixed, !!e.selected);
+    }));
   }, [beginChange]);
 
   /* ---------- 文字编辑 ---------- */

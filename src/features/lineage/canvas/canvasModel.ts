@@ -684,6 +684,13 @@ export function branchStyle(nodes: CanvasNode[], edges: CanvasEdge[], fromId: st
   return { color, line, width, dashed, flow, flowStyle, flowSpeed, flowColor, arrow: "end" };
 }
 
+/** 从分叉点出去的分支,两头各接哪一边。用户松手落在了哪个连接点(toHandle)就接哪个 ——
+ *  分叉点这头从它的对面出去(接目标顶边就从圆点下方出去),线是顺的;没指定(松在形状身上)才按方位自动选,优先横着走。 */
+export function branchHandles(junction: Omit<Box, "id">, target: Omit<Box, "id">, toHandle?: string): { fromHandle: Side; toHandle: Side } {
+  if (toHandle && toHandle in OPPOSITE) return { fromHandle: OPPOSITE[toHandle as Side], toHandle: toHandle as Side };
+  return facingSides(junction, target, false);
+}
+
 /** 线上离 p 最近的点(在线上右键分叉时,分叉点落在线上而不是鼠标旁边)。按长度采样再在附近细找。 */
 export function nearestOnPath(total: number, pointAt: (s: number) => Point, p: Point): Point {
   const d2 = (q: Point) => (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
