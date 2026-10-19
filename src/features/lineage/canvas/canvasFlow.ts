@@ -2,7 +2,7 @@
  * 存盘、撤销时从画布对象换回纯数据 —— 字段一个都不能丢,有往返测试守着(test-lineage-canvas)。 */
 import { createContext } from "react";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import { COLOR_VALUE, STROKE_PX, markerSize, type Box, type CanvasEdge, type CanvasNode, type LineType } from "./canvasModel";
+import { COLOR_VALUE, STROKE_PX, markerSize, type Box, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 export type ShapeData = CanvasNode & Record<string, unknown>;
 export type EdgeData = CanvasEdge & Record<string, unknown>;
@@ -30,7 +30,6 @@ export const boxOf = (n: FlowNode): Box => ({
   id: n.id, x: n.position.x, y: n.position.y,
   w: n.width ?? n.measured?.width ?? 120, h: n.height ?? n.measured?.height ?? 48,
 });
-const EDGE_TYPE: Record<LineType, string> = { smooth: "default", step: "smoothstep", sharp: "step", straight: "straight" };
 export const toFlowEdge = (e: CanvasEdge, selected = false): FlowEdge => {
   const color = COLOR_VALUE[e.color];
   const sw = (STROKE_PX[e.width ?? 1] ?? 1.6) + (selected ? 0.8 : 0);
@@ -38,8 +37,8 @@ export const toFlowEdge = (e: CanvasEdge, selected = false): FlowEdge => {
   const marker = { type: MarkerType.ArrowClosed, color, width: size, height: size };
   return {
     id: e.id, source: e.from, target: e.to, sourceHandle: e.fromHandle, targetHandle: e.toHandle,
-    // 流动的线走自己的画法(光点、彗星、呼吸),不流动的用 React Flow 自带的
-    type: e.flow ? "flowfx" : EDGE_TYPE[e.line], label: e.label || undefined, selected,
+    // 都走自己的画法(CanvasShapes 的 LineEdge):流动效果、拖圆点改弧度
+    type: "line", label: e.label || undefined, selected,
     data: { ...e } as EdgeData,
     style: { stroke: color, strokeWidth: sw, strokeDasharray: e.dashed ? "6 4" : undefined },
     markerEnd: e.arrow === "none" ? undefined : marker,
@@ -59,9 +58,11 @@ export const fromFlowEdge = (e: FlowEdge): CanvasEdge => ({
 export type NodeStyle = Pick<CanvasNode, "color" | "fill" | "dashed" | "fontSize" | "bold" | "textColor">;
 export const styleOf = (n: CanvasNode): NodeStyle => ({ color: n.color, fill: n.fill, dashed: n.dashed, fontSize: n.fontSize, bold: n.bold, textColor: n.textColor });
 
-/* 形状节点双击改字、改大小前记撤销,都走编辑器;节点组件从这里拿 */
+/* 形状节点双击改字、改大小前记撤销,拖线的弧度,都走编辑器;节点、线的组件从这里拿 */
 export interface ShapeCtx {
   editingId: string | null;
+  /** 拖线中间的圆点:改这根线从哪儿过(undefined = 恢复默认弧度)。撤销由调用方先 beginChange */
+  bendEdge: (id: string, bend: CanvasEdge["bend"]) => void;
   startEdit: (id: string) => void;
   commitText: (id: string, text: string) => void;
   cancelEdit: () => void;

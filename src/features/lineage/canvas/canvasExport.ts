@@ -3,7 +3,7 @@
  * 导出一律按浅色底画 —— 贴进文档、幻灯片时最常见的就是白底。
  * 线的走法用和画布同一套算法(React Flow 的 getBezierPath 等),导出来和屏幕上一致。 */
 import { getBezierPath, getSmoothStepPath, getStraightPath, Position } from "@xyflow/react";
-import { COLOR_VALUE, STROKE_PX, hi, lo, markerSize, textColorValue, type CanvasEdge, type CanvasNode } from "./canvasModel";
+import { COLOR_VALUE, STROKE_PX, hi, lo, markerSize, textColorValue, type Bend, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 const PAD = 40;
 const TEXT = "#1f2328";
@@ -65,8 +65,43 @@ function anchor(n: CanvasNode, side: Side) {
 const asSide = (h: string | undefined): Side => (h && h in SIDE_POS ? h as Side : "top");
 
 export interface PathArgs { sourceX: number; sourceY: number; sourcePosition: Position; targetX: number; targetY: number; targetPosition: Position }
-/** 按线型算路径:画布上的流动线和导出图片都用它,和 React Flow 自带的线一模一样。 */
-export function linePath(line: CanvasEdge["line"], args: PathArgs): [path: string, labelX: number, labelY: number] {
+
+/** 拖过的线经过的那个点:两头连接点的中点 + 偏移 */
+export const bendPoint = (a: PathArgs, bend: Bend) => ({ x: (a.sourceX + a.targetX) / 2 + bend.x, y: (a.sourceY + a.targetY) / 2 + bend.y });
+/** 反过来:线要经过 p,偏移是多少(拖圆点时用) */
+export const bendFor = (a: PathArgs, p: { x: number; y: number }): Bend => ({
+  x: Math.round(p.x - (a.sourceX + a.targetX) / 2), y: Math.round(p.y - (a.sourceY + a.targetY) / 2),
+});
+
+/** 连接点朝外的方向 */
+const OUT: Record<Position, [number, number]> = { [Position.Top]: [0, -1], [Position.Right]: [1, 0], [Position.Bottom]: [0, 1], [Position.Left]: [-1, 0] };
+const pt = (x: number, y: number) => `${+x.toFixed(1)},${+y.toFixed(1)}`;
+/** 经过 p 的曲线:两段三次贝塞尔。两头照样从连接点垂直出去,p 处顺着「起点 → 终点」的方向过,弯得自然、不打结。 */
+function curveThrough(a: PathArgs, p: { x: number; y: number }): string {
+  const [sx, sy] = OUT[a.sourcePosition], [tx, ty] = OUT[a.targetPosition];
+  const l1 = Math.hypot(p.x - a.sourceX, p.y - a.sourceY), l2 = Math.hypot(a.targetX - p.x, a.targetY - p.y);
+  const dl = Math.hypot(a.targetX - a.sourceX, a.targetY - a.sourceY) || 1;
+  const mx = (a.targetX - a.sourceX) / dl, my = (a.targetY - a.sourceY) / dl;
+  // 两头出去多远:那个点正好在连接点朝外的方向上就出去长一点(和默认曲线一样),在侧面、背后就短一点,
+  // 不然线会先朝外冲一大截再折回来,绕成一个圈
+  const reach = (dx: number, dy: number, vx: number, vy: number, l: number) => l * (0.25 + 0.25 * Math.max(0, (dx * vx + dy * vy) / (l || 1)));
+  const k1 = reach(sx, sy, p.x - a.sourceX, p.y - a.sourceY, l1), k2 = reach(tx, ty, p.x - a.targetX, p.y - a.targetY, l2);
+  return `M${pt(a.sourceX, a.sourceY)} C${pt(a.sourceX + sx * k1, a.sourceY + sy * k1)} ${pt(p.x - mx * l1 * 0.35, p.y - my * l1 * 0.35)} ${pt(p.x, p.y)}`
+    + ` C${pt(p.x + mx * l2 * 0.35, p.y + my * l2 * 0.35)} ${pt(a.targetX + tx * k2, a.targetY + ty * k2)} ${pt(a.targetX, a.targetY)}`;
+}
+
+/** 按线型算路径(画布上的线和导出的图片 / 动图 / 视频都用它)。没拖过就和 React Flow 自带的线一模一样;
+ *  拖过(bend):曲线 / 直线经过那个点,折线把中间那段挪到那个点。标签放在经过的点上。 */
+export function linePath(line: CanvasEdge["line"], args: PathArgs, bend?: Bend): [path: string, labelX: number, labelY: number] {
+  if (bend) {
+    const p = bendPoint(args, bend);
+    if (line === "straight") return [`M${pt(args.sourceX, args.sourceY)} L${pt(p.x, p.y)} L${pt(args.targetX, args.targetY)}`, p.x, p.y];
+    if (line === "step" || line === "sharp") {
+      const [path] = getSmoothStepPath({ ...args, centerX: p.x, centerY: p.y, ...(line === "sharp" ? { borderRadius: 0 } : {}) });
+      return [path, p.x, p.y];
+    }
+    return [curveThrough(args, p), p.x, p.y];
+  }
   const [path, labelX, labelY] =
     line === "straight" ? getStraightPath(args)
     : line === "step" ? getSmoothStepPath(args)
@@ -79,7 +114,7 @@ export function linePath(line: CanvasEdge["line"], args: PathArgs): [path: strin
 export function edgeGeometry(e: CanvasEdge, from: CanvasNode, to: CanvasNode): { path: string; labelX: number; labelY: number } {
   const fs = asSide(e.fromHandle), ts = asSide(e.toHandle);
   const s = anchor(from, fs), t = anchor(to, ts);
-  const [path, labelX, labelY] = linePath(e.line, { sourceX: s.x, sourceY: s.y, sourcePosition: SIDE_POS[fs], targetX: t.x, targetY: t.y, targetPosition: SIDE_POS[ts] });
+  const [path, labelX, labelY] = linePath(e.line, { sourceX: s.x, sourceY: s.y, sourcePosition: SIDE_POS[fs], targetX: t.x, targetY: t.y, targetPosition: SIDE_POS[ts] }, e.bend);
   return { path, labelX, labelY };
 }
 

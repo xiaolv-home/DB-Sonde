@@ -24,7 +24,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
   BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, GitFork, ImageDown, Loader2, Network, Paintbrush,
-  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2, X,
+  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
 import { useConfirm } from "../../../components/useConfirm";
@@ -47,14 +47,14 @@ import {
   ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
   type FlowEdge, type FlowNode, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
 } from "./canvasFlow";
-import { FlowFxEdge, GuideLines, ShapeIcon, ShapeNode } from "./CanvasShapes";
+import { GuideLines, LineEdge, ShapeIcon, ShapeNode } from "./CanvasShapes";
 import { LineagePicker, Menu, Seg, Swatches, TextColorPicker } from "./CanvasControls";
 
 /* 剪贴板放在模块里:在一张画布 ⌘C,换到另一张画布 ⌘V 也能贴 */
 let clipboard: { docId: string; nodes: CanvasNode[]; edges: CanvasEdge[]; pastes: number } | null = null;
 
 const nodeTypes = { shape: ShapeNode };
-const edgeTypes = { flowfx: FlowFxEdge };
+const edgeTypes = { line: LineEdge };
 
 /* ---------- 历史(撤销/重做) ---------- */
 interface Snapshot { nodes: CanvasNode[]; edges: CanvasEdge[]; }
@@ -278,9 +278,12 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     beginChange();
     setNodes((ns) => ns.map((n) => n.id === id ? { ...n, data: { ...n.data, text } } : n));
   }, [beginChange]);
+  const bendEdge = useCallback((id: string, bend: CanvasEdge["bend"]) => {
+    setEdges((es) => es.map((e) => e.id === id ? { ...e, data: { ...e.data!, bend } } : e));
+  }, []);
   const ctx = useMemo<ShapeCtx>(() => ({
-    editingId, startEdit: setEditingId, commitText, cancelEdit: () => setEditingId(null), beginChange,
-  }), [editingId, commitText, beginChange]);
+    editingId, startEdit: setEditingId, commitText, cancelEdit: () => setEditingId(null), beginChange, bendEdge,
+  }), [editingId, commitText, beginChange, bendEdge]);
 
   /* ---------- 加东西 ---------- */
   const centerPoint = useCallback(() => {
@@ -779,6 +782,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                 </> : <>
                   <button onClick={run(focusLabel)}><Pencil size={13} /> 改线上的文字</button>
                   <button onClick={run(reverseEdges)}><ArrowLeftRight size={13} /> 反转方向</button>
+                  {selEdges.some((e) => e.data?.bend) && <button onClick={run(() => patchEdges({ bend: undefined }))}><Spline size={13} /> 恢复默认弧度</button>}
                   <hr />
                   <button className="danger" onClick={run(deleteSelected)}><Trash2 size={13} /> 删除<kbd>⌫</kbd></button>
                 </>}

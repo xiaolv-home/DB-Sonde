@@ -456,3 +456,20 @@
   line-height: 1.5;
 }
 .cv-menu-empty { padding: 8px 12px; color: var(--text-3); font-size: 12.5px; }
+
+/* 选中的线中间的圆点:拖它改线从哪儿过,双击恢复默认弧度 */
+.cv-bend {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: all;
+  cursor: move;
+  z-index: 5;
+}
+/* 悬停别用 scale:它叠在定位用的 transform 外面,会把偏移一起放大,圆点就离开线了 */
+.cv-bend:hover { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+.cv-bend.is-bent { background: var(--accent); }

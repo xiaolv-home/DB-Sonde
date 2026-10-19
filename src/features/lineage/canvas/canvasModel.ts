@@ -120,7 +120,11 @@ export interface CanvasEdge {
   flowSpeed?: number;
   /** 流动的颜色,不写 = 跟线一个颜色 */
   flowColor?: ColorKey;
+  /** 线从哪儿过(拖线中间的圆点改):相对两头连接点中点的偏移,不写 = 默认弧度。
+   *  存偏移而不是绝对位置:挪形状时弯的样子跟着走。 */
+  bend?: Bend;
 }
+export interface Bend { x: number; y: number }
 export interface CanvasDoc {
   id: string;
   name: string;
@@ -144,6 +148,7 @@ export function isCanvasNode(v: unknown): v is CanvasNode {
     && (v.z === undefined || finite(v.z))
     && (v.ref === undefined || isText(v.ref));
 }
+const isBend = (v: unknown): v is Bend => isRecord(v) && finite(v.x) && finite(v.y);
 export function isCanvasEdge(v: unknown): v is CanvasEdge {
   return isRecord(v) && isNonEmptyText(v.id) && isNonEmptyText(v.from) && isNonEmptyText(v.to)
     && (v.fromHandle === undefined || isText(v.fromHandle)) && (v.toHandle === undefined || isText(v.toHandle))
@@ -153,7 +158,8 @@ export function isCanvasEdge(v: unknown): v is CanvasEdge {
     && (v.width === undefined || (LINE_WIDTHS as readonly number[]).includes(v.width as number))
     && (v.flowStyle === undefined || oneOf(FLOW_STYLES, v.flowStyle))
     && (v.flowSpeed === undefined || (FLOW_SPEEDS as readonly number[]).includes(v.flowSpeed as number))
-    && (v.flowColor === undefined || oneOf(COLORS, v.flowColor));
+    && (v.flowColor === undefined || oneOf(COLORS, v.flowColor))
+    && (v.bend === undefined || isBend(v.bend));
 }
 export function isCanvasDoc(v: unknown): v is CanvasDoc {
   if (!isRecord(v) || !isNonEmptyText(v.id) || !isText(v.name) || !finite(v.createdAt) || !finite(v.updatedAt)) return false;
@@ -176,6 +182,7 @@ const EDGE_OPTIONAL: Partial<Record<keyof CanvasEdge, (v: unknown) => boolean>> 
   fromHandle: isText, toHandle: isText, dashed: (v) => typeof v === "boolean", flow: (v) => typeof v === "boolean",
   width: (v) => (LINE_WIDTHS as readonly number[]).includes(v as number), flowStyle: (v) => oneOf(FLOW_STYLES, v),
   flowSpeed: (v) => (FLOW_SPEEDS as readonly number[]).includes(v as number), flowColor: (v) => oneOf(COLORS, v),
+  bend: isBend,
 };
 
 /** 把能修的修掉:可选字段里的坏值(null / 不认识的值)去掉,重复的 id 换新的,另一头形状已经不在的线删掉。 */

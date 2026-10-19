@@ -1,12 +1,15 @@
-/* 画布上画出来的东西:形状节点(含双击改字、改大小)、流动的线、拖动时的对齐参考线、工具栏里的形状图标。 */
-import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { BaseEdge, EdgeText, Handle, NodeResizer, Position, ViewportPortal, useViewport, type EdgeProps, type NodeProps } from "@xyflow/react";
+/* 画布上画出来的东西:形状节点(含双击改字、改大小)、线(流动效果、拖中间的圆点改弧度)、拖动时的对齐参考线、工具栏里的形状图标。 */
+import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import {
+  BaseEdge, EdgeLabelRenderer, EdgeText, Handle, NodeResizer, Position, ViewportPortal, useReactFlow, useViewport,
+  type EdgeProps, type NodeProps,
+} from "@xyflow/react";
 import { Link2 } from "lucide-react";
 import {
   COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, textColorValue, travelSeconds,
   type CanvasEdge, type FlowStyle, type Guide, type ShapeKind,
 } from "./canvasModel";
-import { linePath } from "./canvasExport";
+import { bendFor, linePath, type PathArgs } from "./canvasExport";
 import { ShapeContext, type FlowEdge, type FlowNode } from "./canvasFlow";
 
 function ShapeOutline({ shape }: { shape: ShapeKind }) {
@@ -63,38 +66,41 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
   );
 });
 
-/* ---------- 流动的线 ----------
-   底下照常是一根线(带箭头、标签、点击区域),上面叠一层动效:
+/* ---------- 线 ----------
+   画布上所有的线都走这里。选中时中间有个圆点:拖它决定线从哪儿过(两头不动),双击圆点恢复默认弧度。
+   流动的线在底下那根线(带箭头、标签、点击区域)上面再叠一层动效:
    · 虚线:线本身变成虚线往前走;
    · 光点:几个带光晕的小圆点沿线跑(SVG 的 animateMotion,跟着线的形状拐弯);
    · 彗星:一段亮头 + 渐隐的拖尾沿线划过;
    · 呼吸:整根线外面一圈光,一明一暗。
    动效都按线的实际长度算时长,长线短线看起来流速一样。动效层不接鼠标,点线还是点在底下那根上。 */
-export const FlowFxEdge = memo(function FlowFxEdge(props: EdgeProps<FlowEdge>) {
-  const { id, data, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, markerStart,
+export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
+  const { id, data, selected, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, markerStart,
     label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, interactionWidth } = props;
   const e = data as CanvasEdge;
-  const [path, labelX, labelY] = linePath(e.line, { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const args: PathArgs = { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition };
+  const [path, labelX, labelY] = linePath(e.line, args, e.bend);
   const measureRef = useRef<SVGPathElement>(null);
   const [len, setLen] = useState(0);
-  // 线一变形就重量长度;差得不多就不动,免得拖动时每一帧都重设动画
+  // 线一变形就重量长度(动效按长度算时长);差得不多就不动,免得拖动时每一帧都重设动画
   useLayoutEffect(() => {
+    if (!e.flow) return;
     const l = measureRef.current?.getTotalLength() ?? 0;
     if (Math.abs(l - len) > 6) setLen(l);
-  }, [path, len]);
+  }, [path, len, e.flow]);
   const kind: FlowStyle = e.flowStyle ?? "dash";
   const speed = e.flowSpeed ?? 2;
   const fc = COLOR_VALUE[e.flowColor ?? e.color];
   const sw = Number((style as CSSProperties | undefined)?.strokeWidth ?? 1.6);
   const base: CSSProperties = { ...style };
-  if (kind === "dash") {
+  if (e.flow && kind === "dash") {
     // 虚线一格 11px(6 实 5 空),一秒走 DASH_PX_PER_S 像素
     Object.assign(base, { strokeDasharray: "6 5", animation: `cv-flow-dash ${(11 / DASH_PX_PER_S[speed]).toFixed(3)}s linear infinite` });
     if (e.flowColor) base.stroke = fc;
   }
   const pid = `cvf-${id}`;
   let fx: ReactNode = null;
-  if (len > 1 && kind === "dot") {
+  if (e.flow && len > 1 && kind === "dot") {
     const dur = Number(travelSeconds(len, speed).toFixed(3));
     const n = dotCount(len);
     const r = sw * 0.9 + 1.4;
@@ -112,7 +118,7 @@ export const FlowFxEdge = memo(function FlowFxEdge(props: EdgeProps<FlowEdge>) {
       </g>
     ));
   }
-  if (len > 1 && kind === "comet") {
+  if (e.flow && len > 1 && kind === "comet") {
     const c = cometLength(len);
     const head = c * 0.3;
     const dur = `${travelSeconds(len + c, speed).toFixed(3)}s`;
@@ -129,7 +135,7 @@ export const FlowFxEdge = memo(function FlowFxEdge(props: EdgeProps<FlowEdge>) {
       {seg(Math.max(1, sw * 0.6), head * 0.6, 0.9, head * 0.6, -len - (c - head * 0.6), "#fff")}
     </>;
   }
-  if (kind === "pulse") {
+  if (e.flow && kind === "pulse") {
     const dur = `${PULSE_SECONDS[speed]}s`;
     fx = <>
       <path d={path} fill="none" stroke={fc} strokeWidth={sw + 8} strokeLinecap="round" opacity={0}>
@@ -143,14 +149,49 @@ export const FlowFxEdge = memo(function FlowFxEdge(props: EdgeProps<FlowEdge>) {
   return (
     <>
       <BaseEdge id={id} path={path} style={base} markerEnd={markerEnd} markerStart={markerStart} interactionWidth={interactionWidth} />
-      <path ref={measureRef} id={pid} d={path} fill="none" stroke="none" />
+      {e.flow && <path ref={measureRef} id={pid} d={path} fill="none" stroke="none" />}
       {fx && <g className="cv-flowfx" pointerEvents="none">{fx}</g>}
       {/* 文字最后画,光点、彗星从底下穿过去,不会盖住字 */}
       {label && <EdgeText x={labelX} y={labelY} label={label} labelStyle={labelStyle} labelBgStyle={labelBgStyle}
         labelBgPadding={labelBgPadding} labelBgBorderRadius={labelBgBorderRadius} />}
+      {selected && <BendHandle id={id} args={args} x={labelX} y={labelY} below={label ? 20 : 0} bent={!!e.bend} />}
     </>
   );
 });
+
+/* 线中间的圆点:拖它,线就从这儿过;双击恢复默认弧度。线上有字时圆点放在字下面,不挡字。 */
+function BendHandle({ id, args, x, y, below, bent }: { id: string; args: PathArgs; x: number; y: number; below: number; bent: boolean }) {
+  const ctx = useContext(ShapeContext)!;
+  const flow = useReactFlow();
+  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const move = (ev: PointerEvent) => {
+    if (!drag.current) return;
+    // 真动了才记撤销:只是点一下不算一步
+    if (!drag.current.moved) { drag.current.moved = true; ctx.beginChange(); }
+    const p = flow.screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+    ctx.bendEdge(id, bendFor(args, { x: p.x - drag.current.dx, y: p.y - drag.current.dy }));
+  };
+  return (
+    <EdgeLabelRenderer>
+      <div
+        className={`cv-bend nodrag nopan${bent ? " is-bent" : ""}`}
+        style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y + below}px)` }}
+        title="拖动改变线从哪儿过 · 双击恢复默认弧度"
+        onPointerDown={(ev) => {
+          if (ev.button !== 0) return;
+          ev.stopPropagation();
+          ev.currentTarget.setPointerCapture(ev.pointerId);
+          // 记住按下的地方离线上那个点多远,拖的时候线不会「跳」到鼠标上
+          const p = flow.screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+          drag.current = { dx: p.x - x, dy: p.y - y, moved: false };
+        }}
+        onPointerMove={move}
+        onPointerUp={(ev) => { drag.current = null; ev.currentTarget.releasePointerCapture(ev.pointerId); }}
+        onDoubleClick={(ev) => { ev.stopPropagation(); if (bent) { ctx.beginChange(); ctx.bendEdge(id, undefined); } }}
+      />
+    </EdgeLabelRenderer>
+  );
+}
 
 /* 拖动时的对齐参考线(画在画布坐标里,线宽按缩放反算,永远是 1 像素) */
 export function GuideLines({ guides }: { guides: Guide[] }) {

@@ -378,6 +378,36 @@ try {
     ok('导出动图 / 视频:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度、尺寸、时长合理');
   }
 
+  // ── 拖线改弧度:两头不动,线经过拖到的那个点;四种线型都认;导出的图也按它画 ──
+  {
+    const { Position } = { Position: { Top: 'top', Right: 'right', Bottom: 'bottom', Left: 'left' } };
+    const args = { sourceX: 0, sourceY: 0, sourcePosition: Position.Right, targetX: 400, targetY: 0, targetPosition: Position.Left };
+    const bend = { x: 0, y: -120 };
+    assert.deepEqual(x.bendPoint(args, bend), { x: 200, y: -120 }, '偏移相对两头的中点');
+    assert.deepEqual(x.bendFor(args, { x: 230.4, y: 60 }), { x: 30, y: 60 }, '拖到哪,反算出偏移(取整)');
+    const [curve, lx, ly] = x.linePath('smooth', args, bend);
+    assert.deepEqual([lx, ly], [200, -120], '标签放在经过的点上');
+    assert.match(curve, /^M0,0 C[1-9][\d.]*,0 /, '起点照样从连接点水平往右出去(朝右的连接点)');
+    assert(curve.includes(' 200,-120 C'), '曲线经过拖到的点:' + curve);
+    assert.match(curve, / 400,0$/, '终点不动');
+    assert.equal(x.linePath('straight', args, bend)[0], 'M0,0 L200,-120 L400,0', '直线变成经过那个点的两段');
+    const step = x.linePath('step', { ...args, targetY: 300 }, { x: 60, y: 0 })[0];
+    assert(step.includes('260'), '折线把中间那段挪到拖到的位置(x = 中点 200 + 60):' + step);
+    assert.equal(x.linePath('smooth', args)[0], x.linePath('smooth', args, undefined)[0], '没拖过和原来一样');
+    // 存盘校验 / 修复
+    const a = m.newNode('rect', 0, 0), b = m.newNode('rect', 400, 0);
+    const e = m.newEdge(a.id, b.id, { bend });
+    assert(m.isCanvasEdge(e));
+    for (const bad of [{ x: '1', y: 0 }, { x: Number.NaN, y: 0 }, { x: 1 }, 5]) assert(!m.isCanvasEdge({ ...e, bend: bad }), JSON.stringify(bad));
+    const r = m.repairCanvas([a, b], [{ ...e, bend: { x: null, y: 2 } }]);
+    assert.equal(r.edges[0].bend, undefined, '坏的弧度去掉(回到默认),线留着');
+    // 导出的图按拖过的样子画
+    const measure = (t, size) => t.length * size * 0.6;
+    const svg = x.canvasToSvg([a, b], [{ ...e, fromHandle: 'right', toHandle: 'left', line: 'straight' }], measure).svg;
+    assert(svg.includes('L280,-92'), '导出图片里的线也经过拖到的点:' + svg.match(/<path d="M[^"]*"/)?.[0]);
+    ok('拖线改弧度:经过拖到的点、两头不动、四种线型、存盘校验、导出都按它画');
+  }
+
   // ── 纯数据 <-> React Flow 画布对象:存盘、撤销都靠它换回来,字段一个都不能丢 ──
   {
     const flowFile = join(dir, 'f.cjs');
@@ -397,10 +427,12 @@ try {
       dashed: true, flow: true, width: 3, flowStyle: 'comet', flowSpeed: 3, flowColor: 'cyan' });
     const fe = f.toFlowEdge(edge);
     assert.deepEqual(f.fromFlowEdge(fe), edge, '连线的每个字段也要原样换回来');
-    assert.equal(fe.type, 'flowfx', '流动的线走自己的画法');
+    assert.equal(fe.type, 'line', '线都走自己的画法(流动效果、拖圆点改弧度)');
     assert(fe.markerStart && fe.markerEnd, '双向箭头两头都有');
     const plain = f.toFlowEdge(m.newEdge(a.id, b.id, { arrow: 'none', line: 'sharp' }));
-    assert.equal(plain.type, 'step');
+    assert.equal(plain.type, 'line', '不流动的线也走自己的画法,选中了才能拖弧度');
+    const bent = m.newEdge(a.id, b.id, { fromHandle: 'right', toHandle: 'left', bend: { x: 12, y: -80 } });
+    assert.deepEqual(f.fromFlowEdge(f.toFlowEdge(bent)), bent, '拖过的弧度存下去换回来不丢');
     assert.equal(plain.markerEnd, undefined, '没箭头就不画箭头');
     assert(f.toFlowEdge(edge, true).style.strokeWidth > fe.style.strokeWidth, '选中的线加粗');
     const re = f.fromFlowEdge({ ...fe, target: c.id, targetHandle: null });
