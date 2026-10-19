@@ -10,7 +10,8 @@ import {
   type CanvasEdge, type FlowStyle, type Guide, type ShapeKind,
 } from "./canvasModel";
 import { bendFor, linePath, type PathArgs } from "./canvasExport";
-import { ShapeContext, type FlowEdge, type FlowNode } from "./canvasFlow";
+import { cometTiming } from "./canvasAnimation";
+import { FlowSyncContext, ShapeContext, type FlowEdge, type FlowNode } from "./canvasFlow";
 
 function ShapeOutline({ shape }: { shape: ShapeKind }) {
   if (shape === "diamond")
@@ -102,6 +103,11 @@ export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
   }, [path, len, e.flow]);
   const kind: FlowStyle = e.flowStyle ?? "dash";
   const speed = e.flowSpeed ?? 2;
+  // 彗星:报自己跑一趟多久,拿回和同一处出发的线共用的节拍(同时出发,短的先到等一等)
+  const sync = useContext(FlowSyncContext);
+  const report = sync?.report;
+  const ownTrip = e.flow && kind === "comet" && len > 1 ? travelSeconds(len + cometLength(len), speed) : 0;
+  useEffect(() => { if (ownTrip) report?.(id, ownTrip); }, [ownTrip, id, report]);
   const fc = COLOR_VALUE[e.flowColor ?? e.color];
   const sw = Number((style as CSSProperties | undefined)?.strokeWidth ?? 1.6);
   const base: CSSProperties = { ...style };
@@ -133,11 +139,14 @@ export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
   if (e.flow && len > 1 && kind === "comet") {
     const c = cometLength(len);
     const head = c * 0.3;
-    const dur = `${travelSeconds(len + c, speed).toFixed(3)}s`;
-    // 一段长 c 的实线、后面空出整根线那么长:一次只露一颗彗星。dashoffset 从 c 走到 -len,正好从起点外划到终点外
+    const cycle = Math.max(ownTrip, sync?.cycleOf(id) ?? ownTrip);
+    const { values, keyTimes } = cometTiming(ownTrip, cycle);
+    const dur = `${cycle.toFixed(3)}s`;
+    // 一段长 c 的实线、后面空出整根线那么长:一次只露一颗彗星。dashoffset 从 c 走到 -len,正好从起点外划到终点外;
+    // 跑完了还没到节拍(同一处出发的线里它不是最长的),就停在终点外面等下一波
     const seg = (w: number, length: number, opacity: number, from: number, to: number, color = fc) => (
       <path d={path} fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" opacity={opacity} strokeDasharray={`${length} ${len + c}`}>
-        <animate attributeName="stroke-dashoffset" from={from} to={to} dur={dur} repeatCount="indefinite" />
+        <animate attributeName="stroke-dashoffset" values={values(from, to)} keyTimes={keyTimes} dur={dur} repeatCount="indefinite" />
       </path>
     );
     fx = <>

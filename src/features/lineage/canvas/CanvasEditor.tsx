@@ -34,7 +34,7 @@ import type { Graph } from "../lineageModel";
 import {
   ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
   FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, DRAWN_SHAPES, SHAPE_LABEL, SHAPE_SIZE,
-  alignBoxes, autoLayout, branchHandles, branchStyle, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
+  alignBoxes, autoLayout, branchHandles, branchStyle, syncedCycles, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
   type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode,
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
@@ -45,8 +45,8 @@ import { encodeMp4 } from "./canvasVideo";
 import { canvasToHtml } from "./canvasHtml";
 import { canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
 import {
-  ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
-  type FlowEdge, type FlowNode, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
+  FlowSyncContext, ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
+  type FlowEdge, type FlowNode, type FlowSync, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
 } from "./canvasFlow";
 import { GuideLines, LineEdge, ShapeIcon, ShapeNode } from "./CanvasShapes";
 import { LineagePicker, Menu, Seg, Swatches, TextColorPicker } from "./CanvasControls";
@@ -300,6 +300,17 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const bendEdge = useCallback((id: string, bend: CanvasEdge["bend"]) => {
     setEdges((es) => es.map((e) => e.id === id ? { ...e, data: { ...e.data!, bend } } : e));
   }, []);
+  /* 同一处出发的彗星共用节拍:线报上自己跑一趟多久,这里按起点分组取最长的 */
+  const [ownTrips, setOwnTrips] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const reportTrip = useCallback((id: string, seconds: number) => {
+    setOwnTrips((prev) => Math.abs((prev.get(id) ?? -1) - seconds) < 0.02 ? prev : new Map(prev).set(id, seconds));
+  }, []);
+  const synced = syncedCycles(edges.map((e) => e.data as CanvasEdge), ownTrips);
+  // 内容没变就还用上一份,线不跟着白重画
+  const syncKey = [...synced].map(([k, v]) => `${k}:${v.toFixed(2)}`).join("|");
+  const flowSync = useMemo<FlowSync>(() => ({ report: reportTrip, cycleOf: (id) => synced.get(id) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- synced 跟着 syncKey 走
+    [reportTrip, syncKey]);
   const ctx = useMemo<ShapeCtx>(() => ({
     editingId, startEdit: setEditingId, commitText, cancelEdit: () => setEditingId(null), beginChange, bendEdge,
   }), [editingId, commitText, beginChange, bendEdge]);
@@ -631,6 +642,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
 
   return (
     <ShapeContext.Provider value={ctx}>
+    <FlowSyncContext.Provider value={flowSync}>
       <div className="cv-editor">
         <div className="cv-topbar">
           <button className="btn sm" onClick={undo} disabled={!pastRef.current.length} title="撤销 (⌘Z)"><Undo2 size={14} /> 撤销</button>
@@ -881,6 +893,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
           双击空白处加框 · 从小圆点拖出去连线(松在空白处接着长新框) · 拖空白处框选 · 右键菜单 · 方向键微调(⇧ 大步) · ⌘C / ⌘V 复制粘贴 · ⌘Z 撤销 · Delete 删除
         </div>
       </div>
+    </FlowSyncContext.Provider>
     </ShapeContext.Provider>
   );
 }

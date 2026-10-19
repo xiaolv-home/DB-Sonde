@@ -704,3 +704,24 @@ export function nearestOnPath(total: number, pointAt: (s: number) => Point, p: P
   }
   return pointAt((lo2 + hi2) / 2);
 }
+
+/* ---------- 同一处出发的彗星一起走 ----------
+   彗星按线长定时长(流速一样),从同一个形状 / 分叉点出去的几根线长短不一,几圈下来就错开了。
+   让它们共用一个节拍:节拍 = 其中最长那根跑一趟的时间。大家同时出发、流速不变,
+   短的先到、等一等,下一波再一起出发。 */
+
+/** own:每根彗星线自己跑一趟要多久(秒)。返回每根线该用的节拍(同一个起点出去的取最大)。 */
+export function syncedCycles(edges: CanvasEdge[], own: ReadonlyMap<string, number>): Map<string, number> {
+  const groupMax = new Map<string, number>();
+  for (const e of edges) {
+    const t = own.get(e.id);
+    if (t === undefined || !e.flow || e.flowStyle !== "comet") continue;
+    groupMax.set(e.from, Math.max(groupMax.get(e.from) ?? 0, t));
+  }
+  const out = new Map<string, number>();
+  for (const e of edges) {
+    const t = own.get(e.id);
+    if (t !== undefined && e.flow && e.flowStyle === "comet") out.set(e.id, groupMax.get(e.from) ?? t);
+  }
+  return out;
+}

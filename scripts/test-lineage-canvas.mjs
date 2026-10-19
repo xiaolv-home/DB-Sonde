@@ -378,6 +378,42 @@ try {
     assert.deepEqual([...vid.rgbaToI420(mixed, 2, 2, false)].slice(0, 4), [235, 16, 16, 235], '亮度逐像素,不糊成平均');
     ok('导出动图 / 视频:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度、尺寸、时长合理');
 
+    // 同一处出发的彗星共用节拍:同时出发、流速一样,短的先到、等最长的那根
+    {
+      const comet = (id, from, to) => ({ id, from, to, flow: true, flowStyle: 'comet' });
+      const own = new Map([['x1', 1], ['x2', 3], ['x3', 2], ['y1', 1.5], ['z1', 9]]);
+      const es = [comet('x1', 'j', 'p'), comet('x2', 'j', 'q'), comet('x3', 'j', 'r'), comet('y1', 'k', 'p'), { ...comet('z1', 'j', 's'), flowStyle: 'dot' }];
+      const sy = m.syncedCycles(es, own);
+      assert.deepEqual([sy.get('x1'), sy.get('x2'), sy.get('x3')], [3, 3, 3], '同一个分叉点出去的三根彗星用同一个节拍(最长那根的)');
+      assert.equal(sy.get('y1'), 1.5, '别处出发的不受影响');
+      assert.equal(sy.get('z1'), undefined, '光点不参与(它是连续的,不分波)');
+      assert.equal(an.cometTiming(1, 3).keyTimes, '0;0.3333;1', '跑一趟占节拍的三分之一');
+      assert.equal(an.cometTiming(1, 3).values(10, -100), '10.00;-100.00;-100.00', '跑完停在终点外面等');
+      assert.equal(an.cometTiming(2, 2).keyTimes, '0;1', '自己就是最长的:照常一口气跑');
+    }
+    {
+      // 一长一短两根从同一个形状出发:逐帧看,同时出发、速度一样,短的先跑完停住
+      const near = m.newNode('rect', 260, 0), far = m.newNode('rect', 600, 0);
+      const short = m.newEdge(a.id, near.id, { id: 'short', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet' });
+      const long = m.newEdge(a.id, far.id, { id: 'long', line: 'straight', fromHandle: 'right', toHandle: 'left', flow: true, flowStyle: 'comet' });
+      const ns = [a, near, far], es = [short, long];
+      const sync = an.cometSync(ns, es, measure, probe);
+      assert.equal(sync.get('short'), sync.get('long'), '共用一个节拍');
+      const offsets = (sec) => {
+        const svg = x.canvasToSvg(ns, es, measure, an.flowFxAt(sec, 6, probe, sync)).svg;
+        return [...svg.matchAll(/stroke-width="8\.60"[^>]*stroke-dashoffset="(-?[\d.]+)"/g)].map((mm) => Number(mm[1]));
+      };
+      const [s0, l0] = offsets(0), [s1, l1] = offsets(0.2);
+      assert.deepEqual([s0 > 0, l0 > 0], [true, true], '第 0 秒两颗彗星都在起点(还没出发)');
+      assert(Math.abs((s0 - s1) - (l0 - l1)) < 0.5, `同时出发、流速一样:0.2 秒都走了一样远(${s0 - s1} vs ${l0 - l1})`);
+      const loopS = 6 / Math.round(6 / sync.get('long'));
+      const [sEnd, lEnd] = offsets(loopS * 0.9);
+      const [sEnd2, lEnd2] = offsets(loopS * 0.95);
+      assert.equal(sEnd, sEnd2, '短的跑完了就停住等');
+      assert(lEnd2 < lEnd, '长的还在跑');
+      const page = x.canvasToSvg(ns, es, measure, an.liveFlowFx(probe, sync)).svg;
+      assert(/keyTimes="0;0\.\d+;1"/.test(page), '网页里短的那根也是跑完等一等');
+    }
     // 导出网页:浏览器自己播动画(SVG 的 animate),标题转义,不带白底(网页自己画点阵底),带平移缩放
     const htmlFile = join(dir, 'html.cjs');
     buildSync({ entryPoints: [resolve('src/features/lineage/canvas/canvasHtml.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: htmlFile, logLevel: 'silent' });

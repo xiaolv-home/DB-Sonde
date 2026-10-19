@@ -69,3 +69,11 @@ export interface ShapeCtx {
   beginChange: () => void;
 }
 export const ShapeContext = createContext<ShapeCtx | null>(null);
+
+/* 同一处出发的彗星共用节拍(canvasModel 的 syncedCycles):每根线报自己跑一趟多久,拿回该用的节拍。
+   单独一个 context,只有线订阅,节拍变了不会让所有形状重画 */
+export interface FlowSync {
+  report: (id: string, seconds: number) => void;
+  cycleOf: (id: string) => number | undefined;
+}
+export const FlowSyncContext = createContext<FlowSync | null>(null);

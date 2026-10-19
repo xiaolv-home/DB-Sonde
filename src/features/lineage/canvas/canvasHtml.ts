@@ -2,7 +2,7 @@
  * 流动的线一直在流(SVG 自带的动画,和画布上同一套画法),能滚轮缩放、拖动平移、一键适应窗口 / 原尺寸。
  * 文件自带所有东西(不联网、不依赖 Sonde),发给别人用浏览器打开就行。
  * 和其它导出一样按浅色底画。 */
-import { liveFlowFx, type PathProbe } from "./canvasAnimation";
+import { cometSync, liveFlowFx, type PathProbe } from "./canvasAnimation";
 import { canvasToSvg, type Measure } from "./canvasExport";
 import type { CanvasEdge, CanvasNode } from "./canvasModel";
 
@@ -68,7 +68,7 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI",
 
 /** 画布 → 完整的 HTML 文本。没有形状时返回 null。 */
 export function canvasToHtml(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe, title: string): string | null {
-  const out = canvasToSvg(nodes, edges, measure, liveFlowFx(probe), { background: null });
+  const out = canvasToSvg(nodes, edges, measure, liveFlowFx(probe, cometSync(nodes, edges, measure, probe)), { background: null });
   if (!out) return null;
   const name = esc(title || "链路画布");
   return `<!doctype html>

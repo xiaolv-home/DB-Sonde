@@ -7,7 +7,7 @@
  * 最后一帧接回第一帧时每根线都刚好走完整圈,看不出跳。 */
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import {
-  COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, hi, travelSeconds,
+  COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, hi, syncedCycles, travelSeconds,
   type CanvasEdge, type CanvasNode, type FlowStyle,
 } from "./canvasModel";
 import { canvasToSvg, svgToCanvas, type EdgeFx, type Measure } from "./canvasExport";
@@ -29,13 +29,24 @@ export interface PathProbe {
 const styleOf = (e: CanvasEdge): FlowStyle => e.flowStyle ?? "dash";
 const speedOf = (e: CanvasEdge) => e.flowSpeed ?? 2;
 
-/** 一根流动线的自然周期(秒):过这么久画面和开头一模一样。和画布上的动画时长一致。 */
-export function naturalPeriod(e: CanvasEdge, len: number): number {
+/** 每根彗星线该用的节拍(秒):同一处出发的共用一个(canvasModel 的 syncedCycles)。先把每根线画一遍量出长度。 */
+export type CometSync = ReadonlyMap<string, number>;
+export function cometSync(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe): CometSync {
+  const own = new Map<string, number>();
+  canvasToSvg(nodes, edges, measure, (e, path) => {
+    if (styleOf(e) === "comet") { const len = probe.length(path); own.set(e.id, travelSeconds(len + cometLength(len), speedOf(e))); }
+    return null;
+  });
+  return syncedCycles(edges, own);
+}
+
+/** 一根流动线的自然周期(秒):过这么久画面和开头一模一样。和画布上的动画时长一致(彗星用共用的节拍)。 */
+export function naturalPeriod(e: CanvasEdge, len: number, sync?: CometSync): number {
   const speed = speedOf(e);
   switch (styleOf(e)) {
     case "dash": return 11 / DASH_PX_PER_S[speed];   // 虚线一格 11px
     case "dot": return travelSeconds(len, speed) / dotCount(len);   // 几个光点等距,前一个走到后一个的位置就算一圈
-    case "comet": return travelSeconds(len + cometLength(len), speed);
+    case "comet": return sync?.get(e.id) ?? travelSeconds(len + cometLength(len), speed);
     case "pulse": return PULSE_SECONDS[speed];
   }
 }
@@ -54,7 +65,7 @@ const frac = (v: number) => { const r = Math.round(v * 1e6) / 1e6; return r - Ma
 const f2 = (v: number) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2);
 
 /** 第 t 秒(循环长度 loop 秒)时每根流动线的样子 —— 给 canvasToSvg 的 fx。 */
-export function flowFxAt(t: number, loop: number, probe: PathProbe): EdgeFx {
+export function flowFxAt(t: number, loop: number, probe: PathProbe, sync?: CometSync): EdgeFx {
   const lengths = new Map<string, number>();
   const lengthOf = (d: string) => {
     let l = lengths.get(d);
@@ -66,7 +77,7 @@ export function flowFxAt(t: number, loop: number, probe: PathProbe): EdgeFx {
     const kind = styleOf(e);
     const fc = COLOR_VALUE[e.flowColor ?? e.color];
     const sw = stroke.width;
-    const period = fitPeriod(naturalPeriod(e, len), loop);
+    const period = fitPeriod(naturalPeriod(e, len, sync), loop);
     const u = frac(t / period);
     if (kind === "dash") {
       // 画布上 dashoffset 从 0 匀速走到 -11
@@ -90,8 +101,11 @@ export function flowFxAt(t: number, loop: number, probe: PathProbe): EdgeFx {
       // 和画布上一样:一段长 c 的实线 + 后面空出整根线长,dashoffset 从 from 匀速走到 to
       const c = cometLength(len);
       const head = c * 0.3;
+      // 节拍比自己跑一趟长(同一处出发的线里不是最长的):先跑完,剩下的时间停在终点外面等
+      const trip = travelSeconds(len + c, speedOf(e)), cycle = naturalPeriod(e, len, sync);
+      const at = Math.min(1, u * (cycle / trip));
       const seg = (w: number, length: number, opacity: number, from: number, to: number, color = fc) =>
-        `<path d="${path}" fill="none" stroke="${color}" stroke-width="${f2(w)}" stroke-linecap="round" opacity="${opacity}" stroke-dasharray="${f2(length)} ${f2(len + c)}" stroke-dashoffset="${f2(from + (to - from) * u)}"/>`;
+        `<path d="${path}" fill="none" stroke="${color}" stroke-width="${f2(w)}" stroke-linecap="round" opacity="${opacity}" stroke-dasharray="${f2(length)} ${f2(len + c)}" stroke-dashoffset="${f2(from + (to - from) * at)}"/>`;
       return {
         over: seg(sw + 7, c, 0.12, c, -len) + seg(sw + 2.5, c, 0.45, c, -len)
           + seg(sw + 3, head, 0.95, head, -len - (c - head))
@@ -107,9 +121,17 @@ export function flowFxAt(t: number, loop: number, probe: PathProbe): EdgeFx {
   };
 }
 
+/** 彗星的 SMIL 时间表:自己跑一趟 trip 秒,节拍 cycle 秒(≥ trip)。跑完就停在终点外面(看不见)等到节拍结束。
+ *  画布上和导出网页用同一份,两边节奏一样。 */
+export function cometTiming(trip: number, cycle: number): { values: (from: number, to: number) => string; keyTimes: string } {
+  const f = cycle > 0 ? Math.min(1, trip / cycle) : 1;
+  if (f > 0.999) return { values: (from, to) => `${f2(from)};${f2(to)}`, keyTimes: "0;1" };
+  return { values: (from, to) => `${f2(from)};${f2(to)};${f2(to)}`, keyTimes: `0;${f.toFixed(4)};1` };
+}
+
 /** 会动的流动线(导出网页用):用 SVG 自带的动画(<animate> / <animateMotion>),浏览器打开就一直流,
  *  和画布上(CanvasShapes 的 LineEdge)一模一样的画法和时长 —— 不用循环取整,也就没有动图那种微调。 */
-export function liveFlowFx(probe: PathProbe): EdgeFx {
+export function liveFlowFx(probe: PathProbe, sync?: CometSync): EdgeFx {
   return (e, path, stroke) => {
     const kind = styleOf(e), speed = speedOf(e);
     const fc = COLOR_VALUE[e.flowColor ?? e.color];
@@ -139,10 +161,12 @@ export function liveFlowFx(probe: PathProbe): EdgeFx {
       });
       return { over: dots.join("") };
     }
-    const c = cometLength(len), head = c * 0.3, dur = travelSeconds(len + c, speed);
+    const c = cometLength(len), head = c * 0.3, trip = travelSeconds(len + c, speed);
+    const cycle = Math.max(trip, sync?.get(e.id) ?? trip);
+    const { values, keyTimes } = cometTiming(trip, cycle);
     const seg = (w: number, length: number, opacity: number, from: number, to: number, color = fc) =>
       `<path d="${path}" fill="none" stroke="${color}" stroke-width="${f2(w)}" stroke-linecap="round" opacity="${opacity}" stroke-dasharray="${f2(length)} ${f2(len + c)}">`
-      + `<animate attributeName="stroke-dashoffset" from="${f2(from)}" to="${f2(to)}" ${loop(dur)}/></path>`;
+      + `<animate attributeName="stroke-dashoffset" values="${values(from, to)}" keyTimes="${keyTimes}" ${loop(cycle)}/></path>`;
     return {
       over: seg(sw + 7, c, 0.12, c, -len) + seg(sw + 2.5, c, 0.45, c, -len)
         + seg(sw + 3, head, 0.95, head, -len - (c - head))
@@ -157,12 +181,13 @@ export function animationFrames(nodes: CanvasNode[], edges: CanvasEdge[], measur
   const still = canvasToSvg(nodes, edges, measure);
   if (!still) return null;
   // 先量出每根流动线的自然周期,定下循环长度
+  const sync = cometSync(nodes, edges, measure, probe);
   const periods: number[] = [];
-  canvasToSvg(nodes, edges, measure, (e, path) => { periods.push(naturalPeriod(e, probe.length(path))); return null; });
+  canvasToSvg(nodes, edges, measure, (e, path) => { periods.push(naturalPeriod(e, probe.length(path), sync)); return null; });
   if (!periods.length) return { frames: [still.svg], width: still.width, height: still.height };
   const count = loopFrames(periods, frameMs);
   const loop = (count * frameMs) / 1000;
-  const frames = Array.from({ length: count }, (_, i) => canvasToSvg(nodes, edges, measure, flowFxAt((i * frameMs) / 1000, loop, probe))!.svg);
+  const frames = Array.from({ length: count }, (_, i) => canvasToSvg(nodes, edges, measure, flowFxAt((i * frameMs) / 1000, loop, probe, sync))!.svg);
   return { frames, width: still.width, height: still.height };
 }
 
