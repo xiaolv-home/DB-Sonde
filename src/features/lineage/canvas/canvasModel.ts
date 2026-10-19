@@ -11,17 +11,19 @@ import { maxOf, minOf } from "../../../lib/numbers";
 export const lo = (values: readonly number[]) => minOf(values) ?? 0;
 export const hi = (values: readonly number[]) => maxOf(values) ?? 0;
 
-export const SHAPES = ["rect", "rounded", "pill", "ellipse", "diamond", "cylinder", "note", "text", "group"] as const;
+export const SHAPES = ["rect", "rounded", "pill", "ellipse", "diamond", "cylinder", "note", "text", "group", "junction"] as const;
 export type ShapeKind = (typeof SHAPES)[number];
 export const SHAPE_LABEL: Record<ShapeKind, string> = {
   rect: "方框", rounded: "圆角", pill: "胶囊", ellipse: "椭圆", diamond: "判断",
-  cylinder: "数据表", note: "便签", text: "文字", group: "分组框",
+  cylinder: "数据表", note: "便签", text: "文字", group: "分组框", junction: "分叉点",
 };
+/** 工具栏、改形状的下拉里列的。分叉点(junction)不在里面:它只能在线上「分叉」出来 */
+export const DRAWN_SHAPES: readonly ShapeKind[] = SHAPES.filter((s) => s !== "junction");
 /** 新建时的默认尺寸 */
 export const SHAPE_SIZE: Record<ShapeKind, { w: number; h: number }> = {
   rect: { w: 160, h: 56 }, rounded: { w: 160, h: 56 }, pill: { w: 160, h: 44 },
   ellipse: { w: 140, h: 72 }, diamond: { w: 140, h: 90 }, cylinder: { w: 150, h: 76 },
-  note: { w: 180, h: 110 }, text: { w: 160, h: 36 }, group: { w: 420, h: 260 },
+  note: { w: 180, h: 110 }, text: { w: 160, h: 36 }, group: { w: 420, h: 260 }, junction: { w: 20, h: 20 },
 };
 
 /* 前 8 个是最早就有的,存档里认得;后面是加的。顺序就是色板上的顺序(冷暖分开排)。 */
@@ -648,3 +650,50 @@ export function travelSeconds(length: number, speed = 2): number {
 export const dotCount = (length: number) => Math.min(6, Math.max(1, Math.round(length / 160)));
 /** 彗星多长:线长的 35%,但不超过 90px、不短于 24px */
 export const cometLength = (length: number) => Math.min(90, Math.max(24, length * 0.35));
+
+/* ---------- 分叉:一根线走到半路分成几根 ----------
+   在线上某一点放一个分叉点(小圆点),原来那根线断成两段:起点 → 分叉点 → 终点;
+   再从分叉点拖出新的线连到别处,就是新的分支。分叉点能拖,分叉的位置跟着变。 */
+
+export interface Point { x: number; y: number }
+const OPPOSITE: Record<Side, Side> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+
+/** 在线 e 的 at 处分叉。from 是线起点的形状。第一段沿用原来的 id 和文字、不带箭头(箭头只在真正的终点),
+ *  第二段接着往终点走;两段都是原来的样式(颜色、线型、流动)。拖过的弧度不要了:两段各自重新弯。 */
+export function splitEdge(e: CanvasEdge, at: Point, from: Omit<Box, "id">): { junction: CanvasNode; edges: [CanvasEdge, CanvasEdge] } {
+  const size = SHAPE_SIZE.junction;
+  const junction = newNode("junction", Math.round(at.x - size.w / 2), Math.round(at.y - size.h / 2), { text: "", color: e.color, fill: "solid" });
+  const { bend: _bend, ...style } = e;
+  void _bend;
+  const entry = facingSides(from, junction).toHandle;
+  const first: CanvasEdge = { ...style, to: junction.id, toHandle: entry, arrow: "none" };
+  // 第二段从进来的对面出去:线穿过分叉点是顺的,不会在圆点那儿拐个急弯
+  const second: CanvasEdge = {
+    ...style, id: uid("e_"), from: junction.id, fromHandle: OPPOSITE[entry], label: "",
+    arrow: e.arrow === "none" ? "none" : "end",
+  };
+  return { junction, edges: [first, second] };
+}
+
+/** 从分叉点拖出的新分支用什么样式:跟流进这个分叉点的那根线一样(颜色、粗细、线型、流动);不是分叉点就 null */
+export function branchStyle(nodes: CanvasNode[], edges: CanvasEdge[], fromId: string): Partial<CanvasEdge> | null {
+  if (nodes.find((n) => n.id === fromId)?.shape !== "junction") return null;
+  const into = edges.find((e) => e.to === fromId) ?? edges.find((e) => e.from === fromId);
+  if (!into) return null;
+  const { color, line, width, dashed, flow, flowStyle, flowSpeed, flowColor } = into;
+  return { color, line, width, dashed, flow, flowStyle, flowSpeed, flowColor, arrow: "end" };
+}
+
+/** 线上离 p 最近的点(在线上右键分叉时,分叉点落在线上而不是鼠标旁边)。按长度采样再在附近细找。 */
+export function nearestOnPath(total: number, pointAt: (s: number) => Point, p: Point): Point {
+  const d2 = (q: Point) => (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+  const steps = Math.max(20, Math.ceil(total / 8));
+  let best = 0;
+  for (let i = 1; i <= steps; i++) if (d2(pointAt((total * i) / steps)) < d2(pointAt((total * best) / steps))) best = i;
+  let lo2 = Math.max(0, (best - 1) * total / steps), hi2 = Math.min(total, (best + 1) * total / steps);
+  for (let k = 0; k < 20; k++) {
+    const a = lo2 + (hi2 - lo2) / 3, b = hi2 - (hi2 - lo2) / 3;
+    if (d2(pointAt(a)) < d2(pointAt(b))) hi2 = b; else lo2 = a;
+  }
+  return pointAt((lo2 + hi2) / 2);
+}

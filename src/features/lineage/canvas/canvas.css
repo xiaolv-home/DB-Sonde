@@ -327,6 +327,23 @@
   transition: opacity 0.12s;
 }
 .react-flow__node:hover .cv-handle, .cv-node.is-selected .cv-handle, .react-flow.connecting .cv-handle { opacity: 1; }
+/* 分叉点:节点本身透明,中间画一个圆点(盖住几根线汇合的地方),四周是拖线用的连接点 */
+.cv-node.cv-junction { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.cv-junction::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 1.5px var(--surface);
+  cursor: move;
+}
+.cv-junction.is-selected::after { box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); }
+.cv-junction .cv-handle { width: 7px; height: 7px; }
 .cv-ref {
   position: absolute;
   top: 3px;
@@ -473,3 +490,4 @@
 /* 悬停别用 scale:它叠在定位用的 transform 外面,会把偏移一起放大,圆点就离开线了 */
 .cv-bend:hover { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
 .cv-bend.is-bent { background: var(--accent); }
+.cv-props-tip { font-size: 12px; color: var(--text-3); }

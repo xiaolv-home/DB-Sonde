@@ -98,7 +98,8 @@ try {
     const placed = [];
     const overlap = (a, b) => !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
     for (let i = 0; i < 20; i += 1) {
-      const shape = m.SHAPES[i % (m.SHAPES.length - 1)]; // 不含分组框
+      const plain = m.DRAWN_SHAPES.filter((x) => x !== 'group'); // 分组框本来就能压住别的;分叉点不在工具栏
+      const shape = plain[i % plain.length];
       const size = m.SHAPE_SIZE[shape];
       const spot = m.findFreeSpot(placed, size.w, size.h, { x: 400, y: 300 });
       const node = { ...m.newNode(shape, spot.x, spot.y) };
@@ -406,6 +407,47 @@ try {
     const svg = x.canvasToSvg([a, b], [{ ...e, fromHandle: 'right', toHandle: 'left', line: 'straight' }], measure).svg;
     assert(svg.includes('L280,-92'), '导出图片里的线也经过拖到的点:' + svg.match(/<path d="M[^"]*"/)?.[0]);
     ok('拖线改弧度:经过拖到的点、两头不动、四种线型、存盘校验、导出都按它画');
+  }
+
+  // ── 分叉:一根线半路分成几根 ──
+  {
+    const a = m.newNode('rect', 0, 0), b = m.newNode('rect', 600, 0), c = m.newNode('rect', 600, 300);
+    const e = m.newEdge(a.id, b.id, { fromHandle: 'right', toHandle: 'left', label: '写入', color: 'blue', width: 2, arrow: 'end',
+      flow: true, flowStyle: 'comet', flowColor: 'cyan', bend: { x: 0, y: -40 } });
+    const { junction: j, edges: [first, second] } = m.splitEdge(e, { x: 380, y: 28 }, a);
+    assert.equal(j.shape, 'junction');
+    assert.deepEqual([j.x + j.w / 2, j.y + j.h / 2], [380, 28], '分叉点的圆心就在分叉的位置');
+    assert.equal(j.color, 'blue', '分叉点和线一个颜色');
+    assert.equal(first.id, e.id, '第一段沿用原来的 id');
+    assert.deepEqual([first.from, first.to, second.from, second.to], [a.id, j.id, j.id, b.id], '起点 → 分叉点 → 终点');
+    assert.equal(first.arrow, 'none', '到分叉点那段没有箭头(箭头只在真正的终点)');
+    assert.equal(second.arrow, 'end');
+    assert.equal(first.label, '写入'); assert.equal(second.label, '', '文字只留一份');
+    for (const part of [first, second]) {
+      assert.equal(part.bend, undefined, '拖过的弧度不要了,两段各自重新弯');
+      assert.deepEqual([part.color, part.width, part.flowStyle, part.flowColor], ['blue', 2, 'comet', 'cyan'], '两段都是原来的样式和流动效果');
+    }
+    assert.equal(first.toHandle, 'left', '从左边进分叉点');
+    assert.equal(second.fromHandle, 'right', '从右边出去接着往终点走');
+    assert.notEqual(first.id, second.id);
+    const doc = { ...m.newCanvas('t'), nodes: [a, b, c, j], edges: [first, second] };
+    assert(m.isCanvasDoc(JSON.parse(JSON.stringify(doc))), '分叉后的画布存得下读得回');
+    // 从分叉点拖出的新分支:样式跟流进来的线一样
+    assert.deepEqual(m.branchStyle(doc.nodes, doc.edges, j.id),
+      { color: 'blue', line: 'smooth', width: 2, dashed: undefined, flow: true, flowStyle: 'comet', flowSpeed: undefined, flowColor: 'cyan', arrow: 'end' });
+    assert.equal(m.branchStyle(doc.nodes, doc.edges, a.id), null, '不是分叉点就照常用默认样式');
+    assert(!m.DRAWN_SHAPES.includes('junction'), '分叉点不出现在工具栏里');
+    // 找线上离右键位置最近的点:分叉点落在线上
+    const line = (s2) => ({ x: s2, y: 2 * s2 });
+    const near = m.nearestOnPath(Math.hypot(100, 200), (len) => line(len / Math.sqrt(5)), { x: 50, y: 60 });
+    const exact = { x: (50 + 120) / 5, y: (2 * (50 + 120)) / 5 };
+    assert(Math.hypot(near.x - exact.x, near.y - exact.y) < 0.5, `落在线上最近的点 ${JSON.stringify(near)}`);
+    // 导出:线接到分叉点的圆心,画出圆点
+    const measure = (t, size) => t.length * size * 0.6;
+    const svg = x.canvasToSvg(doc.nodes, [{ ...first, line: 'straight', bend: undefined }], measure).svg;
+    assert(svg.includes('L 380,28') || svg.includes('L380,28'), '导出时线接到分叉点圆心:' + svg.match(/<path d="M[^"]*"/)?.[0]);
+    assert(svg.includes('<circle cx="380" cy="28" r="5"'), '分叉点画成圆点');
+    ok('分叉:断成两段、样式和流动跟着走、新分支同样式、落在线上、导出接到圆心');
   }
 
   // ── 纯数据 <-> React Flow 画布对象:存盘、撤销都靠它换回来,字段一个都不能丢 ──

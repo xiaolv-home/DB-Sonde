@@ -6,6 +6,8 @@ import { getBezierPath, getSmoothStepPath, getStraightPath, Position } from "@xy
 import { COLOR_VALUE, STROKE_PX, hi, lo, markerSize, textColorValue, type Bend, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 const PAD = 40;
+/** 分叉点圆点的直径(节点本身大一圈,多出来的是拖线用的连接点) */
+export const JUNCTION_DOT = 10;
 const TEXT = "#1f2328";
 const FONT = `-apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
 
@@ -57,6 +59,8 @@ export function wrapText(text: string, maxWidth: number, fontSize: number, bold:
 const SIDE_POS = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left } as const;
 type Side = keyof typeof SIDE_POS;
 function anchor(n: CanvasNode, side: Side) {
+  // 分叉点:线都接到圆心,几根线在圆点底下汇成一点
+  if (n.shape === "junction") return { x: n.x + n.w / 2, y: n.y + n.h / 2 };
   if (side === "top") return { x: n.x + n.w / 2, y: n.y };
   if (side === "bottom") return { x: n.x + n.w / 2, y: n.y + n.h };
   if (side === "left") return { x: n.x, y: n.y + n.h / 2 };
@@ -137,6 +141,7 @@ function shapeSvg(n: CanvasNode): string {
     case "diamond": return `<polygon points="${x + w / 2},${y} ${x + w},${y + h / 2} ${x + w / 2},${y + h} ${x},${y + h / 2}" ${common}/>`;
     case "note": return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" ${common}/>`;
     case "group": return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" ${common}/>`;
+    case "junction": return `<circle cx="${x + w / 2}" cy="${y + h / 2}" r="${JUNCTION_DOT / 2}" fill="${c}" stroke="#ffffff" stroke-width="1.5"/>`;
     case "cylinder": {
       const ry = h * 0.115;   // 和画布上的 SVG 一样:上下两个椭圆各占高度的 11.5%
       return `<path d="M${x},${y + ry} A${w / 2},${ry} 0 0 1 ${x + w},${y + ry} V${y + h - ry} A${w / 2},${ry} 0 0 1 ${x},${y + h - ry} Z" ${common}/>`

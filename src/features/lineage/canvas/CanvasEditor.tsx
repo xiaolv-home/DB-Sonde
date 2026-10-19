@@ -24,7 +24,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
   BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, GitFork, ImageDown, Loader2, Network, Paintbrush,
-  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Trash2, Undo2, X,
+  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Split, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
 import { useConfirm } from "../../../components/useConfirm";
@@ -33,11 +33,11 @@ import { inTauri } from "../../../lib/mockBackend";
 import type { Graph } from "../lineageModel";
 import {
   ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
-  FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, SHAPES, SHAPE_LABEL,
-  alignBoxes, autoLayout, contentKey, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
+  FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, DRAWN_SHAPES, SHAPE_LABEL, SHAPE_SIZE,
+  alignBoxes, autoLayout, branchStyle, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
   type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode,
-  type FillKind, type FlowStyle, type Guide, type LayoutDir, type Pos, type ShapeKind,
+  type FillKind, type FlowStyle, type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
 } from "./canvasModel";
 import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
 import { animationFrames, encodeGif, svgPathProbe } from "./canvasAnimation";
@@ -102,7 +102,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const [painter, setPainter] = useState<NodeStyle | null>(null);
   /** 正在生成动图 / 视频时的进度(0~1),没在生成是 null */
   const [animProgress, setAnimProgress] = useState<{ kind: "gif" | "mp4"; done: number } | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge" } | null>(null);
+  /** 右键菜单;at = 右键点在画布上的位置(在线上分叉用) */
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge"; at: Point } | null>(null);
   const nudgeAt = useRef(0);
   /** 上一次挑的流动效果:给下一根打开「流动」的线直接用上 */
   const lastFlow = useRef<Pick<CanvasEdge, "flowStyle" | "flowSpeed" | "flowColor">>({});
@@ -222,7 +223,12 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     });
   }, []);
   const connect = useCallback((from: string, to: string, fromHandle?: string, toHandle?: string) => {
-    const edge = newEdge(from, to, { fromHandle, toHandle, ...edgeStyle });
+    // 从分叉点拖出的分支:样式跟流进来的那根线一样;两头按方位接(优先横着走),不管按的、松的是哪个连接点 ——
+    // 不然松手时离哪个连接点近就接哪个,常常从别的形状身上穿过去
+    const branch = branchStyle(nodesRef.current.map((n) => n.data), edgesRef.current.map((e) => e.data as CanvasEdge), from);
+    const src = nodesRef.current.find((n) => n.id === from), dst = nodesRef.current.find((n) => n.id === to);
+    const sides = branch && src && dst ? facingSides(boxOf(src), boxOf(dst), false) : { fromHandle, toHandle };
+    const edge = newEdge(from, to, { ...sides, ...edgeStyle, ...branch });
     setEdges((es) => [...es, toFlowEdge(edge)]);
   }, [edgeStyle]);
   const onConnect = useCallback((c: Connection) => {
@@ -254,9 +260,13 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
       return;
     }
     const base = src.data;
-    const shape: ShapeKind = base.shape === "group" || base.shape === "text" || base.shape === "note" ? "rounded" : base.shape;
-    const n = newNode(shape, 0, 0, { color: base.color, fill: base.fill, dashed: base.dashed, fontSize: base.fontSize, textColor: base.textColor, text: "" });
-    n.w = Math.round(srcBox.w); n.h = Math.round(srcBox.h);
+    const fromJunction = base.shape === "junction";
+    const shape: ShapeKind = fromJunction || base.shape === "group" || base.shape === "text" || base.shape === "note" ? "rounded" : base.shape;
+    // 从分叉点拖出来:长一个普通大小的圆角框(分叉点自己只有一个点那么大),样式不照搬分叉点
+    const n = fromJunction ? newNode(shape, 0, 0, { text: "" })
+      : newNode(shape, 0, 0, { color: base.color, fill: base.fill, dashed: base.dashed, fontSize: base.fontSize, textColor: base.textColor, text: "" });
+    const size = fromJunction ? SHAPE_SIZE.rounded : srcBox;
+    n.w = Math.round(size.w); n.h = Math.round(size.h);
     n.x = Math.round((at.x - n.w / 2) / 8) * 8; n.y = Math.round((at.y - n.h / 2) / 8) * 8;
     const sides = facingSides(srcBox, n);
     setNodes((ns) => [...ns.map((x) => x.selected ? { ...x, selected: false } : x), { ...toFlowNode(n), selected: true }]);
@@ -319,7 +329,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   }, [addNodes, centerPoint]);
   const onDrop = useCallback((e: ReactDragEvent) => {
     const shape = e.dataTransfer.getData("application/x-sonde-shape") as ShapeKind;
-    if (!SHAPES.includes(shape)) return;
+    if (!DRAWN_SHAPES.includes(shape)) return;
     e.preventDefault();
     addShape(shape, flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   }, [addShape, flow]);
@@ -381,6 +391,24 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     const zs = nodesRef.current.filter((n) => !n.selected).map((n) => n.data.z ?? 0);
     const z = dir === "front" ? hi([0, ...zs]) + 1 : lo([0, ...zs]) - 1;
     patchNodes({ z });
+  };
+  /* 在线上分叉:at 是右键点的位置(落到线上离它最近的点),不给就分在线的正中间 */
+  const splitAt = (edgeId: string, at?: Point) => {
+    const fe = edgesRef.current.find((x) => x.id === edgeId);
+    if (!fe) return;
+    const e = fromFlowEdge(fe);
+    const a = nodesRef.current.find((n) => n.id === e.from), b = nodesRef.current.find((n) => n.id === e.to);
+    if (!a || !b) return;
+    const el = wrapRef.current?.querySelector<SVGPathElement>(`.react-flow__edge[data-id="${CSS.escape(edgeId)}"] path.react-flow__edge-path`);
+    const pointAt = (len: number): Point => { const q = el!.getPointAtLength(len); return { x: q.x, y: q.y }; };
+    const total = el?.getTotalLength() ?? 0;
+    const p = !el || !total ? { x: (boxOf(a).x + boxOf(b).x) / 2, y: (boxOf(a).y + boxOf(b).y) / 2 }
+      : at ? nearestOnPath(total, pointAt, at) : pointAt(total / 2);
+    const { junction, edges: [first, second] } = splitEdge(e, p, boxOf(a));
+    beginChange();
+    setNodes((ns) => [...ns.map((n) => n.selected ? { ...n, selected: false } : n), { ...toFlowNode(junction), selected: true }]);
+    setEdges((es) => [...es.filter((x) => x.id !== edgeId).map((x) => x.selected ? toFlowEdge(x.data as CanvasEdge) : x), toFlowEdge(first), toFlowEdge(second)]);
+    toast({ kind: "info", text: "已分叉:从小圆点四周的连接点拖出新的线连到别的形状,就是一个新分支;拖圆点能挪分叉的位置" });
   };
   const reverseEdges = () => {
     beginChange();
@@ -564,12 +592,15 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
       setNodes((ns) => ns.map((n) => n.selected ? { ...n, selected: false } : n));
       setEdges((es) => es.map((x) => toFlowEdge(x.data as CanvasEdge, x.id === id)));
     }
-    setMenu({ x: Math.min(e.clientX - rect.left, rect.width - 190), y: Math.min(e.clientY - rect.top, rect.height - 300), kind });
+    setMenu({ x: Math.min(e.clientX - rect.left, rect.width - 190), y: Math.min(e.clientY - rect.top, rect.height - 300), kind,
+      at: flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
   };
   const run = (fn: () => void) => () => { setMenu(null); fn(); };
   const focusLabel = () => window.setTimeout(() => labelInputRef.current?.focus(), 30);
 
   const one = selNodes[0]?.data;
+  /** 选中的全是分叉点:属性栏只给颜色(没有文字、填充、形状可改) */
+  const onlyJunctions = selNodes.length > 0 && selNodes.every((n) => n.data.shape === "junction");
   const oneEdge = selEdges[0]?.data as CanvasEdge | undefined;
 
   return (
@@ -623,7 +654,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
         )}
         <div className="cv-stage">
           <div className="cv-palette" aria-label="形状">
-            {SHAPES.map((s) => (
+            {DRAWN_SHAPES.map((s) => (
               <button key={s} className="cv-tool" title={`${SHAPE_LABEL[s]}(点一下放到中间,或拖到画布上)`}
                 draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-sonde-shape", s); e.dataTransfer.effectAllowed = "copy"; }}
                 onClick={() => addShape(s)}>
@@ -694,7 +725,14 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
 
             {(selNodes.length > 0 || selEdges.length > 0) && !picker && (
               <div className="cv-props" onMouseDown={(e) => e.stopPropagation()}>
-                {selNodes.length > 0 && one && (
+                {onlyJunctions && one && (
+                  <>
+                    <span className="cv-props-label">{selNodes.length > 1 ? `${selNodes.length} 个分叉点` : "分叉点"}</span>
+                    <Swatches value={one.color} onPick={(color) => patchNodes({ color })} />
+                    <span className="cv-props-tip">拖圆点挪位置 · 从四周的小圆圈拖出新分支</span>
+                  </>
+                )}
+                {selNodes.length > 0 && one && !onlyJunctions && (
                   <>
                     <span className="cv-props-label">{selNodes.length > 1 ? `${selNodes.length} 个形状` : SHAPE_LABEL[one.shape]}</span>
                     <Swatches value={one.color} onPick={(color) => patchNodes({ color })} />
@@ -702,7 +740,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                     <Seg value={one.fill ?? "soft"} options={FILLS} labels={FILL_LABEL} onPick={(fill: FillKind) => patchNodes({ fill: fill === "soft" ? undefined : fill })} />
                     <button className={`btn xs ${one.dashed ? "on" : ""}`} onClick={() => patchNodes({ dashed: !one.dashed || undefined })} title="边框画成虚线">虚线框</button>
                     <select className="cv-select" value={one.shape} onChange={(e) => patchNodes({ shape: e.target.value as ShapeKind })} title="形状">
-                      {SHAPES.map((s) => <option key={s} value={s}>{SHAPE_LABEL[s]}</option>)}
+                      {DRAWN_SHAPES.map((s) => <option key={s} value={s}>{SHAPE_LABEL[s]}</option>)}
                     </select>
                     <select className="cv-select" value={one.fontSize} onChange={(e) => patchNodes({ fontSize: Number(e.target.value) })} title="字号">
                       {FONT_SIZES.map((s) => <option key={s} value={s}>{s}px</option>)}
@@ -737,6 +775,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                     <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} title="让线动起来,表示数据从这儿流过"
                       onClick={() => patchEdges(oneEdge.flow ? { flow: false } : { flow: true, flowStyle: oneEdge.flowStyle ?? lastFlow.current.flowStyle, flowSpeed: oneEdge.flowSpeed ?? lastFlow.current.flowSpeed, flowColor: oneEdge.flowColor ?? lastFlow.current.flowColor })}>流动</button>
                     <button className="icon-btn" title="反转方向" onClick={reverseEdges}><ArrowLeftRight size={14} /></button>
+                    {selEdges.length === 1 && <button className="icon-btn" title="分叉:在线中间放一个分叉点,从它拖出更多分支(右键线上某一点 →「在这里分叉」可以指定位置)"
+                      onClick={() => splitAt(selEdges[0].id)}><Split size={14} /></button>}
                     {selEdges.length === 1 && (
                       <input key={oneEdge.id} ref={labelInputRef} className="cv-label-input" placeholder="线上的文字(双击线也能改)" defaultValue={oneEdge.label}
                         onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }}
@@ -754,7 +794,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                         <Swatches value={oneEdge.flowColor ?? null} onPick={(flowColor) => patchFlow({ flowColor })} />
                       </div>
                     )}
-                    {selNodes.length > 0 && one && (
+                    {selNodes.length > 0 && one && !onlyJunctions && (
                       <div className="cv-props-row">
                         <span className="cv-props-label">文字颜色</span>
                         <TextColorPicker value={one.textColor} onPick={(textColor) => patchNodes({ textColor })} />
@@ -781,6 +821,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                   <button className="danger" onClick={run(deleteSelected)}><Trash2 size={13} /> 删除<kbd>⌫</kbd></button>
                 </> : <>
                   <button onClick={run(focusLabel)}><Pencil size={13} /> 改线上的文字</button>
+                  {selEdges.length === 1 && <button onClick={run(() => splitAt(selEdges[0].id, menu.at))}><Split size={13} /> 在这里分叉</button>}
                   <button onClick={run(reverseEdges)}><ArrowLeftRight size={13} /> 反转方向</button>
                   {selEdges.some((e) => e.data?.bend) && <button onClick={run(() => patchEdges({ bend: undefined }))}><Spline size={13} /> 恢复默认弧度</button>}
                   <hr />

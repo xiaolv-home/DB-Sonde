@@ -1,7 +1,7 @@
 /* 画布上画出来的东西:形状节点(含双击改字、改大小)、线(流动效果、拖中间的圆点改弧度)、拖动时的对齐参考线、工具栏里的形状图标。 */
 import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import {
-  BaseEdge, EdgeLabelRenderer, EdgeText, Handle, NodeResizer, Position, ViewportPortal, useReactFlow, useViewport,
+  BaseEdge, EdgeLabelRenderer, EdgeText, Handle, NodeResizer, Position, ViewportPortal, useInternalNode, useReactFlow, useViewport,
   type EdgeProps, type NodeProps,
 } from "@xyflow/react";
 import { Link2 } from "lucide-react";
@@ -25,11 +25,23 @@ function ShapeOutline({ shape }: { shape: ShapeKind }) {
   return null;
 }
 
+const SIDES = ["top", "right", "bottom", "left"] as const;
+const SIDE_POSITION = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left } as const;
+
 export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodeProps<FlowNode>) {
   const ctx = useContext(ShapeContext)!;
   const editing = ctx.editingId === id;
   const [draft, setDraft] = useState(data.text);
   useEffect(() => { if (editing) setDraft(data.text); }, [editing, data.text]);
+  // 分叉点:中间一个圆点(拖它挪位置),四周的连接点拖出去就是新分支;没有文字、不能改大小
+  if (data.shape === "junction") {
+    return (
+      <div className={`cv-node cv-junction${selected ? " is-selected" : ""}`} style={{ "--c": COLOR_VALUE[data.color] } as CSSProperties}
+        title="分叉点:拖圆点挪位置,从四周的小圆圈拖出新的线就是一个分支">
+        {SIDES.map((side) => <Handle key={side} id={side} type="source" className="cv-handle" position={SIDE_POSITION[side]} />)}
+      </div>
+    );
+  }
   const style = { "--c": COLOR_VALUE[data.color], fontSize: data.fontSize, fontWeight: data.bold ? 650 : undefined } as CSSProperties;
   const cls = [
     "cv-node", `cv-${data.shape}`, `cv-fill-${data.fill ?? "soft"}`,
@@ -40,10 +52,7 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
       <NodeResizer isVisible={selected && !editing} minWidth={40} minHeight={24} onResizeStart={ctx.beginChange}
         lineClassName="cv-resize-line" handleClassName="cv-resize-handle" />
       <ShapeOutline shape={data.shape} />
-      {(["top", "right", "bottom", "left"] as const).map((side) => (
-        <Handle key={side} id={side} type="source" className="cv-handle"
-          position={{ top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left }[side]} />
-      ))}
+      {SIDES.map((side) => <Handle key={side} id={side} type="source" className="cv-handle" position={SIDE_POSITION[side]} />)}
       {data.ref && <span className="cv-ref" title={`来自血缘:${data.ref}`}><Link2 size={11} /></span>}
       {editing ? (
         <textarea
@@ -75,10 +84,13 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
    · 呼吸:整根线外面一圈光,一明一暗。
    动效都按线的实际长度算时长,长线短线看起来流速一样。动效层不接鼠标,点线还是点在底下那根上。 */
 export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
-  const { id, data, selected, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, markerStart,
+  const { id, data, selected, source, target, sourcePosition, targetPosition, style, markerEnd, markerStart,
     label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, interactionWidth } = props;
   const e = data as CanvasEdge;
-  const args: PathArgs = { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition };
+  // 接在分叉点上的一头改接到圆心(和导出图片里一样),几根线在圆点底下汇成一点
+  const from = junctionCenter(useInternalNode(source)) ?? { x: props.sourceX, y: props.sourceY };
+  const to = junctionCenter(useInternalNode(target)) ?? { x: props.targetX, y: props.targetY };
+  const args: PathArgs = { sourceX: from.x, sourceY: from.y, sourcePosition, targetX: to.x, targetY: to.y, targetPosition };
   const [path, labelX, labelY] = linePath(e.line, args, e.bend);
   const measureRef = useRef<SVGPathElement>(null);
   const [len, setLen] = useState(0);
@@ -158,6 +170,12 @@ export const LineEdge = memo(function LineEdge(props: EdgeProps<FlowEdge>) {
     </>
   );
 });
+
+function junctionCenter(n: ReturnType<typeof useInternalNode>): { x: number; y: number } | null {
+  if (!n || (n.data as { shape?: string } | undefined)?.shape !== "junction") return null;
+  const { x, y } = n.internals.positionAbsolute;
+  return { x: x + (n.measured.width ?? n.width ?? 0) / 2, y: y + (n.measured.height ?? n.height ?? 0) / 2 };
+}
 
 /* 线中间的圆点:拖它,线就从这儿过;双击恢复默认弧度。线上有字时圆点放在字下面,不挡字。 */
 function BendHandle({ id, args, x, y, below, bent }: { id: string; args: PathArgs; x: number; y: number; below: number; bent: boolean }) {
