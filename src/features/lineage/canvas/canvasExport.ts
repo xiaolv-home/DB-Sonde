@@ -178,7 +178,7 @@ export type EdgeFx = (e: CanvasEdge, path: string, stroke: { color: string; widt
 
 /** 整张画布 → SVG 文本。没有形状时返回 null。 */
 export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, fx?: EdgeFx,
-  opts: { background?: string | null } = {}): { svg: string; width: number; height: number } | null {
+  opts: { background?: string | null; comments?: boolean } = {}): { svg: string; width: number; height: number } | null {
   const background = opts.background === undefined ? "#ffffff" : opts.background;
   if (!nodes.length) return null;
   const minX = lo(nodes.map((n) => n.x)) - PAD, minY = lo(nodes.map((n) => n.y)) - PAD;
@@ -220,10 +220,19 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
         + `<text x="${g.labelX.toFixed(1)}" y="${(g.labelY + 4).toFixed(1)}" font-size="12" fill="#57606a" text-anchor="middle">${esc(e.label)}</text>`);
     }
   }
+  // 导出网页时(comments):有注释的形状包一层带注释的 <g>(点它弹出注释),右上角画个 i 标记;图片里不带注释
+  const nodeSvg = (n: CanvasNode) => {
+    const drawn = shapeSvg(n) + labelSvg(n, measure);
+    if (!opts.comments || !n.comment) return drawn;
+    const bx = n.x + n.w - 2, by = n.y + 2;
+    const badge = `<circle cx="${bx}" cy="${by}" r="7" fill="#ffffff" stroke="${COLOR_VALUE[n.color]}" stroke-width="1.5"/>`
+      + `<text x="${bx}" y="${by + 3.5}" font-size="10" font-weight="700" fill="${COLOR_VALUE[n.color]}" text-anchor="middle">i</text>`;
+    return `<g class="cmt" data-cmt="${esc(n.comment)}">${drawn}${badge}</g>`;
+  };
   const body = [
-    ...groups.map((n) => shapeSvg(n) + labelSvg(n, measure)),
+    ...groups.map(nodeSvg),
     ...edgeParts,
-    ...rest.map((n) => shapeSvg(n) + labelSvg(n, measure)),
+    ...rest.map(nodeSvg),
     ...labelParts,
   ].join("\n");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${minX} ${minY} ${width} ${height}" font-family='${FONT}'>

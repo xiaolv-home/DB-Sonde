@@ -61,6 +61,10 @@ export const styleOf = (n: CanvasNode): NodeStyle => ({ color: n.color, fill: n.
 /* 形状节点双击改字、改大小前记撤销,拖线的弧度,都走编辑器;节点、线的组件从这里拿 */
 export interface ShapeCtx {
   editingId: string | null;
+  /** 只选中了这一个形状(没选线):它下面弹出注释卡片 */
+  soloId: string | null;
+  /** 改注释(空 = 去掉注释),自己记撤销 */
+  commitComment: (id: string, text: string) => void;
   /** 拖线中间的圆点:改这根线从哪儿过(undefined = 恢复默认弧度)。撤销由调用方先 beginChange */
   bendEdge: (id: string, bend: CanvasEdge["bend"]) => void;
   startEdit: (id: string) => void;

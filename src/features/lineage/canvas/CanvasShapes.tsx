@@ -1,10 +1,10 @@
 /* 画布上画出来的东西:形状节点(含双击改字、改大小)、线(流动效果、拖中间的圆点改弧度)、拖动时的对齐参考线、工具栏里的形状图标。 */
 import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import {
-  BaseEdge, EdgeLabelRenderer, EdgeText, Handle, NodeResizer, Position, ViewportPortal, useInternalNode, useReactFlow, useViewport,
+  BaseEdge, EdgeLabelRenderer, EdgeText, Handle, NodeResizer, NodeToolbar, Position, ViewportPortal, useInternalNode, useReactFlow, useViewport,
   type EdgeProps, type NodeProps,
 } from "@xyflow/react";
-import { Link2 } from "lucide-react";
+import { Link2, MessageSquarePlus, MessageSquareText, Pencil } from "lucide-react";
 import {
   COLOR_VALUE, DASH_PX_PER_S, PULSE_SECONDS, cometLength, dotCount, textColorValue, travelSeconds,
   type CanvasEdge, type FlowStyle, type Guide, type ShapeKind,
@@ -55,6 +55,8 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
       <ShapeOutline shape={data.shape} />
       {SIDES.map((side) => <Handle key={side} id={side} type="source" className="cv-handle" position={SIDE_POSITION[side]} />)}
       {data.ref && <span className="cv-ref" title={`来自血缘:${data.ref}`}><Link2 size={11} /></span>}
+      {data.comment && <span className="cv-cmt-badge" title="有注释:点一下形状就能看"><MessageSquareText size={11} /></span>}
+      <CommentCard id={id} comment={data.comment} visible={ctx.soloId === id && !editing} />
       {editing ? (
         <textarea
           className="cv-edit nodrag nowheel nopan"
@@ -75,6 +77,45 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected }: NodePro
     </div>
   );
 });
+
+/* 注释卡片:只选中这一个形状时在它下面弹出来。有注释就显示(点「改」或双击文字改),没有就给个「添加注释」。
+   卡片不跟着画布缩放,字始终看得清;回车换行,⌘↩ 或点别处保存,Esc 不改。 */
+const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+function CommentCard({ id, comment, visible }: { id: string; comment?: string; visible: boolean }) {
+  const ctx = useContext(ShapeContext)!;
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => { if (!visible) setDraft(null); }, [visible]);
+  if (!visible) return null;
+  const save = () => { if (draft !== null) ctx.commitComment(id, draft); setDraft(null); };
+  return (
+    // 卡片是挂在形状下面的浮层,但 React 的事件会顺着组件树冒到画布上:点卡片会被当成「点空白」把形状取消选中、卡片跟着关掉。全拦下
+    <NodeToolbar isVisible position={Position.Bottom} offset={10} className="cv-cmt nodrag nopan nowheel"
+      onPointerDown={stop} onMouseDown={stop} onClick={stop} onDoubleClick={stop} onContextMenu={stop}>
+      {draft !== null ? (
+        <textarea
+          className="cv-cmt-edit"
+          autoFocus
+          value={draft}
+          placeholder="写点说明:口径、来源、注意事项…"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") setDraft(null);
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+          }}
+        />
+      ) : comment ? (
+        <div className="cv-cmt-view">
+          <div className="cv-cmt-text" title="双击修改" onDoubleClick={() => setDraft(comment)}>{comment}</div>
+          <button className="icon-btn" title="改注释" onClick={() => setDraft(comment)}><Pencil size={12} /></button>
+        </div>
+      ) : (
+        <button className="cv-cmt-add" onClick={() => setDraft("")}><MessageSquarePlus size={12} /> 添加注释</button>
+      )}
+    </NodeToolbar>
+  );
+}
 
 /* ---------- 线 ----------
    画布上所有的线都走这里。选中时中间有个圆点:拖它决定线从哪儿过(两头不动),双击圆点恢复默认弧度。

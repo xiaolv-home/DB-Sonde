@@ -290,6 +290,13 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     beginChange();
     setNodes((ns) => ns.map((n) => n.id === id ? { ...n, data: { ...n.data, text } } : n));
   }, [beginChange]);
+  const commitComment = useCallback((id: string, text: string) => {
+    const comment = text.trim() ? text.replace(/\s+$/, "") : undefined;
+    const node = nodesRef.current.find((n) => n.id === id);
+    if (!node || (node.data.comment ?? undefined) === comment) return;
+    beginChange();
+    setNodes((ns) => ns.map((n) => n.id === id ? { ...n, data: { ...n.data, comment } } : n));
+  }, [beginChange]);
   const bendEdge = useCallback((id: string, bend: CanvasEdge["bend"]) => {
     setEdges((es) => es.map((e) => e.id === id ? { ...e, data: { ...e.data!, bend } } : e));
   }, []);
@@ -308,9 +315,11 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const flowSync = useMemo<FlowSync>(() => ({ report: reportTrip, slotOf: (id) => schedule.get(id) }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- schedule 跟着 scheduleKey 走
     [reportTrip, scheduleKey]);
+  const soloNodes = nodes.filter((n) => n.selected);
+  const soloId = soloNodes.length === 1 && !edges.some((e) => e.selected) ? soloNodes[0].id : null;
   const ctx = useMemo<ShapeCtx>(() => ({
-    editingId, startEdit: setEditingId, commitText, cancelEdit: () => setEditingId(null), beginChange, bendEdge,
-  }), [editingId, commitText, beginChange, bendEdge]);
+    editingId, soloId, startEdit: setEditingId, commitText, commitComment, cancelEdit: () => setEditingId(null), beginChange, bendEdge,
+  }), [editingId, soloId, commitText, commitComment, beginChange, bendEdge]);
 
   /* ---------- 加东西 ---------- */
   const centerPoint = useCallback(() => {

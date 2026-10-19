@@ -296,6 +296,28 @@ try {
     ok('文字颜色:黑白 + 色板都认,原型上的名字不认,导出图片按设的颜色画');
   }
 
+  // ── 注释:平时不显示,点形状才弹出来;存得下、坏值修掉;图片里不带,网页里点了能看 ──
+  {
+    const measure = (t, size) => t.length * size * 0.6;
+    const a = { ...m.newNode('pill', 0, 0), text: 'dwd_order', comment: '口径:含储值 <消费> & 退款\n第二行' };
+    const b = m.newNode('pill', 300, 0);
+    assert(m.isCanvasNode(a));
+    assert(!m.isCanvasNode({ ...a, comment: 5 }), '注释只能是文字');
+    const r = m.repairCanvas([{ ...a, comment: null }], []);
+    assert.equal(r.nodes[0].comment, undefined, '坏的注释去掉,形状留着');
+    const flowFile = join(dir, 'f2.cjs');
+    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
+    const f = createRequire(import.meta.url)(flowFile);
+    assert.equal(f.fromFlowNode(f.toFlowNode(a)).comment, a.comment, '注释存下去换回来不丢');
+    assert(!('comment' in f.styleOf(a)), '格式刷不带注释(注释是内容,不是样式)');
+    const still = x.canvasToSvg([a, b], [], measure).svg;
+    assert(!still.includes('口径') && !still.includes('data-cmt'), '图片里不画注释(平时是隐藏的)');
+    const live = x.canvasToSvg([a, b], [], measure, undefined, { comments: true }).svg;
+    assert(live.includes('data-cmt="口径:含储值 &lt;消费&gt; &amp; 退款\n第二行"'), '网页里注释跟着形状走,转义好');
+    assert.equal((live.match(/class="cmt"/g) ?? []).length, 1, '没注释的形状不包');
+    ok('注释:存得下、坏值去掉、格式刷不带;图片里隐藏,网页里点形状能看');
+  }
+
   // ── 导出动图:按时间逐帧画流动效果,首尾无缝 ──
   {
     const animFile = join(dir, 'anim.cjs');
@@ -449,6 +471,9 @@ try {
     assert.equal((live('pulse').match(/attributeName="opacity"/g) ?? []).length, 2, '呼吸:两层光晕');
     assert(live('dot').includes('begin="-'), '几个光点错开出发(负的开始时间,打开就均匀分布)');
     assert.equal(hx.canvasToHtml([], [], measure, probe, 'x'), null);
+    const withCmt = hx.canvasToHtml([{ ...a, comment: '说明' }, b], [], measure, probe, 't');
+    assert(withCmt.includes('id="cmt"') && withCmt.includes('点带 ⓘ 的形状看注释') && withCmt.includes('class="cmt" data-cmt="说明"'), '网页:带注释卡片和提示');
+    assert(!page.includes('点带 ⓘ'), '没有注释就不提示');
   }
 
   // ── 拖线改弧度:两头不动,线经过拖到的那个点;四种线型都认;导出的图也按它画 ──

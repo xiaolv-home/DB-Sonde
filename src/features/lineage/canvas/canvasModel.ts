@@ -100,6 +100,8 @@ export interface CanvasNode {
   z?: number;
   /** 引用的血缘节点 id(从血缘拉进来的才有) */
   ref?: string;
+  /** 注释:平时不显示,点一下形状才弹出来(画布里、导出的网页里都是) */
+  comment?: string;
 }
 export interface CanvasEdge {
   id: string;
@@ -148,7 +150,8 @@ export function isCanvasNode(v: unknown): v is CanvasNode {
     && (v.fill === undefined || oneOf(FILLS, v.fill))
     && (v.dashed === undefined || typeof v.dashed === "boolean")
     && (v.z === undefined || finite(v.z))
-    && (v.ref === undefined || isText(v.ref));
+    && (v.ref === undefined || isText(v.ref))
+    && (v.comment === undefined || isText(v.comment));
 }
 const isBend = (v: unknown): v is Bend => isRecord(v) && finite(v.x) && finite(v.y);
 export function isCanvasEdge(v: unknown): v is CanvasEdge {
@@ -178,7 +181,7 @@ export const isCanvasList = (v: unknown): v is CanvasDoc[] => isIdentifiedList(v
 
 const NODE_OPTIONAL: Partial<Record<keyof CanvasNode, (v: unknown) => boolean>> = {
   bold: (v) => typeof v === "boolean", textColor: isTextColor, fill: (v) => oneOf(FILLS, v), dashed: (v) => typeof v === "boolean",
-  z: finite, ref: isText,
+  z: finite, ref: isText, comment: isText,
 };
 const EDGE_OPTIONAL: Partial<Record<keyof CanvasEdge, (v: unknown) => boolean>> = {
   fromHandle: isText, toHandle: isText, dashed: (v) => typeof v === "boolean", flow: (v) => typeof v === "boolean",
