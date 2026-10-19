@@ -1,8 +1,7 @@
-/* 把画布导出成动图(GIF):微信里直接发、PPT 放映、Word 里都会动。
- * (SVG 自带的动画在这几个地方都不播,所以只能是 GIF。)
- *
- * 做法:按时间 t 把每根流动线画成那一刻的样子(虚线走到哪、光点 / 彗星在哪、光晕多亮),
- * 一帧一张 SVG,画成像素再编码成 GIF。效果的算法和画布上(CanvasShapes 的 FlowFxEdge)一致。
+/* 让导出的图动起来:按时间 t 把每根流动线画成那一刻的样子(虚线走到哪、光点 / 彗星在哪、光晕多亮),
+ * 一帧一张 SVG。效果的算法和画布上(CanvasShapes 的 FlowFxEdge)一致。
+ * 这里还负责把帧编码成动图 GIF(Keynote / Word 里会动);视频(MP4)在 canvasVideo。
+ * (SVG 自带的动画在微信、PPT、Word 里都不播,所以只能导出成 GIF 或视频。)
  *
  * 首尾无缝:整张动图有一个循环长度,每根线的周期微调到正好能整除它 ——
  * 最后一帧接回第一帧时每根线都刚好走完整圈,看不出跳。 */
@@ -18,17 +17,8 @@ export const FRAME_MS = 60;
 /** 循环长度的上下限(秒):太短看着抽搐,太长文件太大 */
 export const LOOP_MIN_S = 1.5;
 export const LOOP_MAX_S = 6;
-/** 两种动图:
- *  · 发微信:宽高都不超过 1000 像素、文件不超过 1MB —— 超了微信就当「文件」发,对方收到的不是会动的图;
- *    文件太大就把帧率减半再来(动作还是那么快,只是没那么顺);
- *  · 高清:给 PPT / Word,最长边 2000 像素。 */
-export interface GifTarget { maxSide: number; maxBytes?: number }
-export const GIF_TARGETS = {
-  wechat: { maxSide: 1000, maxBytes: 1_000_000 },
-  hd: { maxSide: 2000 },
-} satisfies Record<string, GifTarget>;
-/** 太大时依次试的帧间隔(毫秒,都是 10 的倍数) */
-const FRAME_STEPS = [FRAME_MS, FRAME_MS * 2, FRAME_MS * 3];
+/** 动图最长边。(发微信别用动图:微信要求宽高都在 1000 以内、还不能放大看,链路图的字就糊了 —— 发视频) */
+export const GIF_MAX_SIDE = 2000;
 
 /** 量线长 / 取线上某一点。真实环境用 SVG 量,测试里换成假的。 */
 export interface PathProbe {
@@ -148,17 +138,26 @@ export function svgPathProbe(): PathProbe & { dispose: () => void } {
   };
 }
 
-/** 动图的放大倍数:小图放大一点更清楚,大图缩到最长边不超过 maxSide(总像素也不超过 maxSide² 的 5/8,免得太大) */
-export function gifScale(width: number, height: number, maxSide: number): number {
+/** 让一下界面(进度能刷出来)。不用 setTimeout:窗口被挡住、切到别的应用时 WebKit 把它压到约 1 秒一次,
+ *  几百帧就要等好几分钟;MessageChannel 不受这个限制。 */
+export function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
+    ch.port2.postMessage(null);
+  });
+}
+
+/** 导出动图 / 视频的放大倍数:小图放大一点更清楚,大图缩到最长边不超过 maxSide(总像素也不超过 maxSide² 的 5/8,免得太大) */
+export function exportScale(width: number, height: number, maxSide: number): number {
   return Math.min(1.5, maxSide / Math.max(width, height), Math.sqrt((maxSide * maxSide * 0.625) / (width * height)));
 }
 
 /** 逐帧画成像素、编码成 GIF。onProgress 收到 0~1。
  *  所有帧共用一套 255 色调色板(从开头、三分之一、三分之二几帧里取色,光点彗星的颜色都在里面);
  *  第二帧起和上一帧一样的像素记成透明 —— 画面大部分不动,文件能小很多。 */
-export async function encodeGif(frames: string[], width: number, height: number, opts: { maxSide: number; frameMs?: number; onProgress?: (done: number) => void }): Promise<Uint8Array> {
-  const { maxSide, frameMs = FRAME_MS, onProgress } = opts;
-  const scale = gifScale(width, height, maxSide);
+export async function encodeGif(frames: string[], width: number, height: number, onProgress?: (done: number) => void): Promise<Uint8Array> {
+  const scale = exportScale(width, height, GIF_MAX_SIDE);
   const raster = async (svg: string) => {
     const { canvas, ctx } = await svgToCanvas(svg, width, height, scale);
     return { w: canvas.width, h: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
@@ -174,7 +173,7 @@ export async function encodeGif(frames: string[], width: number, height: number,
   for (let i = 0; i < frames.length; i++) {
     const { w, h, data } = i === 0 ? first : await raster(frames[i]);
     const index = applyPalette(data, palette);
-    const delay = frames.length > 1 ? frameMs : 0;
+    const delay = frames.length > 1 ? FRAME_MS : 0;
     if (!prev) {
       gif.writeFrame(index, w, h, { palette: [...palette, [255, 0, 255]], delay, repeat: 0 });
     } else {
@@ -185,24 +184,8 @@ export async function encodeGif(frames: string[], width: number, height: number,
     }
     prev = index;
     onProgress?.((i + 1) / frames.length);
-    // 让一下界面,进度能刷出来
-    await new Promise((r) => setTimeout(r, 0));
+    await yieldToUi();
   }
   gif.finish();
   return gif.bytes();
-}
-
-/** 按目标导出整张动图:生成帧 → 编码;有大小上限而超了,就加大帧间隔重来。
- *  onProgress(进度 0~1, 第几次试 从 0 起)。试到最后还超就照样返回,tooBig 标出来由调用方提示。 */
-export async function exportGif(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe, target: GifTarget,
-  onProgress?: (done: number, attempt: number) => void): Promise<{ bytes: Uint8Array; frameMs: number; tooBig: boolean }> {
-  const steps = target.maxBytes ? FRAME_STEPS : [FRAME_MS];
-  let bytes = new Uint8Array();
-  for (const [attempt, frameMs] of steps.entries()) {
-    const anim = animationFrames(nodes, edges, measure, probe, frameMs);
-    if (!anim) throw new Error("画布是空的");
-    bytes = await encodeGif(anim.frames, anim.width, anim.height, { maxSide: target.maxSide, frameMs, onProgress: (d) => onProgress?.(d, attempt) });
-    if (!target.maxBytes || bytes.length <= target.maxBytes) return { bytes, frameMs, tooBig: false };
-  }
-  return { bytes, frameMs: steps[steps.length - 1], tooBig: true };
 }

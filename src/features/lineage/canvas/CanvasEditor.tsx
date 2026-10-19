@@ -23,7 +23,7 @@ import {
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
-  BringToFront, ClipboardPaste, Copy, Database, Download, Film, GitFork, ImageDown, Loader2, Network, Paintbrush,
+  BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, GitFork, ImageDown, Loader2, Network, Paintbrush,
   History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../../store/appStore";
@@ -40,7 +40,8 @@ import {
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Pos, type ShapeKind,
 } from "./canvasModel";
 import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
-import { GIF_TARGETS, exportGif as renderGif, svgPathProbe } from "./canvasAnimation";
+import { animationFrames, encodeGif, svgPathProbe } from "./canvasAnimation";
+import { encodeMp4 } from "./canvasVideo";
 import { canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
 import {
   ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
@@ -99,8 +100,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const [picker, setPicker] = useState(false);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [painter, setPainter] = useState<NodeStyle | null>(null);
-  /** 正在生成动图时的进度(done 0~1;attempt>0 = 太大了在降帧率重做),没在生成是 null */
-  const [gifProgress, setGifProgress] = useState<{ done: number; attempt: number } | null>(null);
+  /** 正在生成动图 / 视频时的进度(0~1),没在生成是 null */
+  const [animProgress, setAnimProgress] = useState<{ kind: "gif" | "mp4"; done: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge" } | null>(null);
   const nudgeAt = useRef(0);
   /** 上一次挑的流动效果:给下一根打开「流动」的线直接用上 */
@@ -469,33 +470,40 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     }
   };
 
-  /* 动图:流动的线在里面真的会动。发微信那版压到微信认的尺寸(不然对方收到的是文件),高清版给 PPT / Word */
-  const exportGif = async (kind: keyof typeof GIF_TARGETS) => {
-    if (gifProgress !== null) return;
+  /* 会动的导出:流动的线真的在流。
+     视频(MP4):发微信能全屏放大看,PPT / WPS「插入 → 视频」能播;动图(GIF):Keynote / Word 里会动,WPS 只在放映时动。 */
+  const exportAnimated = async (kind: "gif" | "mp4") => {
+    if (animProgress !== null) return;
     const snap = snapshot();
     if (!snap.nodes.length) { toast({ kind: "info", text: "画布是空的" }); return; }
     if (!snap.edges.some((e) => e.flow)) {
-      toast({ kind: "info", text: "画布上没有流动的线,导出动图也不会动 —— 先给线打开「流动」,或者直接导出 PNG" });
+      toast({ kind: "info", text: "画布上没有流动的线,导出了也不会动 —— 先给线打开「流动」,或者直接导出 PNG" });
       return;
     }
     if (!inTauri) { toast({ kind: "error", text: "导出失败:浏览器预览里不能存文件,请用桌面版" }); return; }
     const probe = svgPathProbe();
-    setGifProgress({ done: 0, attempt: 0 });
+    setAnimProgress({ kind, done: 0 });
+    const onProgress = (done: number) => setAnimProgress({ kind, done });
     try {
-      const { bytes, tooBig } = await renderGif(snap.nodes, snap.edges, canvasMeasure(), probe, GIF_TARGETS[kind],
-        (done, attempt) => setGifProgress({ done, attempt }));
-      const name = `${doc.name || "链路画布"}${kind === "wechat" ? "-微信" : ""}`;
-      const path = await api.saveExport(name, "gif", bytesToBase64(bytes));
+      const measure = canvasMeasure();
+      let bytes: Uint8Array;
+      if (kind === "mp4") {
+        bytes = await encodeMp4(snap.nodes, snap.edges, measure, probe, onProgress);
+      } else {
+        const anim = animationFrames(snap.nodes, snap.edges, measure, probe)!;
+        bytes = await encodeGif(anim.frames, anim.width, anim.height, onProgress);
+      }
+      const path = await api.saveExport(doc.name || "链路画布", kind, bytesToBase64(bytes));
       const size = bytes.length >= 1024 * 1024 ? `${(bytes.length / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes.length / 1024)} KB`;
-      const tip = kind === "hd" ? "拖进 PPT / Word 都会动(Mac 的「预览」不播动图,按空格快速查看才会动)"
-        : tooBig ? "画布内容太多,压到最低帧率仍超过 1MB,微信可能当文件发 —— 可以只框选一部分另存一张画布再导出"
-        : "把文件拖进微信聊天框发送,对方收到就是会动的图";
-      toast({ kind: tooBig ? "info" : "success", text: `已导出动图到 ${path}(${size})。${tip}` });
+      const tip = kind === "mp4"
+        ? "微信里当视频发(能全屏放大);PPT / WPS 用「插入 → 视频」,在视频选项里勾上「循环播放」"
+        : "Keynote / Word 里会动;WPS 要放映时才动;Mac 的「预览」不播动图,按空格快速查看才会动";
+      toast({ kind: "success", text: `已导出到 ${path}(${size})。${tip}` });
     } catch (error) {
       toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
     } finally {
       probe.dispose();
-      setGifProgress(null);
+      setAnimProgress(null);
     }
   };
 
@@ -585,8 +593,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("clipboard"); }}><Copy size={13} /> 复制为图片<small>直接粘进 PPT、微信</small></button>
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("png"); }}><Download size={13} /> 导出 PNG<small>存到「下载」</small></button>
               <button className="cv-menu-item" onClick={() => { close(); void exportImage("svg"); }}><Download size={13} /> 导出 SVG<small>矢量,PPT 里放大不糊</small></button>
-              <button className="cv-menu-item" disabled={gifProgress !== null} onClick={() => { close(); void exportGif("wechat"); }}><Film size={13} /> 动图 · 发微信<small>宽高压到 1000 以内</small></button>
-              <button className="cv-menu-item" disabled={gifProgress !== null} onClick={() => { close(); void exportGif("hd"); }}><Film size={13} /> 动图 · 高清<small>放 PPT / Word</small></button>
+              <button className="cv-menu-item" disabled={animProgress !== null} onClick={() => { close(); void exportAnimated("mp4"); }}><Clapperboard size={13} /> 导出视频 MP4<small>会动 · 发微信、放 PPT / WPS</small></button>
+              <button className="cv-menu-item" disabled={animProgress !== null} onClick={() => { close(); void exportAnimated("gif"); }}><Film size={13} /> 导出动图 GIF<small>会动 · Keynote / Word</small></button>
             </>}
           </Menu>
           <Menu label="历史" icon={<History size={14} />} title="自动留的历史版本(每张画布最近 30 份,约每 2 分钟一份),挑一个恢复">
@@ -752,7 +760,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
               </div>
             )}
             {painter && <div className="cv-painter-tip"><Paintbrush size={13} /> 格式刷:点形状刷上样式 · 点空白或 Esc 放下</div>}
-            {gifProgress !== null && <div className="cv-painter-tip"><Loader2 size={13} className="spin" /> {gifProgress.attempt > 0 ? "文件太大,降低帧率重做" : "正在生成动图"} {Math.round(gifProgress.done * 100)}%</div>}
+            {animProgress !== null && <div className="cv-painter-tip"><Loader2 size={13} className="spin" /> 正在生成{animProgress.kind === "mp4" ? "视频" : "动图"} {Math.round(animProgress.done * 100)}%</div>}
 
             {menu && (
               <div className="cv-ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>

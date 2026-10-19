@@ -44,19 +44,21 @@ fn available_path(directory: &Path, base_name: &str, extension: &str) -> PathBuf
     ))
 }
 
-/// 图片(PNG / 动图 GIF)走 base64 文本传过来,这里解回二进制再写,并核对文件头 ——
+/// 图片 / 视频(PNG、动图 GIF、MP4)走 base64 文本传过来,这里解回二进制再写,并核对文件头 ——
 /// 写出去的东西扩展名和内容对不上,微信、PPT 打开就是一张裂图。
 fn export_bytes(format: &str, content: String) -> AppResult<Vec<u8>> {
-    let (magic, kind): (&[&[u8]], &str) = match format {
-        "png" => (&[b"\x89PNG\r\n\x1a\n"], "PNG"),
-        "gif" => (&[b"GIF89a", b"GIF87a"], "GIF"),
+    let (magic, offset, kind): (&[&[u8]], usize, &str) = match format {
+        "png" => (&[b"\x89PNG\r\n\x1a\n"], 0, "PNG"),
+        "gif" => (&[b"GIF89a", b"GIF87a"], 0, "GIF"),
+        // MP4 开头 4 个字节是 ftyp 盒子的长度,后面才是 "ftyp"
+        "mp4" => (&[b"ftyp"], 4, "MP4"),
         _ => return Ok(content.into_bytes()),
     };
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content.trim())
         .map_err(|_| AppError::msg("图片数据损坏,导出失败"))?;
-    if !magic.iter().any(|m| bytes.starts_with(m)) {
+    if !magic.iter().any(|m| bytes.get(offset..).is_some_and(|rest| rest.starts_with(m))) {
         return Err(AppError::msg(format!("图片数据不是 {kind},导出失败")));
     }
     Ok(bytes)
@@ -77,7 +79,8 @@ pub fn save_export(
         // 图片走 base64 文本传过来,这里解回二进制再写
         "png" => "png",
         "gif" => "gif",
-        _ => return Err(AppError::msg("Only CSV, JSON, SVG, PNG and GIF exports are supported.")),
+        "mp4" => "mp4",
+        _ => return Err(AppError::msg("Only CSV, JSON, SVG, PNG, GIF and MP4 exports are supported.")),
     };
     if content.len() > MAX_EXPORT_BYTES {
         return Err(AppError::msg("The export exceeds the 100 MB safety limit."));
@@ -131,5 +134,10 @@ mod tests {
         let gif = "R0lGODlhAQABAAAAACw=";
         assert!(export_bytes("gif", gif.into()).unwrap().starts_with(b"GIF89a"));
         assert!(export_bytes("gif", png.into()).is_err(), "PNG 冒充 GIF 也要拒");
+        // MP4 文件头:[盒子长度 4 字节]ftypisom
+        let mp4 = "AAAAIGZ0eXBpc29t";
+        assert!(export_bytes("mp4", mp4.into()).is_ok());
+        assert!(export_bytes("mp4", gif.into()).is_err(), "GIF 冒充 MP4 也要拒");
+        assert!(export_bytes("mp4", "AAA=".into()).is_err(), "太短的也要拒,不能越界");
     }
 }

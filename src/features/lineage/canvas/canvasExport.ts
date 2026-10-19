@@ -189,12 +189,23 @@ ${body}
   return { svg, width, height };
 }
 
+/** SVG 文本 → 加载好的图片(可以反复画到 canvas 上)。用完调 dispose。 */
+export async function svgImage(svg: string): Promise<{ img: HTMLImageElement; dispose: () => void }> {
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  const img = new Image();
+  try {
+    await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error("图片生成失败")); img.src = url; });
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+  return { img, dispose: () => URL.revokeObjectURL(url) };
+}
+
 /** SVG 画到一块 canvas 上(放大 scale 倍)。画布太大时降低倍数,别超过浏览器能画的上限。 */
 export async function svgToCanvas(svg: string, width: number, height: number, scale: number): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }> {
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  const { img, dispose } = await svgImage(svg);
   try {
-    const img = new Image();
-    await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error("图片生成失败")); img.src = url; });
     const canvas = document.createElement("canvas");
     const s = Math.min(scale, 16000 / Math.max(width, height));
     canvas.width = Math.round(width * s); canvas.height = Math.round(height * s);
@@ -204,7 +215,7 @@ export async function svgToCanvas(svg: string, width: number, height: number, sc
     ctx.drawImage(img, 0, 0, width, height);
     return { canvas, ctx };
   } finally {
-    URL.revokeObjectURL(url);
+    dispose();
   }
 }
 

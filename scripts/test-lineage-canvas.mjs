@@ -1,6 +1,6 @@
 // 链路画布的数据模型:存得下就读得回、坏数据不认、复制和「从血缘添加」的行为。
 import assert from 'node:assert/strict';
-import { build } from 'esbuild';
+import { build, buildSync } from 'esbuild';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -300,6 +300,11 @@ try {
     const animFile = join(dir, 'anim.cjs');
     await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasAnimation.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: animFile, logLevel: 'silent' });
     const an = createRequire(import.meta.url)(animFile);
+    const loadVideo = () => {
+      const videoFile = join(dir, 'video.cjs');
+      buildSync({ entryPoints: [resolve('src/features/lineage/canvas/canvasVideo.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: videoFile, logLevel: 'silent' });
+      return createRequire(import.meta.url)(videoFile);
+    };
     const measure = (t, size) => t.length * size * 0.6;
     // 假的量线工具:只认直线(M x,y L x,y),够测了
     const probe = {
@@ -338,23 +343,39 @@ try {
     assert.equal(an.animationFrames([], [], measure, probe), null);
     // 几根线快慢不同:循环按最慢的定(不超过上限),快的在里面跑整数圈
     assert.equal(an.loopFrames([0.2, 0.5]), Math.round(an.LOOP_MIN_S * 1000 / an.FRAME_MS), '都很快:用最短循环');
-    assert.equal(an.loopFrames([0.2, 0.5], 120), Math.round(an.LOOP_MIN_S * 1000 / 120), '帧间隔大,帧数少');
+    assert.equal(an.loopFrames([0.2, 0.5], 1000 / 30), Math.round(an.LOOP_MIN_S * 30), '视频 30 帧/秒,帧数按帧间隔算');
     assert.equal(an.loopFrames([30]), Math.round(an.LOOP_MAX_S * 1000 / an.FRAME_MS), '特别慢:截到最长循环');
     assert.equal(an.fitPeriod(5, 2), 2, '周期比循环还长:压成一圈');
-    const { wechat, hd } = an.GIF_TARGETS;
-    assert.equal(an.gifScale(400, 300, wechat.maxSide), 1.5, '小图放大一点更清楚');
-    for (const [w, h] of [[1333, 775], [4000, 1000], [900, 2400], [1000, 1000]]) {
-      const s = an.gifScale(w, h, wechat.maxSide);
-      assert(Math.round(w * s) <= 1000 && Math.round(h * s) <= 1000, `发微信的版本 ${w}x${h} 缩完宽高都不能超过 1000(超了微信当文件发)`);
-    }
-    assert(Math.round(1333 * an.gifScale(1333, 775, hd.maxSide)) === 2000, '高清版最长边 2000');
-    // 帧间隔加大(文件太大时):循环长度不变,帧数按比例少,照样首尾无缝
+    assert.equal(an.exportScale(400, 300, an.GIF_MAX_SIDE), 1.5, '小图放大一点更清楚');
+    assert.equal(Math.round(1333 * an.exportScale(1333, 775, an.GIF_MAX_SIDE)), 2000, '动图最长边 2000');
+    // 视频按 30 帧/秒生成:帧数比动图多,照样首尾无缝
     const slow = edge({ flowStyle: 'comet' });
-    const f1 = an.animationFrames([a, b], [slow], measure, probe), f2 = an.animationFrames([a, b], [slow], measure, probe, an.FRAME_MS * 2);
-    assert(Math.abs(f1.frames.length - f2.frames.length * 2) <= 1, '帧间隔翻倍,帧数减半');
-    const loop2 = (f2.frames.length * an.FRAME_MS * 2) / 1000;
-    assert.equal(x.canvasToSvg([a, b], [slow], measure, an.flowFxAt(loop2, loop2, probe)).svg, f2.frames[0], '降帧率后照样首尾无缝');
-    ok('导出动图:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度和缩放合理');
+    const vf = an.animationFrames([a, b], [slow], measure, probe, 1000 / 30);
+    const vloop = vf.frames.length / 30;
+    assert(vf.frames.length > an.animationFrames([a, b], [slow], measure, probe).frames.length, '视频帧更密');
+    assert.equal(x.canvasToSvg([a, b], [slow], measure, an.flowFxAt(vloop, vloop, probe)).svg, vf.frames[0], '视频的帧也首尾无缝');
+    // 视频尺寸和长度:宽高偶数(H.264 的要求)、最长边不超过 1920、至少 10 秒、整圈数
+    const vid = loadVideo();
+    for (const [w, h] of [[1333, 775], [4001, 999], [301, 151], [900, 2400]]) {
+      const p = vid.videoPlan(w, h, 47);
+      assert(p.w % 2 === 0 && p.h % 2 === 0, `${w}x${h} → ${p.w}x${p.h} 宽高要是偶数`);
+      assert(Math.max(p.w, p.h) <= vid.VIDEO_MAX_SIDE + 1, `${w}x${h} 最长边超了`);
+      assert(Math.abs(p.w / p.h - w / h) < 0.02, '宽高比不变');
+    }
+    const plan = vid.videoPlan(1000, 600, 47);
+    assert(plan.total >= vid.VIDEO_MIN_S * vid.VIDEO_FPS && plan.total % 47 === 0, '至少 10 秒,而且是整圈(最后接回第一帧)');
+    assert(vid.videoBitrate(1920, 1116) >= 4_000_000 && vid.videoBitrate(10, 10) === 2_000_000, '码率按像素给,有下限');
+    // 视频像素转 YUV(BT.709):标的范围和转出来的数必须一致,不然白底播出来发灰
+    const px = (rgb, full) => { const a = new Uint8ClampedArray(2 * 2 * 4); for (let i = 0; i < 4; i++) a.set([...rgb, 255], i * 4); return [...vid.rgbaToI420(a, 2, 2, full)]; };
+    assert.deepEqual(px([255, 255, 255], false), [235, 235, 235, 235, 128, 128], '有限范围:白 Y=235,不偏色');
+    assert.deepEqual(px([0, 0, 0], false), [16, 16, 16, 16, 128, 128], '有限范围:黑 Y=16');
+    assert.deepEqual(px([255, 0, 0], false), [63, 63, 63, 63, 102, 240], '有限范围:红按 BT.709 的系数');
+    assert.deepEqual(px([255, 255, 255], true), [255, 255, 255, 255, 128, 128], '全范围:白 Y=255');
+    assert.deepEqual(px([0, 0, 0], true), [0, 0, 0, 0, 128, 128], '全范围:黑 Y=0');
+    assert.equal(px([0, 0, 255], true)[4], 255, '全范围纯蓝的 U 到顶 255,不能进位绕回 0');
+    const mixed = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255]);
+    assert.deepEqual([...vid.rgbaToI420(mixed, 2, 2, false)].slice(0, 4), [235, 16, 16, 235], '亮度逐像素,不糊成平均');
+    ok('导出动图 / 视频:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度、尺寸、时长合理');
   }
 
   // ── 纯数据 <-> React Flow 画布对象:存盘、撤销都靠它换回来,字段一个都不能丢 ──
