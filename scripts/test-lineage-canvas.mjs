@@ -338,9 +338,22 @@ try {
     assert.equal(an.animationFrames([], [], measure, probe), null);
     // 几根线快慢不同:循环按最慢的定(不超过上限),快的在里面跑整数圈
     assert.equal(an.loopFrames([0.2, 0.5]), Math.round(an.LOOP_MIN_S * 1000 / an.FRAME_MS), '都很快:用最短循环');
+    assert.equal(an.loopFrames([0.2, 0.5], 120), Math.round(an.LOOP_MIN_S * 1000 / 120), '帧间隔大,帧数少');
     assert.equal(an.loopFrames([30]), Math.round(an.LOOP_MAX_S * 1000 / an.FRAME_MS), '特别慢:截到最长循环');
     assert.equal(an.fitPeriod(5, 2), 2, '周期比循环还长:压成一圈');
-    assert(an.gifScale(800, 500) === 1.5 && an.gifScale(4000, 1000) <= 0.5, '小图放大、大图缩到发得出去');
+    const { wechat, hd } = an.GIF_TARGETS;
+    assert.equal(an.gifScale(400, 300, wechat.maxSide), 1.5, '小图放大一点更清楚');
+    for (const [w, h] of [[1333, 775], [4000, 1000], [900, 2400], [1000, 1000]]) {
+      const s = an.gifScale(w, h, wechat.maxSide);
+      assert(Math.round(w * s) <= 1000 && Math.round(h * s) <= 1000, `发微信的版本 ${w}x${h} 缩完宽高都不能超过 1000(超了微信当文件发)`);
+    }
+    assert(Math.round(1333 * an.gifScale(1333, 775, hd.maxSide)) === 2000, '高清版最长边 2000');
+    // 帧间隔加大(文件太大时):循环长度不变,帧数按比例少,照样首尾无缝
+    const slow = edge({ flowStyle: 'comet' });
+    const f1 = an.animationFrames([a, b], [slow], measure, probe), f2 = an.animationFrames([a, b], [slow], measure, probe, an.FRAME_MS * 2);
+    assert(Math.abs(f1.frames.length - f2.frames.length * 2) <= 1, '帧间隔翻倍,帧数减半');
+    const loop2 = (f2.frames.length * an.FRAME_MS * 2) / 1000;
+    assert.equal(x.canvasToSvg([a, b], [slow], measure, an.flowFxAt(loop2, loop2, probe)).svg, f2.frames[0], '降帧率后照样首尾无缝');
     ok('导出动图:四种效果 × 三档流速首尾无缝、逐帧在动,循环长度和缩放合理');
   }
 
