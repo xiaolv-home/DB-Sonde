@@ -224,10 +224,10 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     });
   }, []);
   const connect = useCallback((from: string, to: string, fromHandle?: string, toHandle?: string) => {
-    // 从分叉点拖出的分支:样式跟流进来的那根线一样;目标那头接用户松手的那个连接点,分叉点那头配合着从对面出去
+    // 从分叉点拖出的分支:样式跟流进来的那根线一样;两头用户选了哪个连接点就接哪个,没选的才自动补
     const branch = branchStyle(nodesRef.current.map((n) => n.data), edgesRef.current.map((e) => e.data as CanvasEdge), from);
     const src = nodesRef.current.find((n) => n.id === from), dst = nodesRef.current.find((n) => n.id === to);
-    const sides = branch && src && dst ? branchHandles(boxOf(src), boxOf(dst), toHandle) : { fromHandle, toHandle };
+    const sides = branch && src && dst ? branchHandles(boxOf(src), boxOf(dst), fromHandle, toHandle) : { fromHandle, toHandle };
     const edge = newEdge(from, to, { ...sides, ...edgeStyle, ...branch });
     setEdges((es) => [...es, toFlowEdge(edge)]);
   }, [edgeStyle]);
@@ -278,15 +278,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
   const onReconnect = useCallback((old: FlowEdge, c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return;
     beginChange();
-    const fromJunction = nodesRef.current.find((n) => n.id === c.source)?.data.shape === "junction";
-    setEdges((es) => reconnectEdge(old, c, es, { shouldReplaceId: false }).map((e) => {
-      if (e.id !== old.id) return e;
-      const d = fromFlowEdge(e);
-      // 从分叉点出来的线改接到目标的另一边:分叉点那头也跟着换到对面出去,不然线会先往反方向绕
-      const src = nodesRef.current.find((n) => n.id === d.from), dst = nodesRef.current.find((n) => n.id === d.to);
-      const fixed = fromJunction && src && dst ? { ...d, ...branchHandles(boxOf(src), boxOf(dst), d.toHandle) } : d;
-      return toFlowEdge(fixed, !!e.selected);
-    }));
+    // 改连只动拖的那一头,另一头用户选的连接点原样不动
+    setEdges((es) => reconnectEdge(old, c, es, { shouldReplaceId: false }).map((e) => e.id === old.id ? toFlowEdge(fromFlowEdge(e), !!e.selected) : e));
   }, [beginChange]);
 
   /* ---------- 文字编辑 ---------- */

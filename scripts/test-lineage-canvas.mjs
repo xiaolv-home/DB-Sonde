@@ -489,11 +489,12 @@ try {
       { color: 'blue', line: 'smooth', width: 2, dashed: undefined, flow: true, flowStyle: 'comet', flowSpeed: undefined, flowColor: 'cyan', arrow: 'end' });
     assert.equal(m.branchStyle(doc.nodes, doc.edges, a.id), null, '不是分叉点就照常用默认样式');
     assert(!m.DRAWN_SHAPES.includes('junction'), '分叉点不出现在工具栏里');
-    // 分支接哪边:用户松手落在哪个连接点就接哪个,分叉点从对面出去;没指定才自动(优先横着走)
-    assert.deepEqual(m.branchHandles(j, b, 'top'), { fromHandle: 'bottom', toHandle: 'top' }, '松在目标顶上的连接点:就接顶上,不能自己改到侧边');
-    assert.deepEqual(m.branchHandles(j, b, 'right'), { fromHandle: 'left', toHandle: 'right' });
-    assert.deepEqual(m.branchHandles(j, b), { fromHandle: 'right', toHandle: 'left' }, '没指定:目标在右边就横着连过去');
-    assert.deepEqual(m.branchHandles(j, b, 'nope'), { fromHandle: 'right', toHandle: 'left' }, '不认识的连接点当没指定');
+    // 分支接哪边:两头用户选了哪个连接点就接哪个(不能自作主张改),没选的那头才自动补
+    assert.deepEqual(m.branchHandles(j, b, 'bottom', 'right'), { fromHandle: 'bottom', toHandle: 'right' }, '从分叉点下面拖出来、松在目标右边:就是下面出、右边进');
+    assert.deepEqual(m.branchHandles(j, b, 'right', 'top'), { fromHandle: 'right', toHandle: 'top' }, '选了右边出发就从右边出发,不能改成左边');
+    assert.deepEqual(m.branchHandles(j, b, undefined, 'top'), { fromHandle: 'bottom', toHandle: 'top' }, '只选了目标那头:分叉点从对面出去,线是顺的');
+    assert.deepEqual(m.branchHandles(j, b), { fromHandle: 'right', toHandle: 'left' }, '都没选:目标在右边就横着连过去');
+    assert.deepEqual(m.branchHandles(j, b, 'toString', 'nope'), { fromHandle: 'right', toHandle: 'left' }, '不认识的连接点当没选');
     // 找线上离右键位置最近的点:分叉点落在线上
     const line = (s2) => ({ x: s2, y: 2 * s2 });
     const near = m.nearestOnPath(Math.hypot(100, 200), (len) => line(len / Math.sqrt(5)), { x: 50, y: 60 });

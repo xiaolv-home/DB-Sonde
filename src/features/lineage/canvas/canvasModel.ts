@@ -684,11 +684,15 @@ export function branchStyle(nodes: CanvasNode[], edges: CanvasEdge[], fromId: st
   return { color, line, width, dashed, flow, flowStyle, flowSpeed, flowColor, arrow: "end" };
 }
 
-/** 从分叉点出去的分支,两头各接哪一边。用户松手落在了哪个连接点(toHandle)就接哪个 ——
- *  分叉点这头从它的对面出去(接目标顶边就从圆点下方出去),线是顺的;没指定(松在形状身上)才按方位自动选,优先横着走。 */
-export function branchHandles(junction: Omit<Box, "id">, target: Omit<Box, "id">, toHandle?: string): { fromHandle: Side; toHandle: Side } {
-  if (toHandle && toHandle in OPPOSITE) return { fromHandle: OPPOSITE[toHandle as Side], toHandle: toHandle as Side };
-  return facingSides(junction, target, false);
+/** 从分叉点出去的分支,两头各接哪一边。用户选了的一律照办:从分叉点哪个连接点拖出来(fromHandle)就从哪边出发,
+ *  松手落在目标哪个连接点(toHandle)就接哪个。只补没选的那头:只选了目标那边,分叉点就从它对面出去(线是顺的);
+ *  都没选(松在形状身上)才按方位自动选,优先横着走。 */
+export function branchHandles(junction: Omit<Box, "id">, target: Omit<Box, "id">, fromHandle?: string, toHandle?: string): { fromHandle: Side; toHandle: Side } {
+  const isSide = (h?: string): h is Side => h === "top" || h === "right" || h === "bottom" || h === "left";
+  const auto = facingSides(junction, target, false);
+  const to = isSide(toHandle) ? toHandle : auto.toHandle;
+  const from = isSide(fromHandle) ? fromHandle : isSide(toHandle) ? OPPOSITE[toHandle] : auto.fromHandle;
+  return { fromHandle: from, toHandle: to };
 }
 
 /** 线上离 p 最近的点(在线上右键分叉时,分叉点落在线上而不是鼠标旁边)。按长度采样再在附近细找。 */
