@@ -813,7 +813,7 @@ function Editor({ doc, versions, onSave, onDirty }: {
                     <span className="cv-sep" />
                     <Seg value={oneEdge.line} options={LINE_TYPES} labels={LINE_LABEL} onPick={(line) => patchEdges({ line })} />
                     <Seg value={String(oneEdge.width ?? 1)} options={LINE_WIDTHS.map(String)} labels={{ 1: "细", 2: "中", 3: "粗" }} onPick={(w) => patchEdges({ width: Number(w) === 1 ? undefined : Number(w) })} />
-                    <Seg value={oneEdge.arrow} options={ARROWS} labels={{ end: "单向", both: "双向", none: "无箭头" }} onPick={(arrow: ArrowKind) => patchEdges({ arrow })} />
+                    <Seg<(typeof ARROWS)[number]> value={oneEdge.arrow as (typeof ARROWS)[number]} options={ARROWS} labels={{ end: "单向", both: "双向", none: "无箭头" }} onPick={(arrow: ArrowKind) => patchEdges({ arrow })} />
                     <button className={`btn xs ${oneEdge.dashed ? "on" : ""}`} onClick={() => patchEdges({ dashed: !oneEdge.dashed })}>虚线</button>
                     <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} title="让线动起来,表示数据从这儿流过"
                       onClick={() => patchEdges(oneEdge.flow ? { flow: false } : { flow: true, flowStyle: oneEdge.flowStyle ?? lastFlow.current.flowStyle, flowSpeed: oneEdge.flowSpeed ?? lastFlow.current.flowSpeed, flowColor: oneEdge.flowColor ?? lastFlow.current.flowColor })}>流动</button>

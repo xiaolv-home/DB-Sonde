@@ -3,7 +3,7 @@
  * 导出一律按浅色底画 —— 贴进文档、幻灯片时最常见的就是白底。
  * 线的走法用和画布同一套算法(React Flow 的 getBezierPath 等),导出来和屏幕上一致。 */
 import { getBezierPath, getSmoothStepPath, getStraightPath, Position } from "@xyflow/react";
-import { COLOR_VALUE, STROKE_PX, hi, lo, markerSize, textColorValue, type Bend, type CanvasEdge, type CanvasNode } from "./canvasModel";
+import { COLOR_VALUE, STROKE_PX, hasEndArrow, hasStartArrow, hi, lo, markerSize, textColorValue, type Bend, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 const PAD = 40;
 /** 分叉点圆点的直径(节点本身大一圈,多出来的是拖线用的连接点) */
@@ -222,8 +222,8 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
     const g = edgeGeometry(e, a, b);
     const color = COLOR_VALUE[e.color];
     const sw = STROKE_PX[e.width ?? 1] ?? 1.5;
-    const m = e.arrow === "none" ? "" : ` marker-end="url(#${marker(color, sw)})"`;
-    const ms = e.arrow === "both" ? ` marker-start="url(#${marker(color, sw)})"` : "";
+    const m = hasEndArrow(e.arrow) ? ` marker-end="url(#${marker(color, sw)})"` : "";
+    const ms = hasStartArrow(e.arrow) ? ` marker-start="url(#${marker(color, sw)})"` : "";
     // 图片是静止的:虚线流动画成虚线,光点 / 彗星 / 呼吸就画成线本身(用户设了虚线就虚线)
     const flowDash = e.flow && (e.flowStyle ?? "dash") === "dash";
     const still = flowDash ? ` stroke-dasharray="6 5"` : e.dashed ? ` stroke-dasharray="6 4"` : "";

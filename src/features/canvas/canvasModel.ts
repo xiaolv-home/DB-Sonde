@@ -57,8 +57,12 @@ export const FONT_SIZES = [12, 14, 16, 20, 26] as const;
 export const LINE_TYPES = ["smooth", "step", "sharp", "straight"] as const;
 export type LineType = (typeof LINE_TYPES)[number];
 export const LINE_LABEL: Record<(typeof LINE_TYPES)[number], string> = { smooth: "曲线", step: "圆角折线", sharp: "直角折线", straight: "直线" };
+/** 属性栏上给选的三种。另有一种 "start"(只在起点有箭头):双向的线分叉后,第一段只剩起点那个箭头 */
 export const ARROWS = ["end", "both", "none"] as const;
-export type ArrowKind = (typeof ARROWS)[number];
+const ARROW_KINDS = [...ARROWS, "start"] as const;
+export type ArrowKind = (typeof ARROW_KINDS)[number];
+export const hasEndArrow = (a: ArrowKind) => a === "end" || a === "both";
+export const hasStartArrow = (a: ArrowKind) => a === "start" || a === "both";
 /** 流动效果:虚线往前走 / 光点沿线跑 / 彗星拖尾 / 整根线呼吸发光 */
 export const FLOW_STYLES = ["dash", "dot", "comet", "pulse"] as const;
 export type FlowStyle = (typeof FLOW_STYLES)[number];
@@ -155,7 +159,7 @@ const isBend = (v: unknown): v is Bend => isRecord(v) && finite(v.x) && finite(v
 export function isCanvasEdge(v: unknown): v is CanvasEdge {
   return isRecord(v) && isNonEmptyText(v.id) && isNonEmptyText(v.from) && isNonEmptyText(v.to)
     && (v.fromHandle === undefined || isText(v.fromHandle)) && (v.toHandle === undefined || isText(v.toHandle))
-    && isText(v.label) && oneOf(COLORS, v.color) && oneOf(LINE_TYPES, v.line) && oneOf(ARROWS, v.arrow)
+    && isText(v.label) && oneOf(COLORS, v.color) && oneOf(LINE_TYPES, v.line) && oneOf(ARROW_KINDS, v.arrow)
     && (v.dashed === undefined || typeof v.dashed === "boolean")
     && (v.flow === undefined || typeof v.flow === "boolean")
     && (v.width === undefined || (LINE_WIDTHS as readonly number[]).includes(v.width as number))
@@ -633,11 +637,12 @@ export function splitEdge(e: CanvasEdge, at: Point, from: Omit<Box, "id">): { ju
   const { bend: _bend, ...style } = e;
   void _bend;
   const entry = facingSides(from, junction).toHandle;
-  const first: CanvasEdge = { ...style, to: junction.id, toHandle: entry, arrow: "none" };
+  // 箭头只留在真正的两头:第一段只可能在起点有(原来是双向的),第二段只可能在终点有
+  const first: CanvasEdge = { ...style, to: junction.id, toHandle: entry, arrow: hasStartArrow(e.arrow) ? "start" : "none" };
   // 第二段从进来的对面出去:线穿过分叉点是顺的,不会在圆点那儿拐个急弯
   const second: CanvasEdge = {
     ...style, id: uid("e_"), from: junction.id, fromHandle: OPPOSITE[entry], label: "",
-    arrow: e.arrow === "none" ? "none" : "end",
+    arrow: hasEndArrow(e.arrow) ? "end" : "none",
   };
   return { junction, edges: [first, second] };
 }

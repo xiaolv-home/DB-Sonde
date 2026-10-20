@@ -16,7 +16,9 @@ import { canvasToSvg, svgToCanvas, type EdgeFx, type Measure } from "./canvasExp
 export const FRAME_MS = 60;
 /** 循环长度的上下限(秒):太短看着抽搐,太长文件太大 */
 export const LOOP_MIN_S = 1.5;
-export const LOOP_MAX_S = 6;
+export const LOOP_MAX_S = 15;
+/** 视频的循环可以更长(不像动图那样一帧一张图、越长越大) */
+export const VIDEO_LOOP_MAX_S = 30;
 /** 动图最长边。(发微信别用动图:微信要求宽高都在 1000 以内、还不能放大看,链路图的字就糊了 —— 发视频) */
 export const GIF_MAX_SIDE = 2000;
 
@@ -58,8 +60,8 @@ export function naturalPeriod(e: CanvasEdge, len: number, sync?: CometSync): num
 }
 
 /** 整张动图的帧数:按最长的那个周期定循环长度(夹在上下限之间),再取整到整帧。 */
-export function loopFrames(periods: number[], frameMs = FRAME_MS): number {
-  const want = Math.min(LOOP_MAX_S, Math.max(LOOP_MIN_S, hi(periods)));
+export function loopFrames(periods: number[], frameMs = FRAME_MS, maxLoopS = LOOP_MAX_S): number {
+  const want = Math.min(maxLoopS, Math.max(LOOP_MIN_S, hi(periods)));
   return Math.max(1, Math.round((want * 1000) / frameMs));
 }
 
@@ -190,7 +192,7 @@ export function liveFlowFx(probe: PathProbe, sync?: CometSync): EdgeFx {
 }
 
 /** 动图的每一帧(SVG 文本)。没有形状返回 null;没有流动的线就只有一帧。 */
-export function animationFrames(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe, frameMs = FRAME_MS):
+export function animationFrames(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe, frameMs = FRAME_MS, maxLoopS = LOOP_MAX_S):
   { frames: string[]; width: number; height: number } | null {
   const still = canvasToSvg(nodes, edges, measure);
   if (!still) return null;
@@ -199,7 +201,7 @@ export function animationFrames(nodes: CanvasNode[], edges: CanvasEdge[], measur
   const periods: number[] = [];
   canvasToSvg(nodes, edges, measure, (e, path) => { periods.push(naturalPeriod(e, probe.length(path), sync)); return null; });
   if (!periods.length) return { frames: [still.svg], width: still.width, height: still.height };
-  const count = loopFrames(periods, frameMs);
+  const count = loopFrames(periods, frameMs, maxLoopS);
   const loop = (count * frameMs) / 1000;
   const frames = Array.from({ length: count }, (_, i) => canvasToSvg(nodes, edges, measure, flowFxAt((i * frameMs) / 1000, loop, probe, sync))!.svg);
   return { frames, width: still.width, height: still.height };

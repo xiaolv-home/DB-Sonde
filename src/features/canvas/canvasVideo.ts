@@ -5,7 +5,7 @@
  * 再重复几圈凑够 VIDEO_MIN_S 秒 —— 视频在微信里播完就停,太短看不出在流。
  * 编码用系统自带的 WebCodecs(VideoEncoder,硬件 H.264),封装成 MP4 用 mp4-muxer。 */
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
-import { animationFrames, exportScale, yieldToUi, type PathProbe } from "./canvasAnimation";
+import { VIDEO_LOOP_MAX_S, animationFrames, exportScale, yieldToUi, type PathProbe } from "./canvasAnimation";
 import { svgImage, type Measure } from "./canvasExport";
 import type { CanvasEdge, CanvasNode } from "./canvasModel";
 
@@ -86,7 +86,7 @@ async function pickCodec(w: number, h: number, bitrate: number): Promise<string>
 export async function encodeMp4(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe,
   onProgress?: (done: number) => void): Promise<Uint8Array> {
   if (typeof VideoEncoder === "undefined") throw new Error("这个系统版本不支持导出视频,请改用导出动图 GIF");
-  const anim = animationFrames(nodes, edges, measure, probe, 1000 / VIDEO_FPS);
+  const anim = animationFrames(nodes, edges, measure, probe, 1000 / VIDEO_FPS, VIDEO_LOOP_MAX_S);
   if (!anim) throw new Error("画布是空的");
   const { w, h, total } = videoPlan(anim.width, anim.height, anim.frames.length);
   const bitrate = videoBitrate(w, h);

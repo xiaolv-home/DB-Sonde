@@ -36,6 +36,7 @@
     "test:roundtrip": "node scripts/test-dashboard-roundtrip.mjs",
     "test:dataset": "node scripts/test-dataset-model.mjs",
     "test:dataset-avail": "node scripts/test-dataset-availability.mjs",
+    "test:dataset-probe": "node scripts/test-dataset-probe.mjs",
     "test:runtime-keys": "node scripts/test-dashboard-runtime-keys.mjs",
     "test:field-values": "node scripts/test-field-values.mjs",
     "test:domain-neutral": "node scripts/test-domain-neutral.mjs",

@@ -40,10 +40,19 @@ export const datasetRepository = {
  *
  * SQL 数据集没有表可分,跑一行让数据库报列名和类型,顺带验证这段 SQL 能执行。
  *
- * 两种情况都保留用户调过的东西(显示名、维度/度量、保留与否、默认汇总),只补新列、
+ * 两种情况都保留用户调过的东西(显示名、维度/度量、保留与否、默认汇总)和自己加的计算 / 分组字段,只补新列、
  * 去掉已消失的列 —— 重新探测一次就把人工标注清空,没人会再点第二次。
  */
 export async function probeFields(dataset: Dataset, kind: DbKind | undefined): Promise<DatasetField[]> {
+  return [...(await probeColumns(dataset, kind)), ...derivedFields(dataset)];
+}
+
+/** 计算字段 / 分组字段是人自己加的,不在任何表里 —— 认字段时原样留着,不然改一下来源它们就没了 */
+function derivedFields(dataset: Dataset): DatasetField[] {
+  return dataset.fields.filter((f) => f.expr || f.grouping);
+}
+
+async function probeColumns(dataset: Dataset, kind: DbKind | undefined): Promise<DatasetField[]> {
   const previousByKey = new Map(dataset.fields.map((f) => [`${f.from ?? ""}.${f.column ?? f.name}`, f]));
 
   if (dataset.source.kind === "join") {

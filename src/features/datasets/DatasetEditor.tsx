@@ -24,7 +24,8 @@ import DatasetFields from "./DatasetFields";
 
 /** 比较「有没有改」时不看 updatedAt(保存时会变) */
 const contentOf = (d: Dataset | undefined) => (d ? JSON.stringify({ ...d, updatedAt: "" }) : "");
-const sourceKeyOf = (d: Dataset) => JSON.stringify([d.connectionId, d.database ?? "", d.source]);
+/** 认字段用的键:带上 id —— 换了个来源一模一样的数据集,上一个还没认完的结果不能写到它身上 */
+const sourceKeyOf = (d: Dataset) => JSON.stringify([d.id, d.connectionId, d.database ?? "", d.source]);
 const hasSource = (d: Dataset) => (d.source.kind === "sql" ? !!d.source.sql.trim() : !!d.source.base.table);
 
 export function sourceSummary(d: Dataset): string {
@@ -45,6 +46,8 @@ export default function DatasetEditor({ startId, usage, onClose }: {
   const { askConfirm, confirmDialog } = useConfirm();
   const fresh = useCallback(() => createDataset("未命名数据集", connections[0]?.id ?? "", connections[0]?.database || undefined), [connections]);
   const [draft, setDraft] = useState<Dataset>(() => datasets.find((d) => d.id === startId) ?? fresh());
+  /** 新建、还没存过的数据集刚建出来的样子:没动过就不算「有改动」,离开不用问 */
+  const [pristine, setPristine] = useState(() => contentOf(draft));
   const [listQuery, setListQuery] = useState("");
   const [busy, setBusy] = useState<"save" | null>(null);
   /** 保存失败、不能保存的原因 —— 只放出错的事;「已保存 / 有改动」由 dirty 算 */
@@ -59,30 +62,41 @@ export default function DatasetEditor({ startId, usage, onClose }: {
   const tables = useTables(draft.connectionId, draft.database);
   const { columns, load } = useTableColumns(draft.connectionId, draft.database);
   const saved = datasets.find((d) => d.id === draft.id);
-  const dirty = contentOf(saved) !== contentOf(draft);
+  const dirty = contentOf(draft) !== (saved ? contentOf(saved) : pristine);
   const problem = validateDataset(draft);
   const patch = (next: Partial<Dataset>) => setDraft((d) => ({ ...d, ...next }));
+  /** 改来源;可以传一个函数,按「改的那一刻」的来源算(加表要先等列读回来,不能拿等之前的旧来源去覆盖) */
+  const patchSource = (next: Dataset["source"] | ((prev: Dataset["source"]) => Dataset["source"])) =>
+    setDraft((d) => ({ ...d, source: typeof next === "function" ? next(d.source) : next }));
 
-  /* 来源一改就自动认字段。打开一个已有数据集的那一刻不认(字段本来就有,一认就平白多出「未保存」) */
+  /* 认字段。选表关联:来源一改就自动认(只读各表的列,不跑查询)。写 SQL:要把整段 SQL 跑一遍,
+     不能边打字边跑 —— 停一下就往库里打一条大查询;改成离开 SQL 框或点「识别字段」时认。
+     打开一个已有数据集的那一刻不认(字段本来就有,一认就平白多出「未保存」)。 */
   const sourceKey = sourceKeyOf(draft);
   const draftRef = useRef(draft); draftRef.current = draft;
   const probedKey = useRef<string>(draft.fields.length ? sourceKey : "");
+  /** 最近一次认完字段时的来源(SQL 数据集的预览跟着它走,不跟着每一次按键走) */
+  const [probedSource, setProbedSource] = useState(probedKey.current);
+  const probe = useCallback((force = false) => {
+    const snapshot = draftRef.current;
+    const key = sourceKeyOf(snapshot);
+    if ((!force && key === probedKey.current) || !hasSource(snapshot) || !snapshot.connectionId) return;
+    probedKey.current = key;
+    setProbing(true); setProbeError(undefined);
+    probeFields(snapshot, kind)
+      .then((fields) => { setDraft((d) => (sourceKeyOf(d) === key ? { ...d, fields } : d)); setProbedSource(key); })
+      .catch((error) => { if (sourceKeyOf(draftRef.current) === key) setProbeError(`认不出字段:${String(error)}`); })
+      .finally(() => setProbing(false));
+  }, [kind]);
+  const isSql = draft.source.kind === "sql";
   useEffect(() => {
-    if (sourceKey === probedKey.current || !hasSource(draftRef.current) || !draftRef.current.connectionId) return;
-    const timer = window.setTimeout(() => {
-      const snapshot = draftRef.current;
-      probedKey.current = sourceKey;
-      setProbing(true); setProbeError(undefined);
-      probeFields(snapshot, kind)
-        .then((fields) => setDraft((d) => (sourceKeyOf(d) === sourceKey ? { ...d, fields } : d)))
-        .catch((error) => { if (sourceKeyOf(draftRef.current) === sourceKey) setProbeError(`认不出字段:${String(error)}`); })
-        .finally(() => setProbing(false));
-    }, 700);
+    if (isSql) return;
+    const timer = window.setTimeout(() => probe(), 700);
     return () => window.clearTimeout(timer);
-  }, [sourceKey, kind]);
+  }, [sourceKey, isSql, probe]);
 
-  /* 预览:展开着的时候,来源或字段一改就重查(停 0.8 秒) */
-  const previewKey = JSON.stringify([sourceKey, draft.fields]);
+  /* 预览:展开着的时候,来源或字段一改就重查(停 0.8 秒)。SQL 数据集等认完字段才重查 */
+  const previewKey = JSON.stringify([isSql ? probedSource : sourceKey, draft.fields]);
   useEffect(() => {
     if (!previewOpen || problem || !draft.fields.length) return;
     const timer = window.setTimeout(() => {
@@ -115,18 +129,25 @@ export default function DatasetEditor({ startId, usage, onClose }: {
     if (!(await leaveOk())) return;
     const d = next === "new" ? fresh() : next;
     probedKey.current = d.fields.length ? sourceKeyOf(d) : "";
-    setDraft(d); setFailure(undefined); setProbeError(undefined); setPreview({ loading: false });
+    setProbedSource(probedKey.current);
+    setDraft(d); setPristine(contentOf(d)); setFailure(undefined); setProbeError(undefined); setPreview({ loading: false });
   };
   const close = async () => { if (await leaveOk()) onClose(); };
   const remove = async () => {
     const n = usage[draft.id] ?? 0;
     const warn = n ? `有 ${n} 个看板在用它,删掉后那些组件会取不到数。` : "删掉后找不回来。";
     if (!(await askConfirm(warn, `删除数据集「${draft.name}」?`, "删除"))) return;
-    await useDatasets.getState().remove(draft.id);
+    try {
+      await useDatasets.getState().remove(draft.id);
+    } catch (error) {
+      setFailure(`没删掉:${String(error)}`);
+      return;
+    }
     const rest = useDatasets.getState().datasets;
     const next = rest[0] ?? fresh();
     probedKey.current = next.fields.length ? sourceKeyOf(next) : "";
-    setDraft(next); setFailure(undefined);
+    setProbedSource(probedKey.current);
+    setDraft(next); setPristine(contentOf(next)); setFailure(undefined);
   };
 
   // ⌘S 保存(编辑器开着时 ⌘S 归它,不去存 SQL 标签)
@@ -198,7 +219,7 @@ export default function DatasetEditor({ startId, usage, onClose }: {
         <main className="ds-ed-main">
           {problem && hasSource(draft) && <p className="ds-warn">{problem}</p>}
           <DatasetSource dataset={draft} kind={kind} tables={tables} columns={columns} loadColumns={load}
-            onChange={(source) => patch({ source })} />
+            onChange={patchSource} onSqlDone={() => probe()} onRedetect={() => probe(true)} probing={probing} />
           <DatasetFields dataset={draft} kind={kind} tableTitle={tableTitle} probing={probing} probeError={probeError}
             onChange={(fields) => patch({ fields })} />
           <section className="ds-card">

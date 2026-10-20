@@ -358,6 +358,9 @@ try {
     // 几根线快慢不同:循环按最慢的定(不超过上限),快的在里面跑整数圈
     assert.equal(an.loopFrames([0.2, 0.5]), Math.round(an.LOOP_MIN_S * 1000 / an.FRAME_MS), '都很快:用最短循环');
     assert.equal(an.loopFrames([0.2, 0.5], 1000 / 30), Math.round(an.LOOP_MIN_S * 30), '视频 30 帧/秒,帧数按帧间隔算');
+    // 过分叉点接力的一整轮常常十几秒:动图不能硬压成几秒(彗星会快一倍),视频更不能
+    assert.equal(an.loopFrames([12], an.FRAME_MS), Math.round(12000 / an.FRAME_MS), '动图里 12 秒的一轮照样 12 秒');
+    assert.equal(an.loopFrames([24], 1000 / 30, an.VIDEO_LOOP_MAX_S), 24 * 30, '视频里 24 秒的一轮照样 24 秒');
     assert.equal(an.loopFrames([30]), Math.round(an.LOOP_MAX_S * 1000 / an.FRAME_MS), '特别慢:截到最长循环');
     assert.equal(an.fitPeriod(5, 2), 2, '周期比循环还长:压成一圈');
     assert.equal(an.exportScale(400, 300, an.GIF_MAX_SIDE), 1.5, '小图放大一点更清楚');
@@ -509,6 +512,12 @@ try {
     assert.equal(first.id, e.id, '第一段沿用原来的 id');
     assert.deepEqual([first.from, first.to, second.from, second.to], [a.id, j.id, j.id, b.id], '起点 → 分叉点 → 终点');
     assert.equal(first.arrow, 'none', '到分叉点那段没有箭头(箭头只在真正的终点)');
+    // 双向的线分叉:起点那个箭头留在第一段上,终点那个留在第二段上
+    const two = m.splitEdge({ ...e, arrow: 'both' }, { x: 380, y: 28 }, a);
+    assert.deepEqual(two.edges.map((x) => x.arrow), ['start', 'end'], '双向线分叉后两头的箭头都还在');
+    assert(m.isCanvasEdge(two.edges[0]), '只在起点有箭头的线也是合法的');
+    const startSvg = x.canvasToSvg([a, b, two.junction], [two.edges[0]], (t, size) => t.length * size * 0.6).svg;
+    assert(startSvg.includes('marker-start') && !startSvg.includes('marker-end'), '只在起点画箭头');
     assert.equal(second.arrow, 'end');
     assert.equal(first.label, '写入'); assert.equal(second.label, '', '文字只留一份');
     for (const part of [first, second]) {

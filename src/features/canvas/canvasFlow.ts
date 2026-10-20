@@ -2,7 +2,7 @@
  * 存盘、撤销时从画布对象换回纯数据 —— 字段一个都不能丢,有往返测试守着(test-canvas)。 */
 import { createContext } from "react";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import { COLOR_VALUE, STROKE_PX, markerSize, type Box, type CanvasEdge, type CanvasNode, type CometSlot, type CometTrip } from "./canvasModel";
+import { COLOR_VALUE, STROKE_PX, hasEndArrow, hasStartArrow, markerSize, type Box, type CanvasEdge, type CanvasNode, type CometSlot, type CometTrip } from "./canvasModel";
 
 export type ShapeData = CanvasNode & Record<string, unknown>;
 export type EdgeData = CanvasEdge & Record<string, unknown>;
@@ -41,8 +41,8 @@ export const toFlowEdge = (e: CanvasEdge, selected = false): FlowEdge => {
     type: "line", label: e.label || undefined, selected,
     data: { ...e } as EdgeData,
     style: { stroke: color, strokeWidth: sw, strokeDasharray: e.dashed ? "6 4" : undefined },
-    markerEnd: e.arrow === "none" ? undefined : marker,
-    markerStart: e.arrow === "both" ? marker : undefined,
+    markerEnd: hasEndArrow(e.arrow) ? marker : undefined,
+    markerStart: hasStartArrow(e.arrow) ? marker : undefined,
     labelStyle: { fill: "var(--text-2)", fontSize: 12, fontWeight: 500 },
     labelBgStyle: { fill: "var(--surface)", stroke: "var(--border-2)", strokeWidth: 1 },
     labelBgPadding: [7, 4],

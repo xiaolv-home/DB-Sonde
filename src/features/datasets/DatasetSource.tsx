@@ -11,7 +11,8 @@ import { useEffect, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { sql as sqlLang } from "@codemirror/lang-sql";
 import { syntaxHighlighting } from "@codemirror/language";
-import { ChevronDown, Plus, Search, Sparkles, Table2, X } from "lucide-react";
+import { ChevronDown, Loader2, Plus, ScanSearch, Search, Sparkles, Table2, X } from "lucide-react";
+import { useConfirm } from "../../components/useConfirm";
 import { editorTheme, highlight } from "../../components/SqlEditor";
 import {
   JOIN_OPS, buildDatasetSql,
@@ -105,14 +106,23 @@ function TablePicker({ tables, used, recommended, onPick, onClose }: {
   );
 }
 
-export default function DatasetSource({ dataset, kind, tables, columns, loadColumns, onChange }: {
+type Source = Dataset["source"];
+
+export default function DatasetSource({ dataset, kind, tables, columns, loadColumns, onChange, onSqlDone, onRedetect, probing }: {
   dataset: Dataset;
   kind: DbKind | undefined;
   tables: TableItem[] | null;
   columns: Record<string, string[]>;
   loadColumns: (table: string) => Promise<string[]>;
-  onChange: (next: Dataset["source"]) => void;
+  /** 传函数 = 按改的那一刻的来源算(加表要先等列读回来,不能拿等之前的旧来源覆盖) */
+  onChange: (next: Source | ((prev: Source) => Source)) => void;
+  /** 写完 SQL(离开 SQL 框):有改动就按它认字段 */
+  onSqlDone: () => void;
+  /** 「识别字段」:不管改没改,重新按 SQL 认一遍 */
+  onRedetect: () => void;
+  probing: boolean;
 }) {
+  const { askConfirm, confirmDialog } = useConfirm();
   /* 卡片里的一行提示(猜的关联、连带删掉了哪些表)。不定时消失:自己消失会让下面整块往上一跳,
      手正要点下面的字段,一跳就点到别的行上了。只在下一次加表 / 删表时换掉 */
   const [note, onMessage] = useState("");
@@ -128,17 +138,20 @@ export default function DatasetSource({ dataset, kind, tables, columns, loadColu
     for (const join of source.joins) if (join.table) void loadColumns(join.table);
   });
 
-  const switchTo = (mode: "join" | "sql") => {
+  const switchTo = async (mode: "join" | "sql") => {
     if (mode === source.kind) return;
-    onChange(mode === "sql"
-      ? { kind: "sql", sql: generated }
-      : { kind: "join", base: { table: "", alias: "t1" }, joins: [], columns: [] });
+    // 关联转成 SQL 接着改;还没选表就从空白开始(不然是一句 FROM "" 的废 SQL)
+    if (mode === "sql") { onChange({ kind: "sql", sql: source.kind === "join" && source.base.table ? generated : "" }); return; }
+    // SQL 转不回关联:切回去等于从头选表,写好的 SQL 就没了
+    if (source.kind === "sql" && source.sql.trim()
+      && !(await askConfirm("切回「选表关联」要从头选表,现在这段 SQL 会丢掉(没有撤销)。", "丢掉这段 SQL?", "丢掉,重新选表"))) return;
+    onChange({ kind: "join", base: { table: "", alias: "t1" }, joins: [], columns: [] });
   };
 
   const modeSwitch = (
     <div className="ds-seg" role="tablist">
-      <button className={source.kind === "join" ? "on" : ""} onClick={() => switchTo("join")}>选表关联</button>
-      <button className={source.kind === "sql" ? "on" : ""} onClick={() => switchTo("sql")} title="把现在的关联转成 SQL 接着改">写 SQL</button>
+      <button className={source.kind === "join" ? "on" : ""} onClick={() => void switchTo("join")}>选表关联</button>
+      <button className={source.kind === "sql" ? "on" : ""} onClick={() => void switchTo("sql")} title="把现在的关联转成 SQL 接着改">写 SQL</button>
     </div>
   );
 
@@ -149,9 +162,15 @@ export default function DatasetSource({ dataset, kind, tables, columns, loadColu
         <div className="ds-sqleditor">
           <CodeMirror value={source.sql} minHeight="140px" maxHeight="360px" theme={editorTheme}
             extensions={[sqlLang(), syntaxHighlighting(highlight)]}
-            onChange={(value) => onChange({ kind: "sql", sql: value })} />
+            onChange={(value) => onChange({ kind: "sql", sql: value })} onBlur={onSqlDone} />
         </div>
-        <p className="ds-card-tip">写一条只读的 SELECT;字段会按它查出来的列自动认出来。</p>
+        <div className="ds-card-foot">
+          <p className="ds-card-tip">写一条只读的 SELECT。写完点别处(或点「识别字段」),会把它跑一次认出有哪些列。</p>
+          <button className="btn sm" disabled={probing || !source.sql.trim()} onClick={onRedetect}>
+            {probing ? <Loader2 size={13} className="spin" /> : <ScanSearch size={13} />} 识别字段
+          </button>
+        </div>
+        {confirmDialog}
       </section>
     );
   }
@@ -174,21 +193,25 @@ export default function DatasetSource({ dataset, kind, tables, columns, loadColu
     onChange({ ...src, base: { ...src.base, table } });
   };
 
-  /** 加一张表:先猜它该挂到哪张已有的表上、按哪两个字段对上 */
+  /** 加一张表:先猜它该挂到哪张已有的表上、按哪两个字段对上。
+   *  要等列读回来 —— 等的时候可能又加了别的表,所以最后按「那一刻」的来源加,别名也那时再定 */
   const addJoin = async (table: string) => {
     setPicking(null);
     const fields = await loadColumns(table);
     const known = await Promise.all(existing.map(async (t) => ({ ...t, fields: await loadColumns(t.table) })));
     const guess = guessJoinAcross(table, fields, known);
-    const taken = new Set([src.base.alias, ...src.joins.map((j) => j.alias)]);
-    let n = src.joins.length + 2;
-    while (taken.has(`t${n}`)) n += 1;
-    const join: DatasetJoinNode = {
-      id: `join-${Math.random().toString(36).slice(2, 8)}`,
-      table, alias: `t${n}`, kind: "left",
-      on: [{ field: guess?.field ?? "", targetAlias: guess?.targetAlias ?? src.base.alias, targetField: guess?.targetField ?? "" }],
-    };
-    onChange({ ...src, joins: [...src.joins, join] });
+    onChange((prev) => {
+      if (prev.kind !== "join" || prev.joins.some((j) => j.table === table)) return prev;
+      const taken = new Set([prev.base.alias, ...prev.joins.map((j) => j.alias)]);
+      let n = prev.joins.length + 2;
+      while (taken.has(`t${n}`)) n += 1;
+      const join: DatasetJoinNode = {
+        id: `join-${Math.random().toString(36).slice(2, 8)}`,
+        table, alias: `t${n}`, kind: "left",
+        on: [{ field: guess?.field ?? "", targetAlias: guess?.targetAlias ?? prev.base.alias, targetField: guess?.targetField ?? "" }],
+      };
+      return { ...prev, joins: [...prev.joins, join] };
+    });
     onMessage(guess ? `「${table}」已按 ${guess.reason} 关联,不对的话点下拉改` : `「${table}」和已有的表没有看起来能对上的字段,在下拉里选一下`);
   };
 
