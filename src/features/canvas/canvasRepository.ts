@@ -1,5 +1,5 @@
-import { isRecord, storedRepository } from "../../../lib/storedRepository";
-import { writeStoredJson } from "../../../lib/jsonStorage";
+import { isRecord, storedRepository } from "../../lib/storedRepository";
+import { writeStoredJson } from "../../lib/jsonStorage";
 import { isCanvasEdge, isCanvasList, isCanvasNode, type CanvasDoc, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 /** 链路画布存在本机。格式不对的整份不认(由 jsonStorage 保留原文并提示),不会悄悄丢图。 */
@@ -45,4 +45,23 @@ export function pushVersion(history: CanvasHistory, docId: string, nodes: Canvas
 export function saveDraft(doc: CanvasDoc): void {
   try { writeStoredJson("sonde.lineageCanvases.draft.v1", { at: Date.now(), doc }); }
   catch { /* 草稿也写不进去就只能靠界面上的提示了 */ }
+}
+
+/* 「打开这一张」:主窗口点了某张画布,画布窗口(另一个页面)切过去。走 localStorage:
+   画布窗口刚打开时读一次;已经开着的,靠 storage 事件收到。"new" = 新建一张。
+   只认 30 秒内的请求,免得下次打开画布莫名其妙跳到很久以前点过的那张。 */
+export const CANVAS_FOCUS_KEY = "sonde.lineageCanvases.focus";
+export function requestCanvasFocus(id: string): void {
+  try { localStorage.setItem(CANVAS_FOCUS_KEY, JSON.stringify({ id, at: Date.now() })); } catch { /* 写不进去就只是不切过去 */ }
+}
+export function takeCanvasFocus(now = Date.now()): string | null {
+  try {
+    const raw = localStorage.getItem(CANVAS_FOCUS_KEY);
+    if (!raw) return null;
+    localStorage.removeItem(CANVAS_FOCUS_KEY);
+    const v: unknown = JSON.parse(raw);
+    return isRecord(v) && typeof v.id === "string" && typeof v.at === "number" && now - v.at < 30_000 ? v.id : null;
+  } catch {
+    return null;
+  }
 }

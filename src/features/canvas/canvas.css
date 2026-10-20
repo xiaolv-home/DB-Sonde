@@ -355,7 +355,7 @@
 .cv-flow .cv-resize-line { border-color: var(--accent); }
 .cv-flow .cv-resize-handle { width: 8px; height: 8px; border-radius: 2px; background: var(--surface); border: 1.5px solid var(--accent); }
 
-/* ---- 从血缘添加 ---- */
+/* ---- 从数据库添加表 ---- */
 .cv-picker {
   position: absolute;
   top: 10px;
@@ -378,6 +378,11 @@
 .cv-picker-row:hover { background: var(--surface-2); }
 .cv-picker-kind { flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--surface-2); color: var(--text-3); }
 .cv-picker-name { flex: 1; min-width: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-picker-row.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cv-picker-row .cv-picker-kind { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-picker-src { display: flex; gap: 6px; padding: 8px 10px 0; }
+.cv-picker-src .cv-select { flex: 1; min-width: 0; }
+.cv-picker-foot { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
 
 /* ---- 拖动时的对齐参考线 ---- */
 .cv-guide { position: absolute; z-index: 1000; pointer-events: none; background: #ff3b7f; }
@@ -523,3 +528,21 @@
 .cv-cmt-add { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; color: var(--text-3); font: inherit; font-size: 12px; cursor: default; }
 .cv-cmt-add:hover { color: var(--text); border-color: var(--accent); }
 .cv-cmt-edit { display: block; width: 300px; min-height: 84px; padding: 8px 10px; resize: vertical; outline: none; border-color: var(--accent); font: inherit; font-size: 13px; }
+
+/* 数据资产 → 链路画布:画布列表 */
+.cvc-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; }
+.cvc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.cvc-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text); text-align: left; cursor: default; font: inherit;
+}
+.cvc-card:hover { border-color: var(--accent); }
+.cvc-card > svg { color: var(--accent); }
+.cvc-card b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.cvc-card small { color: var(--text-3); font-size: 12px; }
+.cvc-new { justify-content: center; align-items: center; border-style: dashed; color: var(--text-3); min-height: 86px; }
+.cvc-new > svg { color: inherit; }
+.cvc-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 70px 20px; color: var(--text-3); text-align: center; }
+.cvc-empty > svg { color: var(--accent); }
+.cvc-empty b { color: var(--text); font-size: 15px; }

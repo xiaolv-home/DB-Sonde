@@ -113,12 +113,10 @@ try {
 // ── 6. 出过事的那几处确实换掉了 ────────────────────────────────────────
 {
   const check = (rel, must, why) => assert.ok(must.test(readFileSync(join(root, rel), 'utf8')), `${rel}:${why}`);
-  check('src/features/scheduler/SchedulerDialogs.tsx', /useState\(localDayOffset\(7\)\)/, '回填默认起始日要按本地日历');
-  check('src/features/scheduler/SchedulerDialogs.tsx', /useState\(localDayOffset\(1\)\)/, '回填默认结束日要按本地日历');
   check('src/features/agent/state.ts', /today: input\.today \?\? localDay\(\)/, '分析工作流的「今天」要按本地日历');
   check('src/features/agent/analysisSession.ts', /today: \(\) => localDay\(\)/, '同上');
   check('src/features/agent/tools/dataTools.ts', /today: \(\) => localDay\(\)/, '同上');
-  ok('出过事的四处都换成了 localDay / localDayOffset');
+  ok('出过事的几处都换成了 localDay');
 }
 
 console.log(`\n日期守卫:${passed} 项通过`);

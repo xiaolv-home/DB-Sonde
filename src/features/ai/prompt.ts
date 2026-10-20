@@ -88,20 +88,20 @@ export function buildMessages(
   history: ChatMessage[],
   question: string,
   metrics: MetricHint[] = [],
-  opsContext = "",
+  tableContext = "",
 ): ChatMessage[] {
   const dialect = dialectName(kind);
   const metricsBlock = metrics.length
     ? `\n\n已定义的口径指标(问到相关口径时,优先复用它们的 SQL / 计算方式,保持口径一致):\n${metricsText(metrics)}`
     : "";
-  const opsBlock = opsContext
-    ? `\n\n跨模块运营上下文(来自血缘 / 调度&巡检 / 指标 / ETL,回答"几点跑 / 谁在用 / 上游挂没挂 / 口径"这类问题时以此为准,不要臆测):\n${opsContext}`
+  const opsBlock = tableContext
+    ? `\n\n相关表的指标口径(回答"谁在用这张表 / 口径是什么"这类问题时以此为准,不要臆测):\n${tableContext}`
     : "";
-  const system = `你是资深数据工程师 + 数据平台运维助手,为 ${dialect} 服务。规则:
+  const system = `你是资深数据工程师,为 ${dialect} 服务。规则:
 1. 只使用下面列出的真实表和列,绝不臆造表名或列名。
 2. 若问题是数据查询,用一个 \`\`\`sql 代码块给出可执行 SQL,再用一两句中文解释;除非用户明确要求,只写 SELECT/只读查询,不写 UPDATE/DELETE/DROP 等破坏性语句;需要日期/聚合时按 ${dialect} 语法。
-3. 若问题是运营/血缘/调度/口径类(如"这张表几点跑、谁在用、上游挂没挂、口径是什么、怎么补数、为什么没数据"),直接用中文回答,依据下面的「跨模块运营上下文」,可以不带 SQL;上下文没有的就说未知,别编。
-4. 排障/补数建议要具体:指出可疑的上游、给出可执行的下一步(如"先补 X 再跑 Y"),但涉及改数/重跑的动作只做建议,让用户在调度中心自己执行。
+3. 若问题是口径类(如"这个数怎么算的、谁在用这张表、为什么没数据"),直接用中文回答,依据下面的指标口径和「相关表的指标口径」,可以不带 SQL;没有依据的就说未知,别编。
+4. 排障建议要具体,给出可执行的下一步;涉及改数/重跑的动作只做建议,让用户自己执行。
 
 当前库的表结构:
 ${schemaText(tables) || "(暂无可用的表结构)"}${metricsBlock}${opsBlock}`;

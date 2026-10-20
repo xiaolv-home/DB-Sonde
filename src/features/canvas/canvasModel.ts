@@ -1,11 +1,9 @@
 /* 链路画布的数据模型 —— 纯数据,不依赖画布库,方便测试和以后换实现。
  *
- * 血缘图是「扫出来的」,画布是「人整理的」:把几张表、几个作业、几个指标
- * 摆成一条看得懂的链路,配上说明、分组、颜色。两者互不覆盖 ——
- * 画布里的节点可以引用血缘里的某个节点(ref),但改画布不会改血缘。 */
-import { isIdentifiedList, isNonEmptyText, isRecord, isText } from "../../../lib/storedRepository";
-import type { Graph, NodeKind } from "../lineageModel";
-import { maxOf, minOf } from "../../../lib/numbers";
+ * 画布是「人整理的」链路:把几张表、几个作业、几个指标摆成一条看得懂的链路,
+ * 配上说明、分组、颜色。从数据库加进来的表带着 ref(连接 · 库.表),只是标记来源。 */
+import { isIdentifiedList, isNonEmptyText, isRecord, isText } from "../../lib/storedRepository";
+import { maxOf, minOf } from "../../lib/numbers";
 
 /** 最小 / 最大值(空数组当 0)。不用 Math.min(...arr):数组一长就爆栈。 */
 export const lo = (values: readonly number[]) => minOf(values) ?? 0;
@@ -98,7 +96,7 @@ export interface CanvasNode {
   dashed?: boolean;
   /** 叠放次序,大的在上面;不写 = 0 */
   z?: number;
-  /** 引用的血缘节点 id(从血缘拉进来的才有) */
+  /** 从哪儿来:从数据库加进来的表是「连接 · 库.表」(老画布里是当时血缘图的节点 id) */
   ref?: string;
   /** 注释:平时不显示,点一下形状才弹出来(画布里、导出的网页里都是) */
   comment?: string;
@@ -288,55 +286,21 @@ export function duplicate(nodes: CanvasNode[], edges: CanvasEdge[], ids: Set<str
   return { nodes: copiedNodes, edges: copiedEdges };
 }
 
-const KIND_STYLE: Record<NodeKind, { shape: ShapeKind; color: ColorKey }> = {
-  table: { shape: "cylinder", color: "blue" },
-  file: { shape: "rect", color: "orange" },
-  metric: { shape: "rounded", color: "green" },
-  dataset: { shape: "rounded", color: "purple" },
-  task: { shape: "pill", color: "yellow" },
-  workflow: { shape: "pill", color: "orange" },
-};
-
 /**
- * 从血缘里拉节点进画布。withNeighbors 时把它的直接上游、直接下游和连线一起带进来,
- * 按「上游 → 它 → 下游」从左到右排好 —— 整理链路时最常见的起手式。
- * 已经在画布上的(按 ref 认)不重复加,连线照样连到已有的那个。
+ * 从数据库添加表:每张表一个「数据表」形状,从 origin 起一个挨一个找空位放下。
+ * 已经在画布上的(按 ref 认,ref = 「连接 · 库.表」)不重复加。
  */
-export function fromLineage(
-  graph: Graph, id: string, origin: { x: number; y: number },
-  existing: CanvasNode[], withNeighbors: boolean,
-): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const center = byId.get(id);
-  if (!center) return { nodes: [], edges: [] };
-  const placed = new Map(existing.filter((n) => n.ref).map((n) => [n.ref!, n.id]));
-  const nodes: CanvasNode[] = [];
-  const place = (refId: string, x: number, y: number) => {
-    const hit = placed.get(refId);
-    if (hit) return hit;
-    const g = byId.get(refId);
-    const style = KIND_STYLE[g?.kind ?? "table"];
-    const node = newNode(style.shape, x, y, { text: g?.label ?? refId, color: style.color, ref: refId });
-    nodes.push(node);
-    placed.set(refId, node.id);
-    return node.id;
-  };
-  const centerId = place(id, origin.x, origin.y);
-  const edges: CanvasEdge[] = [];
-  if (withNeighbors) {
-    const ups = graph.up.get(id) ?? [];
-    const downs = graph.down.get(id) ?? [];
-    const gapX = 240, gapY = 100;
-    ups.forEach((e, i) => {
-      const from = place(e.from, origin.x - gapX, origin.y + (i - (ups.length - 1) / 2) * gapY);
-      edges.push(newEdge(from, centerId, { label: e.kind, fromHandle: "right", toHandle: "left" }));
-    });
-    downs.forEach((e, i) => {
-      const to = place(e.to, origin.x + gapX, origin.y + (i - (downs.length - 1) / 2) * gapY);
-      edges.push(newEdge(centerId, to, { label: e.kind, fromHandle: "right", toHandle: "left" }));
-    });
+export function tablesToNodes(tables: { ref: string; label: string }[], origin: { x: number; y: number }, existing: CanvasNode[]): CanvasNode[] {
+  const have = new Set(existing.map((n) => n.ref).filter(Boolean));
+  const size = SHAPE_SIZE.cylinder;
+  const out: CanvasNode[] = [];
+  for (const t of tables) {
+    if (have.has(t.ref)) continue;
+    have.add(t.ref);
+    const spot = findFreeSpot([...existing, ...out], size.w, size.h, origin);
+    out.push(newNode("cylinder", spot.x, spot.y, { text: t.label, color: "blue", ref: t.ref }));
   }
-  return { nodes, edges };
+  return out;
 }
 
 /**

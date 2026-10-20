@@ -1,5 +1,5 @@
 /* 链路画布的纯数据(canvasModel)和 React Flow 画布对象之间的换算,以及形状节点要用的编辑上下文。
- * 存盘、撤销时从画布对象换回纯数据 —— 字段一个都不能丢,有往返测试守着(test-lineage-canvas)。 */
+ * 存盘、撤销时从画布对象换回纯数据 —— 字段一个都不能丢,有往返测试守着(test-canvas)。 */
 import { createContext } from "react";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import { COLOR_VALUE, STROKE_PX, markerSize, type Box, type CanvasEdge, type CanvasNode, type CometSlot, type CometTrip } from "./canvasModel";

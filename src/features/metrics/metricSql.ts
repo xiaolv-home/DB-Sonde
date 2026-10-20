@@ -93,7 +93,7 @@ export function compileMetric(
   return { sql: "", error: "未知指标类型" };
 }
 
-/** The base tables a metric reads — for lineage, no SQL parsing needed. */
+/** The base tables a metric reads — no SQL parsing needed. */
 export function metricSourceTables(m: Metric, lookup?: (id: string) => Metric | undefined): string[] {
   if (m.type === "template") return m.queryPlan ? planSourceTables(m.queryPlan) : [];
   if (m.type === "measure" || m.type === "ratio") return m.source ? [m.source] : [];

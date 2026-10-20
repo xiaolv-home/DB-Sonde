@@ -479,7 +479,7 @@ export default function Sidebar() {
       case "view":
         return [
           {
-            label: "全景 (360°)",
+            label: "新鲜度与指标",
             icon: <Radar size={15} />,
             onClick: () => {
               openEntity360({

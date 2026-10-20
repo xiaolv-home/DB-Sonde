@@ -6,7 +6,7 @@ import { useAi } from "./aiStore";
 import { useAiStrings } from "./strings";
 import { streamChat, type StreamHandle } from "./aiClient";
 import { buildMessages, extractTables, pickRelevantTables, extractSql, type ChatMessage } from "./prompt";
-import { buildOpsContext, focusLabel } from "./context";
+import { buildTableContext, focusLabel } from "./context";
 import { metricsForConn } from "../metrics/metricsStore";
 import { compileMetric } from "../metrics/metricSql";
 import AiMarkdown, { CopyBtn } from "./AiMarkdown";
@@ -106,8 +106,8 @@ export default function AiPanel() {
       unit: m.unit,
       sql: compileMetric(m, {}, (id) => metricList.find((x) => x.id === id)).sql,
     }));
-    const opsContext = buildOpsContext(useAi.getState().focusEntity, question);
-    const payload = buildMessages(kind, relevant, history, question, metricHints, opsContext);
+    const tableContext = buildTableContext(useAi.getState().focusEntity, question);
+    const payload = buildMessages(kind, relevant, history, question, metricHints, tableContext);
 
     setMessages((prev) => [...prev, { role: "user", content: question }, { role: "assistant", content: "" }]);
     setStreaming(true);
@@ -229,7 +229,7 @@ export default function AiPanel() {
           <div className="ai-footer">
             <div className="ai-footerbar">
               {focusEntity ? (
-                <div className="ai-focuschip" title="回答会带上这张表的跨模块上下文(血缘/调度/巡检/口径)">
+                <div className="ai-focuschip" title="回答会带上这张表的相关指标口径">
                   <Radar size={12} /> 上下文:<b>{focusLabel(focusEntity)}</b>
                   <button className="ai-focus-x" title="取消上下文" onClick={() => useAi.getState().setFocusEntity(null)}><X size={11} /></button>
                 </div>

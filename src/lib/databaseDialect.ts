@@ -3,7 +3,6 @@ export interface DatabaseDialect {
     identifierQuote: "`" | '"';
     namespace: "database" | "schema" | "none";
     pagination: "limit" | "fetch";
-    lineageDialect: string;
     /**
      * 普通字符串字面量里,反斜杠是不是转义符。
      *
@@ -31,12 +30,12 @@ export interface DatabaseDialect {
 }
 /** Syntax contract for implemented engines. Compatible brands reuse their engine. */
 export const DATABASE_DIALECTS: Record<DbKind, DatabaseDialect> = {
-    mysql: { identifierQuote: "`", namespace: "database", pagination: "limit", lineageDialect: "mysql", backslashEscapes: true, hashComments: true },
-    mariadb: { identifierQuote: "`", namespace: "database", pagination: "limit", lineageDialect: "mysql", backslashEscapes: true, hashComments: true },
-    postgres: { identifierQuote: '"', namespace: "schema", pagination: "limit", lineageDialect: "postgres", backslashEscapes: false, hashComments: false },
-    sqlite: { identifierQuote: '"', namespace: "none", pagination: "limit", lineageDialect: "sqlite", backslashEscapes: false, hashComments: false },
-    oracle: { identifierQuote: '"', namespace: "schema", pagination: "fetch", lineageDialect: "oracle", backslashEscapes: false, hashComments: false },
-    clickhouse: { identifierQuote: '"', namespace: "database", pagination: "limit", lineageDialect: "clickhouse", backslashEscapes: true, hashComments: true },
+    mysql: { identifierQuote: "`", namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true },
+    mariadb: { identifierQuote: "`", namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true },
+    postgres: { identifierQuote: '"', namespace: "schema", pagination: "limit", backslashEscapes: false, hashComments: false },
+    sqlite: { identifierQuote: '"', namespace: "none", pagination: "limit", backslashEscapes: false, hashComments: false },
+    oracle: { identifierQuote: '"', namespace: "schema", pagination: "fetch", backslashEscapes: false, hashComments: false },
+    clickhouse: { identifierQuote: '"', namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true },
 };
 export function dialectFor(kind?: DbKind): DatabaseDialect {
     return kind ? DATABASE_DIALECTS[kind] : DATABASE_DIALECTS.sqlite;

@@ -1,57 +1,47 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { X, GitBranch, Workflow, CalendarClock, Gauge, Boxes, MonitorDot } from "lucide-react";
-import { useLineage } from "../lineage/lineageStore";
-import { useEtl } from "../etl/etlStore";
-import { useScheduler } from "../scheduler/schedulerStore";
+import { X, Workflow, Gauge, Boxes, MonitorDot } from "lucide-react";
+import { useCanvasCenter } from "../canvas/canvasCenterStore";
 import { useMetrics } from "../metrics/metricsStore";
 import { useDatasets } from "../datasets/datasetsStore";
 import { useMonitor } from "../monitor/monitorStore";
 import "./assets.css";
 import { useGlassPill } from "../../hooks/useGlassPill";
 
-export type AssetSection = "lineage" | "etl" | "sched" | "metrics" | "datasets" | "monitor";
+export type AssetSection = "datasets" | "metrics" | "canvas" | "monitor";
 
 /**
- * 「数据资产」外壳。
- *
- * 血缘 / ETL / 调度 / 指标本来是四个各开各的浮层,顶栏四个按钮 —— 它们讲的是同
- * 一件事的四个侧面(这张表从哪来、几点跑、口径是什么、动了它会影响谁),却互相
- * 看不见,想换一个得先关掉再从顶栏重开。这里统一成一个浮层 + 左侧导航,四个面
+ * 「数据资产」外壳:数据集 / 指标 / 链路画布 / 监控中心收在一个浮层 + 左侧导航里,
  * 随时互跳;每一项旁边写清楚它回答的问题,而不是丢一个术语名词在那。
+ * (ETL / 调度 / 血缘图三个中心 2026-10 删掉了:用不上,链路画布单独留下。)
  *
- * **外壳只有一套,而且跨面存活。** 六个中心以前各渲染一整个外壳,于是「切一下
+ * **外壳只有一套,而且跨面存活。** 各中心以前各渲染一整个外壳,于是「切一下
  * 面」= 整块浮层拆掉重建:进场动画每次重播(看着就是闪一下才出来),左侧那条玻
  * 璃胶囊也跟着重生,本该从上一项滑到下一项的,变成了瞬移。现在浮层、侧栏、胶囊
  * 由 AssetChromeHost 渲染一次,中心只把自己的标题和内容投进壳里 —— 于是「进场
  * 动画只在真正打开时播」不是一条特判,是结构本身决定的。
  */
-const SECTIONS: { id: AssetSection; label: string; question: string; icon: typeof GitBranch }[] = [
-  { id: "etl", label: "ETL", question: "这张表是谁在灌", icon: Workflow },
-  { id: "sched", label: "调度", question: "几点跑、跑挂没", icon: CalendarClock },
-  { id: "lineage", label: "血缘", question: "动了它会影响谁", icon: GitBranch },
+const SECTIONS: { id: AssetSection; label: string; question: string; icon: typeof Boxes }[] = [
   { id: "datasets", label: "数据集", question: "看板的数拿哪张表算", icon: Boxes },
   { id: "metrics", label: "指标", question: "这个数怎么算的", icon: Gauge },
+  { id: "canvas", label: "链路画布", question: "自己画数据链路", icon: Workflow },
   { id: "monitor", label: "监控中心", question: "各系统现在跑得怎么样", icon: MonitorDot },
 ];
 
-/** 切到某一面:关掉其它三个,只留一个开着 —— 保证任何时候只有一个浮层。 */
+const OPENERS: Record<AssetSection, (open: boolean) => void> = {
+  datasets: (o) => useDatasets.getState().setOpen(o),
+  metrics: (o) => useMetrics.getState().setOpen(o),
+  canvas: (o) => useCanvasCenter.getState().setOpen(o),
+  monitor: (o) => useMonitor.getState().setOpen(o),
+};
+
+/** 切到某一面:关掉其它的,只留一个开着 —— 保证任何时候只有一个浮层。 */
 export function openAsset(section: AssetSection) {
-  useEtl.getState().setOpen(section === "etl");
-  useScheduler.getState().setOpen(section === "sched");
-  useLineage.getState().setOpen(section === "lineage");
-  useMetrics.getState().setOpen(section === "metrics");
-  useDatasets.getState().setOpen(section === "datasets");
-  useMonitor.getState().setOpen(section === "monitor");
+  for (const [id, setOpen] of Object.entries(OPENERS)) setOpen(id === section);
 }
 
 export function closeAssets() {
-  useEtl.getState().setOpen(false);
-  useScheduler.getState().setOpen(false);
-  useLineage.getState().setOpen(false);
-  useMetrics.getState().setOpen(false);
-  useDatasets.getState().setOpen(false);
-  useMonitor.getState().setOpen(false);
+  for (const setOpen of Object.values(OPENERS)) setOpen(false);
 }
 
 /** 壳里留给内容的那块地方。null = 浮层没开(或还没落地),中心这一帧什么都不画。 */
@@ -97,7 +87,7 @@ function AssetChrome({ section, slotRef }: { section: AssetSection; slotRef: (no
 }
 
 /**
- * 把六个中心包起来,并在它们**旁边**(不是里面)渲染那唯一的一套外壳。
+ * 把各个中心包起来,并在它们**旁边**(不是里面)渲染那唯一的一套外壳。
  *
  * 中心仍旧各自挂着不动 —— 关掉再打开,草稿和滚动位置还在;外壳则跟着
  * 「有没有开着的面」生灭。section 由上层从各 store 的 open 标志算出来,

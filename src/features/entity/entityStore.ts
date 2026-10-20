@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
-/** A data entity the 360° panel focuses on. For now: a table/view. The panel
- *  gathers everything the other modules know about it (lineage, metrics, ETL). */
+/** 表详情抽屉对着的那张表(或视图)。 */
 export interface EntityTarget {
   connId: string;
   connName?: string;
@@ -23,7 +22,7 @@ export const useEntity = create<EntityState>((set) => ({
   close: () => set({ target: null }),
 }));
 
-/** Normalized entity id, consistent with the lineage graph node ids. */
+/** 表的统一写法:小写「库.表」(没有库就只是表名),和指标底表比对用。 */
 export function entityId(database: string | undefined, table: string): string {
   const d = (database ?? "").trim().toLowerCase();
   const t = table.trim().toLowerCase();

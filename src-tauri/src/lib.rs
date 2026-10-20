@@ -1,12 +1,10 @@
 mod ai;
 mod app_menu;
 mod canvas_window;
-mod etl_files;
 mod monitor;
 mod commands;
 mod credentials;
 mod workspace_lifecycle;
-mod scheduler;
 mod dashboard_store;
 mod dataset_store;
 mod db;
@@ -60,7 +58,6 @@ pub fn run() {
             ai::ai_engine_stop,
             ai::ai_model_download,
             ai::ai_model_progress,
-            scheduler::scheduler_fetch,
             python::runtime::python_status,
             python::runtime::python_ensure,
             python::runtime::python_install,
@@ -79,8 +76,6 @@ pub fn run() {
             python::workspace::py_read_image,
             python::assist::py_lint,
             python::assist::py_complete,
-            python::assist::py_sql_lineage,
-            etl_files::inspect_etl_files,
             monitor::monitor_probe,
             monitor::monitor_open_window,
             store::load_semantic_catalog,
@@ -117,7 +112,6 @@ pub fn run() {
             commands::query::apply_cell_edits,
             commands::query::run_statements,
             commands::connections::create_demo,
-            etl_files::read_json_dir,
             dashboard_store::list_dashboards,
             dashboard_store::save_dashboard,
             dashboard_store::publish_dashboard,
@@ -166,9 +160,7 @@ mod main_thread_guard {
             ("credentials.rs", include_str!("credentials.rs")),
             ("dashboard_store.rs", include_str!("dashboard_store.rs")),
             ("dataset_store.rs", include_str!("dataset_store.rs")),
-            ("etl_files.rs", include_str!("etl_files.rs")),
             ("monitor.rs", include_str!("monitor.rs")),
-            ("scheduler.rs", include_str!("scheduler.rs")),
             ("store.rs", include_str!("store.rs")),
             ("workspace_lifecycle.rs", include_str!("workspace_lifecycle.rs")),
         ];

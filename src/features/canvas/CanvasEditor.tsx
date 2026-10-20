@@ -1,4 +1,4 @@
-/* 链路画布编辑器:在血缘里自己画链路。
+/* 链路画布编辑器:自己画数据链路(摆表、连线、分组、配颜色、流动效果)。
  *
  * 画布库用 React Flow(拖动、缩放、连线、框选、改大小都现成)。
  * 这里只管:改动怎么进撤销栈、什么时候算「未保存」、怎么存,以及顶栏 / 属性栏 / 右键菜单。
@@ -23,18 +23,17 @@ import {
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
-  BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, GitFork, Globe, ImageDown, Loader2, Network, Paintbrush,
+  BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, Globe, ImageDown, Loader2, Network, Paintbrush,
   History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Split, Trash2, Undo2, X,
 } from "lucide-react";
-import { useApp } from "../../../store/appStore";
-import { useConfirm } from "../../../components/useConfirm";
-import { api } from "../../../lib/api";
-import { inTauri } from "../../../lib/mockBackend";
-import type { Graph } from "../lineageModel";
+import { useApp } from "../../store/appStore";
+import { useConfirm } from "../../components/useConfirm";
+import { api } from "../../lib/api";
+import { inTauri } from "../../lib/mockBackend";
 import {
   ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
   FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, DRAWN_SHAPES, SHAPE_LABEL, SHAPE_SIZE,
-  alignBoxes, autoLayout, branchHandles, branchStyle, cometSchedule, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, fromLineage, layerColor, repairCanvas,
+  alignBoxes, autoLayout, branchHandles, branchStyle, cometSchedule, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, layerColor, tablesToNodes, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
   type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode, type CometTrip,
   type FillKind, type FlowStyle, type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
@@ -43,13 +42,13 @@ import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } fro
 import { animationFrames, encodeGif, svgPathProbe } from "./canvasAnimation";
 import { encodeMp4 } from "./canvasVideo";
 import { canvasToHtml } from "./canvasHtml";
-import { canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
+import { CANVAS_FOCUS_KEY, canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, takeCanvasFocus, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
 import {
   FlowSyncContext, ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
   type FlowEdge, type FlowNode, type FlowSync, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
 } from "./canvasFlow";
 import { GuideLines, LineEdge, ShapeIcon, ShapeNode } from "./CanvasShapes";
-import { LineagePicker, Menu, Seg, Swatches, TextColorPicker } from "./CanvasControls";
+import { Menu, Seg, Swatches, TablePicker, TextColorPicker } from "./CanvasControls";
 
 /* 剪贴板放在模块里:在一张画布 ⌘C,换到另一张画布 ⌘V 也能贴 */
 let clipboard: { docId: string; nodes: CanvasNode[]; edges: CanvasEdge[]; pastes: number } | null = null;
@@ -69,9 +68,8 @@ const ALIGN_ICON: Record<AlignKind, [ReactNode, string]> = {
 /** 保存的结果:ok=真的写进去了;fixed=存之前自动修掉的问题;error=没写进去的原因(这时已另存了草稿) */
 type SaveResult = { ok: boolean; fixed: string[]; error?: string };
 
-function Editor({ doc, graph, versions, onSave, onDirty }: {
+function Editor({ doc, versions, onSave, onDirty }: {
   doc: CanvasDoc;
-  graph: Graph;
   /** 这张画布的历史版本(旧的在前) */
   versions: CanvasVersion[];
   /** milestone:这次一定新记一份历史(恢复历史版本时),不顶掉前一份 */
@@ -179,7 +177,7 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
     }
   }, [doc.id, onSave, snapshot, toast]);
 
-  /* 自动保存:改完停 0.8 秒就存;离开画布(返回血缘、切到别的画布、关掉数据资产)那一刻再存一次。
+  /* 自动保存:改完停 0.8 秒就存;离开画布(关掉画布、切到别的画布)那一刻再存一次。
      存不进去时不会每 0.8 秒刷一遍红字 —— 失败后要等内容再变才会重试。 */
   const saveRef = useRef(save); saveRef.current = save;
   const pendingRef = useRef(false); pendingRef.current = dirty;
@@ -654,8 +652,8 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
           <button className="btn sm" onClick={undo} disabled={!pastRef.current.length} title="撤销 (⌘Z)"><Undo2 size={14} /> 撤销</button>
           <button className="btn sm" onClick={redo} disabled={!futureRef.current.length} title="重做 (⇧⌘Z)"><Redo2 size={14} /> 重做</button>
           <span className="cv-sep" />
-          <button className={`btn sm ${picker ? "on" : ""}`} onClick={() => setPicker((v) => !v)} title="把血缘里的表 / 指标 / 作业拉进画布">
-            <GitFork size={14} /> 从血缘添加
+          <button className={`btn sm ${picker ? "on" : ""}`} onClick={() => setPicker((v) => !v)} title="从数据库连接里挑表,一次加几张进画布">
+            <Database size={14} /> 从数据库添加表
           </button>
           <Menu label="自动排版" icon={<Network size={14} />} title="按连线把形状一层层排整齐(选中 2 个以上就只排选中的)">
             {(close) => LAYOUT_DIRS.map((d) => (
@@ -880,16 +878,16 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
                 <b>从左边拿一个形状开始</b>
                 <span>点一下放到中间、拖到画布上,或者直接双击空白处。</span>
                 <span>形状边上的小圆点拖出去就是连线,松在空白处会接着长出一个新形状。</span>
-                <span>也可以「从血缘添加」,把已有的表连同上下游一起拉进来。</span>
+                <span>也可以「从数据库添加表」,从连接里挑几张表一次加进来。</span>
               </div>
             )}
             {picker && (
-              <LineagePicker graph={graph}
+              <TablePicker
                 onClose={() => setPicker(false)}
-                onPick={(id, withNeighbors) => {
-                  const out = fromLineage(graph, id, centerPoint(), nodesRef.current.map(fromFlowNode), withNeighbors);
-                  if (!out.nodes.length && !out.edges.length) toast({ kind: "info", text: "它已经在画布上了" });
-                  addNodes(out.nodes, out.edges);
+                onPick={(tables) => {
+                  const added = tablesToNodes(tables, centerPoint(), nodesRef.current.map(fromFlowNode));
+                  if (!added.length) toast({ kind: "info", text: "这些表已经在画布上了" });
+                  addNodes(added);
                   setPicker(false);
                 }} />
             )}
@@ -905,10 +903,9 @@ function Editor({ doc, graph, versions, onSave, onDirty }: {
 }
 
 /* ---------- 外层:画布列表 + 编辑器,全屏盖在数据资产上面 ---------- */
-export default function CanvasOverlay({ graph, onClose, standalone = false }: {
-  graph: Graph;
+export default function CanvasOverlay({ onClose, standalone = false }: {
   onClose: () => void;
-  /** 在独立窗口里:左上角是「关闭窗口」,不是「返回血缘」 */
+  /** 在独立窗口里:左上角是「关闭窗口」,不是「返回」 */
   standalone?: boolean;
 }) {
   const { askConfirm, confirmDialog } = useConfirm();
@@ -1008,6 +1005,16 @@ export default function CanvasOverlay({ graph, onClose, standalone = false }: {
     return { ok: true, fixed: repaired.fixed };
   }, []);
   const close = async () => { if (await guard()) onClose(); };
+  /* 主窗口在「数据资产 → 链路画布」里点了某一张(或「新建」):切过去。刚打开时读一次,开着时靠 storage 事件 */
+  const focusRef = useRef<(id: string) => void>(() => {});
+  focusRef.current = (id) => { if (id === "new") void create(); else if (docsRef.current.some((d) => d.id === id)) void open(id); };
+  useEffect(() => {
+    const take = () => { const id = takeCanvasFocus(); if (id) focusRef.current(id); };
+    take();
+    const onStorage = (e: StorageEvent) => { if (e.key === CANVAS_FOCUS_KEY && e.newValue) take(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   return createPortal(
     <div className="cv-overlay" role="dialog" aria-modal="true" aria-label="链路画布">
@@ -1015,7 +1022,7 @@ export default function CanvasOverlay({ graph, onClose, standalone = false }: {
         <div className="cv-side-head">
           {standalone
             ? <button className="icon-btn" title="关闭画布窗口" onClick={close}><X size={16} /></button>
-            : <button className="icon-btn" title="返回血缘" onClick={close}><ArrowLeft size={16} /></button>}
+            : <button className="icon-btn" title="返回" onClick={close}><ArrowLeft size={16} /></button>}
           <b>链路画布</b>
           <div className="toolbar-spacer" />
           <button className="icon-btn" title="新建画布" onClick={create}><Plus size={16} /></button>
@@ -1049,13 +1056,13 @@ export default function CanvasOverlay({ graph, onClose, standalone = false }: {
       <main className="cv-main">
         {active ? (
           <ReactFlowProvider key={active.id}>
-            <Editor doc={active} graph={graph} versions={history[active.id] ?? []} onSave={save} onDirty={onEditorState} />
+            <Editor doc={active} versions={history[active.id] ?? []} onSave={save} onDirty={onEditorState} />
           </ReactFlowProvider>
         ) : (
           <div className="cv-blank">
             <Database size={28} />
             <b>把链路画下来</b>
-            <span>血缘图是扫出来的,画布是你自己整理的:摆几张表、几个作业,连上线、配上说明。</span>
+            <span>自己整理数据链路:摆几张表、几个作业,连上线、配上说明。</span>
             <button className="btn primary" onClick={create}><Plus size={14} /> 新建画布</button>
           </div>
         )}

@@ -66,23 +66,6 @@
   overflow: auto;
   padding: 8px 16px 20px;
 }
-.e360-hint {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 12px;
-  margin: 8px 0;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--amber) 10%, transparent);
-  color: var(--text-2);
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-.e360-hint svg {
-  color: var(--amber);
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
 .e360-sec {
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
@@ -126,14 +109,6 @@
 .e360-fresh.tone-stale .e360-fresh-ago { color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); }
 .e360-fresh.tone-old   .e360-fresh-ago { color: var(--red);   background: color-mix(in srgb, var(--red) 14%, transparent); }
 .e360-fresh-col { color: var(--text-3); font-size: 11px; }
-
-/* 库名小字跟在表名后面,弱化但可查 */
-.e360-chip-db {
-  margin-left: 6px;
-  color: var(--text-3);
-  font-size: 10.5px;
-  font-weight: 400;
-}
 .e360-chip {
   font-family: var(--mono);
   font-size: 12px;
@@ -152,62 +127,9 @@ button.e360-chip:hover {
   color: var(--green);
   border-color: color-mix(in srgb, var(--green) 40%, var(--border));
 }
-.e360-jobs {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.e360-job {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-}
-.e360-job-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-/* 同名作业靠这一行区分:从哪读、灌哪几列 */
-.e360-job-sub {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  font-size: 11px;
-  color: var(--text-3);
-  line-height: 1.4;
-}
-.e360-job-from { color: var(--text-2); }
-.e360-job-cols { font-family: var(--mono); font-size: 10.5px; }
 .e360-chip-n {
   margin-left: 6px;
   font-size: 10px;
   opacity: .7;
   font-family: var(--mono);
 }
-.e360-job-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-family: var(--mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.e360-job-src {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--text-3);
-}
-
-.e360-jobgroup { display: flex; flex-direction: column; gap: 6px; }
-.e360-jobgroup + .e360-jobgroup { margin-top: 10px; }
-.e360-jobgroup-h {
-  font-size: 11px;
-  color: var(--text-3);
-  padding: 0 2px;
-}
-.e360-jobgroup-h b { color: var(--text-2); font-weight: 600; margin-left: 3px; }

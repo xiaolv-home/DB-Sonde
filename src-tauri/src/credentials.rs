@@ -191,7 +191,7 @@ pub fn remove(app: &AppHandle, config: &ConnectionConfig) -> AppResult<()> {
 // Service settings have a separate namespace and cannot retrieve DB passwords.
 fn service_account(key: &str) -> AppResult<String> {
     match key {
-        "ai.config" | "scheduler.conns.v1" => Ok(format!("service:{key}")),
+        "ai.config" => Ok(format!("service:{key}")),
         _ => Err(AppError::msg("不支持的服务配置")),
     }
 }

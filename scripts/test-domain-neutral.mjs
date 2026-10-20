@@ -106,7 +106,7 @@ try {
       id: `m${i}`, name: `指标${i}`,
       fields: ['trade_date', 'account_id', i < 3 ? 'settle_amt' : 'coupon_rate'],
     }));
-    const prompt = buildEntityPrompt({ id: 'fin.trades', up: [], downTables: [], metrics, producedBy: [] }, 'pg');
+    const prompt = buildEntityPrompt({ id: 'fin.trades', metrics }, 'pg');
     assert.match(prompt, /共用键[^\n]*trade_date/, '几乎每个指标都读的键要拎出来单独说 —— 不靠字段名认');
     assert.match(prompt, /共用键[^\n]*account_id/, 'account_id 同理');
     assert.match(prompt, /- settle_amt — 3 个指标/, '有区分度的列照常进清单');
@@ -119,34 +119,9 @@ try {
       { id: 'a', name: 'A', fields: ['settle_amt'] },
       { id: 'b', name: 'B', fields: ['settle_amt'] },
     ];
-    const smallPrompt = buildEntityPrompt({ id: 'fin.t', up: [], downTables: [], metrics: few, producedBy: [] }, 'pg');
+    const smallPrompt = buildEntityPrompt({ id: 'fin.t', metrics: few }, 'pg');
     assert(!smallPrompt.includes('共用键'), '只有两个指标时不该判定共用键');
     assert.match(smallPrompt, /- settle_amt — 2 个指标/);
-  }
-  {
-    // 三条作业灌同一张表,都写 trade_date/account_id,各自另写一列
-    const graph = { up: new Map(), down: new Map() };
-    const job = (name, own) => ({
-      name, targets: [{ database: 'fin', table: 'trades' }],
-      sources: [{ database: 'src', table: 'raw', querySql:
-        `SELECT t.trade_date AS trade_date, t.account_id AS account_id, t.${own} AS ${own} FROM src.raw t` }],
-    });
-    const facts = collectEntityFacts({ database: 'fin', table: 'trades' }, graph,
-      [{ name: 'datax', jobs: [job('j1', 'settle_amt'), job('j2', 'coupon_rate'), job('j3', 'notional_amt')] }], []);
-    assert.equal(facts.producedBy.length, 3);
-    const cols = facts.producedBy.map((p) => p.cols);
-    for (const c of cols) {
-      assert(!c.includes('trade_date'), '三条作业都写的列没有区分度,应剔掉 —— 不靠字段名认');
-      assert(!c.includes('account_id'));
-    }
-    assert.deepEqual(cols.map((c) => c.sort()), [['settle_amt'], ['coupon_rate'], ['notional_amt']],
-      '各自独有的列要留下,那才是区分这几条作业的东西');
-
-    // 只有一条作业时没有可比对象,原样保留(不能把它写的列全扣光)
-    const one = collectEntityFacts({ database: 'fin', table: 'trades' }, graph,
-      [{ name: 'datax', jobs: [job('solo', 'settle_amt')] }], []);
-    assert.deepEqual(one.producedBy[0].cols.sort(), ['account_id', 'settle_amt', 'trade_date'],
-      '只有一条作业,没有"共有部分"可言,全留下');
   }
   // 这个文件的代码里不许再出现写死的列名清单(注释里复述历史可以)
   {

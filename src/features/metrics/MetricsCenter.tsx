@@ -339,8 +339,7 @@ async function runImport(mode: "keep" | "replace") {
 /**
  * 「体检」按钮 + 结果面板。
  *
- * 放在指标中心而不是血缘中心:底表没了,最先受害的是指标 —— 血缘图缺条线还看得出来,
- * 指标查出来是空的,人只会以为"这天没生意"。
+ * 底表没了,最先受害的是指标 —— 指标查出来是空的,人只会以为"这天没生意"。
  */
 function MetricHealthButton({ metrics }: { metrics: Metric[] }) {
   const [busy, setBusy] = useState(false);

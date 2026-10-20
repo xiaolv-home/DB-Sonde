@@ -57,7 +57,7 @@ for (const [file, imports] of graph) {
     assert(!imports.some(path => path.includes('/features/') || path.includes('/components/')), `${relative(root, file)} imports an optional feature`);
   }
 }
-for (const module of ['lib/queryGate.ts', 'features/dashboard/queryRuntime.ts', 'features/dashboard/datasetSql.ts', 'features/agent/tools/dataToolRuntime.ts', 'features/agent/tools/toolRegistry.ts', 'features/agent/previewData.ts', 'features/agent/model/httpRetry.ts', 'features/agent/questionPlanning.ts', 'features/agent/evidenceExploration.ts', 'features/agent/analysisCatalog.ts', 'features/agent/queryPlanModel.ts', 'features/agent/designUnits.ts', 'features/agent/factCalculator.ts', 'features/agent/nodes/dataNodes.ts', 'features/agent/nodes/layoutDesigner.ts', 'features/agent/nodes/analysisNode.ts', 'features/agent/nodes/dashboardReviewer.ts', 'features/agent/nodes/dashboardCompiler.ts', 'features/agent/nodes/observations.ts', 'features/agent/analysisDraft.ts', 'features/agent/analysisRuntime.ts', 'features/agent/analysisWorkflow.ts', 'features/agent/analysisGraph.ts', 'features/agent/graph.ts', 'features/ai/aiConfigModel.ts', 'features/ai/aiRuntime.ts', 'features/ai/modelDiscovery.ts', 'features/agent/model/modelRouting.ts', 'features/agent/model/analysisModels.ts', 'lib/requestScope.ts', 'features/scheduler/schedulerRuntime.ts', 'features/scheduler/schedulerActions.ts', 'features/scheduler/definitionSync.ts', 'features/lineage/opsModel.ts', 'features/lineage/schedulerOpsAdapter.ts', 'features/scheduler/dolphinRunState.ts', 'features/lineage/graphModel.ts', 'features/scheduler/definitionImport.ts', 'features/etl/fileScope.ts', 'lib/queryResultView.ts', 'lib/queryExecution.ts', 'features/lineage/lineageModel.ts', 'features/metrics/catalogModel.ts', 'features/etl/fileCatalog.ts', 'features/etl/adapters/generic.ts', 'features/ai/providers/requestPolicy.ts']) {
+for (const module of ['lib/queryGate.ts', 'features/dashboard/queryRuntime.ts', 'features/dashboard/datasetSql.ts', 'features/agent/tools/dataToolRuntime.ts', 'features/agent/tools/toolRegistry.ts', 'features/agent/previewData.ts', 'features/agent/model/httpRetry.ts', 'features/agent/questionPlanning.ts', 'features/agent/evidenceExploration.ts', 'features/agent/analysisCatalog.ts', 'features/agent/queryPlanModel.ts', 'features/agent/designUnits.ts', 'features/agent/factCalculator.ts', 'features/agent/nodes/dataNodes.ts', 'features/agent/nodes/layoutDesigner.ts', 'features/agent/nodes/analysisNode.ts', 'features/agent/nodes/dashboardReviewer.ts', 'features/agent/nodes/dashboardCompiler.ts', 'features/agent/nodes/observations.ts', 'features/agent/analysisDraft.ts', 'features/agent/analysisRuntime.ts', 'features/agent/analysisWorkflow.ts', 'features/agent/analysisGraph.ts', 'features/agent/graph.ts', 'features/ai/aiConfigModel.ts', 'features/ai/aiRuntime.ts', 'features/ai/modelDiscovery.ts', 'features/agent/model/modelRouting.ts', 'features/agent/model/analysisModels.ts', 'lib/requestScope.ts', 'lib/queryResultView.ts', 'lib/queryExecution.ts', 'features/metrics/catalogModel.ts', 'features/ai/providers/requestPolicy.ts']) {
   const dependencies = new Set();
   function collect(file) { for (const next of graph.get(file) ?? []) if (!dependencies.has(next)) { dependencies.add(next); collect(next); } }
   collect(join(root, module));
@@ -65,7 +65,7 @@ for (const module of ['lib/queryGate.ts', 'features/dashboard/queryRuntime.ts', 
 }
 
 // Feature stores delegate persisted records; normalization must not secretly read local preferences.
-for (const module of ['features/agent/analysisStore.ts', 'features/agent/analysisRuntime.ts', 'features/ai/aiStore.ts', 'features/ai/aiRuntime.ts', 'features/lineage/opsStore.ts', 'features/scheduler/schedulerStore.ts', 'features/lineage/lineageStore.ts', 'features/etl/fileProfiles.ts', 'features/scheduler/definitionImport.ts', 'features/etl/fileScope.ts', 'features/lineage/graphModel.ts']) {
+for (const module of ['features/agent/analysisStore.ts', 'features/agent/analysisRuntime.ts', 'features/ai/aiStore.ts', 'features/ai/aiRuntime.ts']) {
   assert(!/\blocalStorage\b/.test(readFileSync(join(root, module), 'utf8')), `${module} bypasses the persistence boundary`);
 }
 
@@ -101,9 +101,9 @@ const dir = mkdtempSync(join(tmpdir(), 'sonde-architecture-'));
 try {
   const entry = join(dir, 'entry.ts');
   writeFileSync(entry, [
-    'features/etl/adapters/generic.ts', 'features/etl/fileCatalog.ts', 'features/metrics/catalogModel.ts',
+    'features/metrics/catalogModel.ts',
     'lib/sql.ts', 'lib/databaseDialect.ts', 'lib/jsonStorage.ts', 'features/ai/providers/requestPolicy.ts',
-    'features/ai/aiStore.ts', 'features/ai/aiClient.ts', 'features/etl/etlStore.ts',
+    'features/ai/aiStore.ts', 'features/ai/aiClient.ts',
   ].map(path => `export * from ${JSON.stringify(join(root, path))};`).join('\n'));
   const output = join(dir, 'test.cjs');
   buildSync({ entryPoints: [entry], outfile: output, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent' });
@@ -112,38 +112,6 @@ try {
     getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key),
   } });
   const m = createRequire(import.meta.url)(output);
-  const input = { pipelines: [{ code: 7, title: 'Inventory sync', inputs: [{ schema: 'erp', relation: 'stock', password: 'never retain' }], outputs: [{ schema: 'mart', relation: 'inventory' }] }] };
-  const mapping = { jobs: '/pipelines', id: '/code', name: '/title', sources: '/inputs', targets: '/outputs', endpoint: { database: '/schema', table: '/relation' } };
-  const jobs = m.parseGenericJobs(JSON.stringify(input), mapping);
-  assert.equal(jobs[0].id, '7');
-  assert.equal(jobs[0].sources[0].table, 'stock');
-  assert(!JSON.stringify(jobs).includes('never retain'));
-  assert.deepEqual(m.parseGenericJobs(JSON.stringify({ jobs })), jobs);
-  assert.throws(() => m.parseGenericJobs(JSON.stringify({ pipelines: [input.pipelines[0], input.pipelines[0]] }), mapping), /重复/);
-  assert.throws(() => m.parseGenericJobs(JSON.stringify(input), { ...mapping, jobs: '/unknown' }), /未找到/);
-  assert.throws(() => m.parseGenericJobs(JSON.stringify([{ id: '1', name: 'Invalid', sources: {}, targets: [] }])), /数组/);
-  assert.equal(m.atPointer({ 'a/b': { '~x': 9 } }, '/a~1b/~0x'), 9);
-  assert.equal(m.atPointer({}, '/__proto__'), undefined);
-  m.useEtl.getState().addSourceJobs('Mapped fixture', 'generic', jobs, mapping);
-  const imported = m.useEtl.getState().sources[0];
-  assert.deepEqual(imported.fieldMapping, mapping);
-  assert.throws(() => m.useEtl.getState().importMore(imported.id, JSON.stringify(input)), /已存在/);
-  assert.equal(m.useEtl.getState().sources[0].jobs.length, 1);
-
-  // A failed optional parser cannot erase known metadata or prevent later scripts being read.
-  let parsed = 0;
-  const result = await m.parseFileInventory({ root: '/any/layout', warnings: [], files: [
-    { path: '/any/layout/broken.sql', sql: ['bad'], references: [] },
-    { path: '/any/layout/good.sql', sql: ['good'], references: [] },
-  ] }, { id: 'fixture', name: 'Arbitrary root', root: '/any/layout' }, async () => {
-    if (++parsed === 1) throw new Error('parser unavailable');
-    return { ok: true, sources: ['erp.stock'], target: 'mart.inventory' };
-  });
-  assert.equal(parsed, 2);
-  assert.equal(result.jobs.length, 2);
-  assert.equal(result.jobs[1].targets[0].table, 'inventory');
-  assert.equal(result.warnings.length, 1);
-
   const first = { id: 'a', catalogId: 'catalog-a', connId: 'old', name: 'A' };
   const second = { id: 'b', catalogId: 'catalog-b', connId: 'keep', name: 'B' };
   const rebound = m.bindCatalogMetrics([first, second], 'catalog-a', 'new', 'New connection', 1);
@@ -216,5 +184,5 @@ try {
     `组件类型清单只能在 dashboard/domain.ts 定义(WIDGET_TYPES),这些文件又抄了一份:${dup.join(', ')}`);
 }
 
-  console.log(`Architecture checks passed: ${files.length} modules, no runtime import cycles; core boundaries, ETL mapping and partial failure, catalog isolation, dialects, persistence, unconfigured AI and provider policies.`);
+  console.log(`Architecture checks passed: ${files.length} modules, no runtime import cycles; core boundaries, catalog isolation, dialects, persistence, unconfigured AI and provider policies.`);
 } finally { rmSync(dir, { recursive: true, force: true }); }

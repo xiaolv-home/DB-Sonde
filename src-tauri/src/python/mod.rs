@@ -148,13 +148,8 @@ fn write_pylib() -> PathBuf {
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join("sonde.py"), SONDE_PY);
     let _ = std::fs::write(dir.join("jedi_server.py"), JEDI_SERVER);
-    let _ = std::fs::write(dir.join("sqllineage.py"), SQLLINEAGE_PY);
     dir
 }
-
-/// Table-level lineage for one SQL statement via sqlglot. Reads SQL from stdin,
-/// dialect from argv[1]; prints JSON {ok, target, sources[]}.
-const SQLLINEAGE_PY: &str = include_str!("../../resources/sql_lineage.py");
 
 /// A persistent jedi completion server: one JSON request per line on stdin,
 /// one JSON response per line on stdout. Keeps jedi warm between keystrokes.

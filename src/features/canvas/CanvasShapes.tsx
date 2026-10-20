@@ -54,7 +54,7 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, he
         lineClassName="cv-resize-line" handleClassName="cv-resize-handle" />
       <ShapeOutline shape={data.shape} />
       {SIDES.map((side) => <Handle key={side} id={side} type="source" className="cv-handle" position={SIDE_POSITION[side]} />)}
-      {data.ref && <span className="cv-ref" title={`来自血缘:${data.ref}`}><Link2 size={11} /></span>}
+      {data.ref && <span className="cv-ref" title={`来自数据库:${data.ref}`}><Link2 size={11} /></span>}
       {data.comment && <CommentBadge shape={data.shape} w={width ?? data.w} h={height ?? data.h} />}
       <CommentCard id={id} comment={data.comment} visible={ctx.soloId === id && !editing} />
       {editing ? (

@@ -39,7 +39,7 @@ try {
   // 否则切到别的中心会两块摞在一起(监控中心上线时就漏了这一句)。
   const hosts = readFileSync('src/features/FeatureHosts.tsx', 'utf8');
   const views = [...hosts.matchAll(/View: (\w+Center) \}/g)].map((x) => x[1]);
-  assert(views.length >= 6, `应找到数据资产里的各个中心,只找到 ${views.length} 个`);
+  assert(views.length >= 4, `应找到数据资产里的各个中心,只找到 ${views.length} 个`);
   for (const view of views) {
     const from = hosts.match(new RegExp(`import ${view} from "\\./([^"]+)"`))?.[1];
     assert(from, `找不到 ${view} 的来源`);

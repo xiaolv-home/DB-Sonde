@@ -36,7 +36,6 @@ type ColumnTarget = { connId: string; database: string; schema?: string; table: 
 export const api = {
   getRoutineDetails: (connId: string, database: string, schema: string, name: string, kind: string) => invoke<import("../types").RoutineDetails>("get_routine_details", { connId, database, schema, name, kind }),
   executeRoutine: (connId: string, database: string, schema: string, name: string, kind: string, values: (string | null)[]) => invoke<QueryResult>("execute_routine", { connId, database, schema, name, kind, values }),
-  inspectEtlFiles: (request: {root:string;host?:string;username?:string;port?:number;password?:string}) => invoke<import("../features/etl/fileCatalog").FileInventory>("inspect_etl_files", { request }),
   // 监控中心(见 src-tauri/src/monitor.rs):先看页面准不准嵌入,不准就开独立窗口
   monitorProbe: (url: string) => inTauri
     ? invoke<{ embeddable: boolean; reason?: string | null }>("monitor_probe", { url })
@@ -256,34 +255,7 @@ export const api = {
     inTauri ? invoke<PyLintIssue[]>("py_lint", { path }) : Promise.resolve([] as PyLintIssue[]),
   pyComplete: (source: string, line: number, col: number) =>
     inTauri ? invoke<PyCompletion[]>("py_complete", { source, line, col }) : Promise.resolve([] as PyCompletion[]),
-  pySqlLineage: (sql: string, dialect?: string) =>
-    inTauri
-      ? invoke<PyLineage>("py_sql_lineage", { sql, dialect: dialect ?? null })
-      : Promise.resolve({ ok: false, target: null, sources: [], error: "需在桌面版运行" } as PyLineage),
-
-  /** Native folder picker → read every *.json under it. Null if cancelled. */
-  importFolder: async (title?: string): Promise<{ dir: string; files: ImportedFile[] } | null> => {
-    if (!inTauri) throw new Error("需在桌面版运行");
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const dir = await open({ directory: true, title: title ?? "选择文件夹" });
-    if (typeof dir !== "string") return null;
-    const files = await invoke<ImportedFile[]>("read_json_dir", { dir });
-    return { dir, files };
-  },
 };
-
-export interface ImportedFile {
-  name: string;
-  content: string;
-}
-
-export interface PyLineage {
-  flows?: {sources:string[];targets:string[]}[];
-  ok: boolean;
-  target: string | null;
-  sources: string[];
-  error: string | null;
-}
 
 export interface PyLintIssue {
   line: number;

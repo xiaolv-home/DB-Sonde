@@ -38,9 +38,8 @@ function Toolbar() {
       <button className="btn" onClick={() => useApp.getState().openDashboardTab()}>
         <LayoutDashboard size={15} /> {t("toolbar.dashboard")}
       </button>
-      {/* 调度 / 指标 / ETL / 血缘 原本是顶栏四个按钮、四个互不相通的浮层。
-          它们是同一件事的四个侧面,收敛成一个「数据资产」,进去左侧随时互跳。 */}
-      <button className="btn" onClick={() => openAsset("etl")} title="数据来源 / 运行情况 / 上下游 / 指标口径">
+      {/* 数据集 / 指标 / 链路画布 / 监控中心收在一个「数据资产」浮层里,进去左侧随时互跳。 */}
+      <button className="btn" onClick={() => openAsset("datasets")} title="数据集 / 指标口径 / 链路画布 / 监控中心">
         <Boxes size={15} /> 数据资产
       </button>
       <button className="btn" onClick={() => useApp.getState().openDialog()}>

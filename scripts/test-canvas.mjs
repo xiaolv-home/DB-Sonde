@@ -1,4 +1,4 @@
-// 链路画布的数据模型:存得下就读得回、坏数据不认、复制和「从血缘添加」的行为。
+// 链路画布的数据模型:存得下就读得回、坏数据不认、复制和「从数据库添加表」的行为。
 import assert from 'node:assert/strict';
 import { build, buildSync } from 'esbuild';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -11,10 +11,10 @@ let n = 0;
 const ok = (name) => { n += 1; console.log(`  ✓ ${name}`); };
 try {
   const outfile = join(dir, 't.cjs');
-  await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasModel.ts')], bundle: true, platform: 'node', format: 'cjs', outfile, logLevel: 'silent' });
+  await build({ entryPoints: [resolve('src/features/canvas/canvasModel.ts')], bundle: true, platform: 'node', format: 'cjs', outfile, logLevel: 'silent' });
   const m = createRequire(import.meta.url)(outfile);
   const exportFile = join(dir, 'x.cjs');
-  await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasExport.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: exportFile, logLevel: 'silent' });
+  await build({ entryPoints: [resolve('src/features/canvas/canvasExport.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: exportFile, logLevel: 'silent' });
   const x = createRequire(import.meta.url)(exportFile);
 
   // ── 每种形状新建出来都是合法节点,整张画布 JSON 往返后仍合法 ──────────
@@ -59,38 +59,20 @@ try {
     ok('复制选中的形状:新 id、连线跟着复制品、整体错开');
   }
 
-  // ── 从血缘添加:连同上下游、从左到右排、已在画布上的不重复加 ───────────
+  // ── 从数据库添加表:每张一个「数据表」形状,一个挨一个不叠,已在画布上的不重复加 ──
   {
-    const g = {
-      nodes: [
-        { id: 'ods.a', label: 'ods.a', kind: 'table' },
-        { id: 'ods.b', label: 'ods.b', kind: 'table' },
-        { id: 'dws.c', label: 'dws.c', kind: 'table' },
-        { id: 'metric:gmv', label: 'GMV', kind: 'metric' },
-      ],
-      edges: [],
-      up: new Map([['dws.c', [{ from: 'ods.a', to: 'dws.c', kind: '写入' }, { from: 'ods.b', to: 'dws.c', kind: '写入' }]]]),
-      down: new Map([['dws.c', [{ from: 'dws.c', to: 'metric:gmv', kind: '用于' }]]]),
-    };
-    const one = m.fromLineage(g, 'dws.c', { x: 0, y: 0 }, [], false);
-    assert.equal(one.nodes.length, 1);
-    assert.equal(one.nodes[0].ref, 'dws.c');
-    assert.equal(one.nodes[0].shape, 'cylinder', '表画成数据表形状');
-
-    const all = m.fromLineage(g, 'dws.c', { x: 0, y: 0 }, [], true);
-    assert.equal(all.nodes.length, 4, '自己 + 2 个上游 + 1 个下游');
-    assert.equal(all.edges.length, 3);
-    const pos = Object.fromEntries(all.nodes.map((x) => [x.ref, x]));
-    assert(pos['ods.a'].x < pos['dws.c'].x && pos['metric:gmv'].x > pos['dws.c'].x, '上游在左、下游在右');
-    assert.equal(pos['metric:gmv'].shape, 'rounded');
-    assert.equal(all.edges[0].label, '写入', '连线带上血缘里的关系');
-
-    const again = m.fromLineage(g, 'dws.c', { x: 0, y: 0 }, all.nodes, true);
-    assert.equal(again.nodes.length, 0, '都已经在画布上,不重复加');
-    const placedIds = new Set(all.nodes.map((x) => x.id));
-    assert(again.edges.every((e) => placedIds.has(e.from) && placedIds.has(e.to)), '连线连到已有的那几个');
-    assert.equal(m.fromLineage(g, 'nope', { x: 0, y: 0 }, [], true).nodes.length, 0);
-    ok('从血缘添加:连同上下游从左到右排好,已有的不重复加');
+    const tables = [{ ref: '仓库 · dw.ads_store_day', label: 'ads_store_day' }, { ref: '仓库 · dw.dim_store', label: 'dim_store' }];
+    const added = m.tablesToNodes(tables, { x: 400, y: 300 }, []);
+    assert.equal(added.length, 2);
+    assert(added.every((n) => n.shape === 'cylinder' && m.isCanvasNode(n)), '加进来的是「数据表」形状,而且合法');
+    assert.deepEqual(added.map((n) => n.text), ['ads_store_day', 'dim_store'], '形状上写表名');
+    assert.deepEqual(added.map((n) => n.ref), tables.map((t) => t.ref), '记住从哪个连接哪个库来的');
+    const overlap = (a, b) => !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+    assert(!overlap(added[0], added[1]), '一次加几张不能叠在一起');
+    const again = m.tablesToNodes([...tables, { ref: '仓库 · dw.dim_area', label: 'dim_area' }], { x: 400, y: 300 }, added);
+    assert.deepEqual(again.map((n) => n.text), ['dim_area'], '已经在画布上的不重复加');
+    assert(again.every((n) => added.every((o) => !overlap(n, o))), '新加的也不压住已有的');
+    ok('从数据库添加表:数据表形状、记住来源、不叠、不重复');
   }
 
   // ── 点形状连着加:一个挨一个排开,不叠在一起 ──────────────────────────
@@ -306,7 +288,7 @@ try {
     const r = m.repairCanvas([{ ...a, comment: null }], []);
     assert.equal(r.nodes[0].comment, undefined, '坏的注释去掉,形状留着');
     const flowFile = join(dir, 'f2.cjs');
-    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
+    await build({ entryPoints: [resolve('src/features/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
     const f = createRequire(import.meta.url)(flowFile);
     assert.equal(f.fromFlowNode(f.toFlowNode(a)).comment, a.comment, '注释存下去换回来不丢');
     assert(!('comment' in f.styleOf(a)), '格式刷不带注释(注释是内容,不是样式)');
@@ -330,11 +312,11 @@ try {
   // ── 导出动图:按时间逐帧画流动效果,首尾无缝 ──
   {
     const animFile = join(dir, 'anim.cjs');
-    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasAnimation.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: animFile, logLevel: 'silent' });
+    await build({ entryPoints: [resolve('src/features/canvas/canvasAnimation.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: animFile, logLevel: 'silent' });
     const an = createRequire(import.meta.url)(animFile);
     const loadVideo = () => {
       const videoFile = join(dir, 'video.cjs');
-      buildSync({ entryPoints: [resolve('src/features/lineage/canvas/canvasVideo.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: videoFile, logLevel: 'silent' });
+      buildSync({ entryPoints: [resolve('src/features/canvas/canvasVideo.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: videoFile, logLevel: 'silent' });
       return createRequire(import.meta.url)(videoFile);
     };
     const measure = (t, size) => t.length * size * 0.6;
@@ -467,7 +449,7 @@ try {
     }
     // 导出网页:浏览器自己播动画(SVG 的 animate),标题转义,不带白底(网页自己画点阵底),带平移缩放
     const htmlFile = join(dir, 'html.cjs');
-    buildSync({ entryPoints: [resolve('src/features/lineage/canvas/canvasHtml.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: htmlFile, logLevel: 'silent' });
+    buildSync({ entryPoints: [resolve('src/features/canvas/canvasHtml.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: htmlFile, logLevel: 'silent' });
     const hx = createRequire(import.meta.url)(htmlFile);
     const live = (flowStyle, extra = {}) => hx.canvasToHtml([a, b], [edge({ flowStyle, ...extra })], measure, probe, '堂食 <链路> & 说明');
     const page = live('dash');
@@ -565,7 +547,7 @@ try {
   // ── 纯数据 <-> React Flow 画布对象:存盘、撤销都靠它换回来,字段一个都不能丢 ──
   {
     const flowFile = join(dir, 'f.cjs');
-    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
+    await build({ entryPoints: [resolve('src/features/canvas/canvasFlow.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: flowFile, logLevel: 'silent' });
     const f = createRequire(import.meta.url)(flowFile);
     const node = m.newNode('cylinder', 10, 20, { w: 150, h: 70, text: 'ods.raw', color: 'teal', fontSize: 15, bold: true, textColor: 'yellow', fill: 'solid', dashed: true, z: 3, ref: 'shop.ods_raw' });
     const fn = f.toFlowNode(node);
@@ -624,7 +606,7 @@ try {
   // ── 历史版本:内容没变不记,固定 2 分钟一段、同段只留最后一份,第一份永远留着,恢复算里程碑,最多 30 份 ──
   {
     const repoFile = join(dir, 'r.cjs');
-    await build({ entryPoints: [resolve('src/features/lineage/canvas/canvasRepository.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: repoFile, logLevel: 'silent' });
+    await build({ entryPoints: [resolve('src/features/canvas/canvasRepository.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: repoFile, logLevel: 'silent' });
     const repo = createRequire(import.meta.url)(repoFile);
     const G = repo.HISTORY_GAP_MS;
     const a = m.newNode('pill', 0, 0);
@@ -650,7 +632,7 @@ try {
     ok('历史版本:去重、按 2 分钟分段、首份保留、恢复不顶掉前一份、最多 30 份');
   }
 
-  console.log(`lineage canvas: ${n} 项通过`);
+  console.log(`canvas: ${n} 项通过`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

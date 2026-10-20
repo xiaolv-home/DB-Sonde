@@ -7,7 +7,7 @@ import type { QueryPlan } from "./queryPlan";
  *  - sql      : 一段完整 SELECT(万能兜底) */
 export type MetricType = "measure" | "ratio" | "derived" | "sql" | "template";
 
-/** A reusable metric — the semantic layer that BI / AI / 血缘 all pull from,
+/** A reusable metric — the semantic layer that BI / AI both pull from,
  *  so a number like 销售额 means the same thing everywhere. Stored locally. */
 export interface Metric {
   id: string;
@@ -23,7 +23,7 @@ export interface Metric {
   type: MetricType;
   queryPlan?: QueryPlan;
   dimensionLabels?: Record<string, string>;
-  source?: string; // 基表 (measure/ratio) — 也直接喂血缘,无需解析
+  source?: string; // 基表 (measure/ratio)
   expression?: string; // measure: 聚合表达式
   numerator?: string; // ratio: 分子表达式
   denominator?: string; // ratio: 分母表达式
