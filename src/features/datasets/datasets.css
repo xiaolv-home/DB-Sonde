@@ -1,267 +1,168 @@
-/* 数据集中心。
- *
- * 布局:左边是数据集和可用的表,右边上半是关联建模画布、下半是字段/预览。
- *
- * 画布上一张表是一个胶囊,拖着摆;两张表之间一条贝塞尔曲线,曲线中点挂着关联条件,
- * 点开就能改用哪两列连、左连接还是内连接。拖拽走鼠标事件而不是 HTML5 drag —— 后者
- * 在 Tauri 里被窗口的文件拖放处理器吞过,而且鼠标事件才做得出跟手的手感。
- *
- * 这里的控件都自带宽度:全局 .input 是 width:100%,一行放多个会被拉成整行再换行。 */
+/* 数据集:数据资产里的列表 + 铺满窗口的编辑器(DatasetEditor)。
+   编辑器从上到下:来源(关联写成句子)→ 字段表格 → 预览。 */
 
-.ds-layout { display: grid; grid-template-columns: 236px minmax(0, 1fr); height: 100%; min-height: 0; }
+/* ── 数据资产里的列表 ─────────────────────────── */
+.ds-home { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; }
+.ds-home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.ds-home-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text);
+  text-align: left; font: inherit; cursor: default;
+}
+.ds-home-card:hover { border-color: var(--accent); }
+.ds-home-card > svg { color: var(--accent); }
+.ds-home-card b { font-size: 14px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-home-card small { color: var(--text-3); font-size: 12px; }
+.ds-home-new { justify-content: center; align-items: center; border-style: dashed; color: var(--text-3); min-height: 96px; }
+.ds-home-new > svg { color: inherit; }
+.ds-home-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 70px 20px; color: var(--text-3); text-align: center; }
+.ds-home-empty > svg { color: var(--accent); }
+.ds-home-empty b { color: var(--text); font-size: 15px; }
+.ds-badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11.5px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); white-space: nowrap; }
 
-/* ── 左轨:数据集 + 表 ─────────────────────────── */
-.ds-rail { display: flex; flex-direction: column; min-height: 0; padding-right: 14px;
-  border-right: 1px solid var(--border); }
-.ds-rail-top { display: flex; flex-direction: column; gap: 2px; max-height: 40%; overflow: auto; }
-.ds-new { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 8px;
-  height: 32px; font-size: 12.5px; font-family: inherit; color: var(--text); background: var(--surface-3);
-  border: 1px solid var(--border-2); border-radius: 9px; cursor: pointer; flex: 0 0 auto; }
-.ds-new:hover { border-color: var(--accent); color: var(--accent); }
-.ds-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
-  border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer;
-  text-align: left; font-family: inherit; }
-.ds-item > svg { flex: 0 0 auto; color: var(--text-3); }
-.ds-item:hover { background: var(--surface-3); }
-.ds-item.on { background: var(--surface-3); border-color: var(--border-2); }
-.ds-item.on > svg { color: var(--accent); }
-.ds-item-name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ── 编辑器外壳:盖住整个窗口 ─────────────────────── */
+.ds-editor { position: fixed; inset: 0; z-index: 450; display: flex; flex-direction: column; background: var(--bg, var(--surface)); color: var(--text); }
+.ds-ed-top { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+.ds-ed-name { min-width: 120px; max-width: 320px; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--text); font-size: 16px; font-weight: 600; }
+.ds-ed-name:hover { border-color: var(--border); }
+.ds-ed-name:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.ds-ed-crumbs { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); min-width: 0; }
+.ds-status { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.ds-status.ok { color: var(--text-3); }
+.ds-status.warn { color: var(--warn, #d9a514); }
+.ds-ed-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+.ds-ed-list { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 12px 10px; border-right: 1px solid var(--border); background: var(--surface-2); }
+.ds-ed-items { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.ds-ed-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--text); text-align: left; font: inherit; cursor: default; }
+.ds-ed-item:hover { background: var(--surface-3); }
+.ds-ed-item.on { background: color-mix(in srgb, var(--accent) 13%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.ds-ed-item b { font-size: 13px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-ed-item small { font-size: 11.5px; color: var(--text-3); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-ed-new { justify-content: center; }
+.ds-ed-main { min-width: 0; overflow: auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 14px; }
 
-.ds-rail-tables { display: flex; flex-direction: column; min-height: 0; margin-top: 14px; padding-top: 12px;
-  border-top: 1px solid var(--border); }
-.ds-rail-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
-.ds-rail-head strong { font-size: 12.5px; }
-.ds-rail-hint { margin: 8px 2px; font-size: 11px; color: var(--text-3); line-height: 1.6; }
-.ds-rail-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
-.ds-rail-item { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "i n" ". c";
-  gap: 0 8px; align-items: center; padding: 6px 9px; border: 1px solid transparent; border-radius: 8px;
-  background: transparent; color: var(--text); cursor: pointer; text-align: left; font-family: inherit; }
-.ds-rail-item > svg { grid-area: i; color: var(--text-3); }
-.ds-rail-name { grid-area: n; font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ds-rail-item small { grid-area: c; font-size: 10.5px; color: var(--text-3); overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.ds-rail-item:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-2); }
-.ds-rail-item:hover:not(:disabled) > svg { color: var(--accent); }
-.ds-rail-item.used { opacity: .35; cursor: default; }
+/* ── 卡片(来源 / 字段 / 预览)────────────────────── */
+.ds-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; min-width: 0; }
+.ds-card-head { display: flex; align-items: center; gap: 10px; min-height: 28px; margin-bottom: 8px; flex-wrap: wrap; }
+.ds-card-head > b { font-size: 14px; font-weight: 600; }
+.ds-card-tip { margin: 4px 0; font-size: 12.5px; color: var(--text-3); display: flex; align-items: center; gap: 6px; }
+.ds-warn { margin: 0; padding: 7px 10px; border-radius: 7px; font-size: 12.5px; line-height: 1.6;
+  background: color-mix(in srgb, #e0484e 12%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, #e0484e 35%, transparent); }
+.ds-dim { color: var(--text-3); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.ds-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); margin-left: auto; }
+.ds-seg button { height: 24px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: default; }
+.ds-seg button:hover { color: var(--text); }
+.ds-seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
+.ds-link { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; border: 0; background: transparent; color: var(--text-3);
+  font: inherit; font-size: 12.5px; cursor: default; white-space: nowrap; border-radius: 5px; }
+.ds-link:hover:not(:disabled) { color: var(--accent); }
+.ds-link.strong { color: var(--accent); }
+.ds-link:disabled { opacity: 0.45; }
+.ds-x { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-3); cursor: default; }
+.ds-x:hover { background: var(--surface-3); color: var(--text); }
+.ds-search { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-3); background: var(--surface-2); }
+.ds-search input { width: 120px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; outline: none; }
+.ds-search.wide input { width: 100%; }
+.ds-search:focus-within { border-color: var(--accent); }
+.ds-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
 
-.ds-blank { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  color: var(--text-3); text-align: center; }
-.ds-blank svg { opacity: .3; }
-.ds-blank h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-2); }
-.ds-blank p { margin: 0; font-size: 12.5px; line-height: 1.9; }
-
-/* ── 右:工作区 ──────────────────────────────── */
-.ds-work { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.ds-head { display: flex; flex-direction: column; gap: 9px; padding: 0 0 12px 18px;
-  border-bottom: 1px solid var(--border); }
-.ds-title { height: 30px; padding: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em;
-  color: var(--text); background: transparent; border: none; border-bottom: 1px solid transparent;
-  outline: none; width: 100%; font-family: inherit; }
-.ds-title:focus { border-bottom-color: var(--border-2); }
-.ds-title::placeholder { color: var(--text-3); font-weight: 400; }
-.ds-crumbs { display: flex; align-items: center; gap: 4px; color: var(--text-3); }
-.ds-crumbs > svg { flex: 0 0 auto; }
-.ds-acts { margin-left: 12px; display: flex; align-items: center; gap: 6px; }
-.ds-mode { margin-left: auto; display: inline-flex; gap: 2px; padding: 2px; background: var(--surface-3);
-  border-radius: 8px; }
-.ds-mode button { height: 24px; padding: 0 14px; font-size: 12px; color: var(--text-3); background: transparent;
-  border: none; border-radius: 6px; cursor: pointer; font-family: inherit; }
-.ds-mode button:hover { color: var(--text); }
-.ds-mode button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
-
-.ds-pick { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 24px;
-  padding: 0 6px 0 8px; border-radius: 7px; background: transparent; border: 1px solid transparent;
-  color: var(--text); cursor: pointer; max-width: 190px; }
-.ds-pick:hover { background: var(--surface-3); border-color: var(--border-2); }
+/* 紧凑下拉:整块可点 */
+.ds-pick { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 26px; max-width: 280px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); }
+.ds-pick:hover { border-color: var(--border-2); }
 .ds-pick > svg { flex: 0 0 auto; color: var(--text-3); }
-.ds-pick select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
-  font-family: inherit; }
+.ds-pick select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: default; font-size: 13px; }
 .ds-pick-text { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ds-pick.crumb .ds-pick-text { color: var(--accent); font-weight: 500; }
 .ds-pick.empty .ds-pick-text { color: var(--text-3); }
+.ds-pick.empty { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.ds-pick.mono .ds-pick-text { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; }
+.ds-op, .ds-conn { padding: 0 6px; }
+.ds-verb-pick { width: 76px; justify-content: space-between; background: transparent; }
 
-/* ── 画布 ──────────────────────────────────── */
-.ds-stage { flex: 1; min-height: 0; overflow: auto; padding: 18px;
-  background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
-  background-size: 22px 22px; }
-.ds-stage-empty { height: 100%; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 8px; color: var(--text-3); }
-.ds-stage-empty svg { opacity: .35; }
-.ds-stage-empty p { margin: 0; font-size: 13px; color: var(--text-2); }
-.ds-stage-empty small { font-size: 11.5px; }
-.ds-sqleditor { height: 100%; background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 12px; overflow: hidden; }
+/* ── 来源:一行行句子 ─────────────────────────── */
+.ds-sentences { display: flex; flex-direction: column; gap: 8px; }
+.ds-sentence { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 30px; padding: 2px 0; }
+.ds-sentence + .ds-sentence { border-top: 1px dashed var(--border); padding-top: 8px; }
+.ds-verb { width: 76px; flex: 0 0 auto; color: var(--text-3); font-size: 12.5px; padding-left: 8px; }
+.ds-anchor { position: relative; display: inline-flex; }
+.ds-tablebtn, .ds-table-name { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 7px;
+  font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; }
+.ds-tablebtn { border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); cursor: default; }
+.ds-tablebtn:hover { border-color: var(--accent); }
+.ds-tablebtn.empty { border-style: dashed; border-color: var(--accent); color: var(--accent); font-family: inherit; }
+.ds-table-name { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text); }
+.ds-tablebtn > svg, .ds-table-name > svg { color: var(--accent); }
+.ds-cond { display: inline-flex; align-items: center; gap: 4px; }
+.ds-x-row { margin-left: auto; }
+.ds-via { flex-basis: 100%; padding-left: 82px; }
+.ds-add { padding-left: 82px; }
+.ds-note { margin: 8px 0 0; padding: 6px 10px; border-radius: 7px; font-size: 12.5px; color: var(--text-2);
+  background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.ds-sqlpeek { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+.ds-sqlpeek pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 7px; background: var(--surface-2); font-size: 12px; line-height: 1.6; overflow: auto; max-height: 220px; white-space: pre-wrap; }
+.ds-sqleditor { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 
-.dc-board { position: relative; min-width: 100%; min-height: 100%; }
-.dc-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.dc-wire { fill: none; stroke: url(#dc-wire); stroke-width: 2; stroke-linecap: round; }
+/* 挑表的弹层 */
+.ds-tpick { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: 360px; max-height: 380px; display: flex; flex-direction: column;
+  border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.45); overflow: hidden; }
+.ds-tpick-search { display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text-3); }
+.ds-tpick-search input { flex: 1; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13.5px; outline: none; }
+.ds-tpick-rec { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.ds-tpick-rec > span { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-3); margin-right: 2px; }
+.ds-tpick-rec button { padding: 2px 8px; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text); font: inherit; font-size: 12px; cursor: default; }
+.ds-tpick-rec button small { color: var(--text-3); }
+.ds-tpick-list { overflow: auto; padding: 4px; }
+.ds-tpick-list button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 7px; width: 100%; padding: 6px 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; cursor: default; }
+.ds-tpick-list button > svg { color: var(--text-3); }
+.ds-tpick-list button small { grid-column: 2; font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-tpick-list button em { grid-row: 1; grid-column: 3; font-style: normal; font-size: 11px; color: var(--text-3); }
+.ds-tpick-list button:hover:not(:disabled) { background: var(--surface-3); }
+.ds-tpick-list button:disabled { opacity: 0.45; }
+.ds-tpick-name { font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-tpick-none { margin: 0; padding: 14px; font-size: 12.5px; color: var(--text-3); }
 
-/* 胶囊节点 */
-.dc-node { position: absolute; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: center; gap: 11px; height: 64px; padding: 0 14px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
-  border: 1px solid var(--border-2); border-radius: 32px; cursor: grab; user-select: none;
-  box-shadow: 0 2px 10px rgba(0,0,0,.22);
-  transition: border-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), transform var(--dur-1) var(--ease); }
-.dc-node:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-2)); }
-.dc-node.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 4px 16px rgba(0,0,0,.3); }
-.dc-node.dragging { cursor: grabbing; transform: scale(1.03); box-shadow: 0 10px 26px rgba(0,0,0,.4); }
-.dc-node.empty { border-style: dashed; background: transparent; box-shadow: none; }
-.dc-node-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
-  background: color-mix(in srgb, var(--c-table, #4d8dff) 16%, transparent); color: var(--c-table, #4d8dff); }
-.dc-node-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dc-node-name { font-size: 13px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, monospace;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-node-meta { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--text-3);
-  min-width: 0; }
-.dc-node-meta em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-node-meta code { padding: 1px 5px; background: var(--surface); border-radius: 4px;
-  font-family: ui-monospace, monospace; }
-.dc-node-tag { padding: 2px 8px; font-size: 10px; color: var(--text-2); background: var(--surface);
-  border-radius: 20px; }
-.dc-node-x { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
-  border: none; background: transparent; color: var(--text-3); cursor: pointer; opacity: 0;
-  transition: opacity var(--dur-1) var(--ease); }
-.dc-node:hover .dc-node-x { opacity: 1; }
-.dc-node-x:hover { background: var(--surface); color: var(--text); }
+/* ── 字段表格 ───────────────────────────────── */
+.ds-ftable { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.ds-ftable th { position: sticky; top: 0; padding: 6px 8px; text-align: left; font-weight: 500; font-size: 12px; color: var(--text-3); background: var(--surface); border-bottom: 1px solid var(--border); }
+.ds-ftable td { padding: 3px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); vertical-align: middle; }
+.ds-ftable tr.off td { color: var(--text-3); }
+.ds-ftable tr.off .ds-c-name { text-decoration: none; opacity: 0.6; }
+.ds-ftable tbody tr:not(.ds-group-row):hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.ds-c-keep { width: 34px; text-align: center; }
+.ds-c-name { font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-c-label input { width: 100%; height: 26px; padding: 0 7px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text); font: inherit; font-size: 13px; }
+.ds-c-label input:hover { border-color: var(--border); }
+.ds-c-label input:focus { outline: none; border-color: var(--accent); background: var(--surface-2); }
+.ds-c-type { width: 110px; color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-c-role { width: 74px; }
+.ds-c-agg { width: 100px; }
+.ds-c-agg select { width: 100%; height: 26px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 12.5px; }
+.ds-c-act { width: 54px; text-align: right; white-space: nowrap; }
+.ds-ftable th:nth-child(2) { width: 32%; }
+.ds-role { min-width: 48px; height: 22px; padding: 0 9px; border: 0; border-radius: 999px; font: inherit; font-size: 12px; cursor: default; }
+.ds-role.dimension { background: color-mix(in srgb, #8b5cf6 16%, transparent); color: #8b5cf6; }
+.ds-role.measure { background: color-mix(in srgb, #2fa86b 16%, transparent); color: #2fa86b; }
+tr.off .ds-role { opacity: 0.55; }
+.ds-group-row td { padding: 9px 8px 5px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.ds-group-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: default; }
+.ds-group-toggle b { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; font-size: 12.5px; }
+.ds-group-toggle svg { color: var(--text-3); transition: transform 0.12s; }
+.ds-group-toggle svg.open { transform: rotate(90deg); }
+.ds-group-ops { float: right; display: inline-flex; gap: 2px; }
 
-/* 挂在连线中点的关联条件 */
-.dc-cond { position: absolute; transform: translate(-50%, -50%); z-index: 2; }
-.dc-cond-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px;
-  font-size: 11.5px; font-family: inherit; color: var(--text-2); background: var(--surface);
-  border: 1px solid var(--border-2); border-radius: 20px; cursor: pointer; white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0,0,0,.24); }
-.dc-cond-chip:hover { border-color: var(--accent); color: var(--text); }
-.dc-cond-chip svg { color: var(--text-3); }
-.dc-cond-chip em { font-style: normal; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px;
-  color: var(--text-3); }
-.dc-cond.todo .dc-cond-chip { border-color: var(--amber, #e0a33e); }
-.dc-cond-chip em.todo { color: var(--amber, #e0a33e); }
-.dc-cond.open .dc-cond-chip { border-color: var(--accent); }
-.dc-cond-panel { position: absolute; top: 32px; left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; gap: 8px; width: 232px; padding: 12px;
-  background: var(--surface); border: 1px solid var(--border-2); border-radius: 12px;
-  box-shadow: 0 12px 30px rgba(0,0,0,.42); }
-.dc-cond-panel label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-3); }
-.dc-cond-panel select { height: 28px; padding: 0 8px; font-size: 12px; font-family: inherit;
-  color: var(--text); background: var(--surface-2); border: 1px solid var(--border-2);
-  border-radius: 7px; outline: none; }
-.dc-cond-panel select:focus { border-color: var(--accent); }
-
-/* ── 底部:字段 / 预览 ────────────────────────── */
-.ds-bottom { display: flex; flex-direction: column; height: 292px; border-top: 1px solid var(--border); }
-.ds-tabs { display: flex; align-items: center; gap: 12px; padding: 8px 16px 8px 18px;
-  border-bottom: 1px solid var(--border); }
-.ds-tabs > button:first-child, .ds-tabs > button:nth-child(2) {
-  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px; font-size: 13px;
-  font-family: inherit; color: var(--text-3); background: none; border: none; border-bottom: 2px solid transparent;
-  cursor: pointer; }
-.ds-tabs > button.on { color: var(--text); border-bottom-color: var(--accent); }
-.ds-count { padding: 1px 7px; font-size: 10.5px; color: var(--text-3); background: var(--surface-3);
-  border-radius: 20px; }
-.ds-linkbtn { padding: 0; font-size: 11.5px; color: var(--text-3); background: none; border: none;
-  cursor: pointer; font-family: inherit; }
-.ds-linkbtn:hover { color: var(--text); }
-.ds-linkbtn.accent { color: var(--accent); }
-.ds-search { display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
-  background: var(--surface-3); border-radius: 7px; color: var(--text-3); }
-.ds-search input { width: 96px; border: none; background: transparent; outline: none; color: var(--text);
-  font-size: 12px; font-family: inherit; }
-.ds-msg { margin-left: auto; font-size: 12px; color: var(--text-3); }
-.ds-msg.warn { color: var(--amber, #e0a33e); }
-.ds-sqlbox { position: relative; }
-.ds-sqlbox summary { font-size: 11.5px; color: var(--text-3); cursor: pointer; list-style: none; }
-.ds-sqlbox summary::-webkit-details-marker { display: none; }
-.ds-sqlbox summary:hover { color: var(--text); }
-.ds-sql { position: absolute; right: 0; bottom: 22px; z-index: 5; width: 480px; max-height: 260px;
-  overflow: auto; margin: 0; padding: 12px 14px; background: var(--surface);
-  border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.42);
-  font-size: 11.5px; line-height: 1.75; color: var(--text-2); white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, monospace; }
-
-.ds-bottom-body { flex: 1; min-height: 0; overflow: auto; }
-.ds-bottom-empty { margin: 0; padding: 20px 18px; font-size: 12.5px; color: var(--text-3); }
-
-.ds-groups { padding-bottom: 8px; }
-.ds-group + .ds-group { border-top: 1px solid var(--border); }
-.ds-group-head { display: flex; align-items: center; gap: 7px; width: 100%; padding: 8px 18px;
-  background: transparent; border: none; cursor: pointer; color: var(--text); text-align: left;
-  font-family: inherit; }
-.ds-group-head:hover { background: var(--surface-3); }
-.ds-group-head strong { font-size: 12px; font-weight: 600; font-family: ui-monospace, monospace; }
-.ds-group-head svg { flex: 0 0 auto; color: var(--text-3); transition: transform var(--dur-2) var(--ease); }
-.ds-group-head svg.open { transform: rotate(90deg); }
-.ds-kept { font-size: 11px; color: var(--accent); }
-.ds-group-ops { margin-left: auto; display: flex; gap: 10px; opacity: 0; transition: opacity var(--dur-1) var(--ease); }
-.ds-group-head:hover .ds-group-ops { opacity: 1; }
-.ds-group-empty { margin: 0; padding: 4px 18px 10px; font-size: 11.5px; color: var(--text-3); }
-
-.ds-field-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1px 20px; padding: 2px 18px 10px; }
-.ds-field { display: grid; grid-template-columns: 15px 20px minmax(0, 1fr) auto; align-items: center;
-  gap: 8px; padding: 4px; border-radius: 7px; }
-.ds-field:hover { background: var(--surface-3); }
-.ds-field.off { opacity: .4; }
-.ds-field input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); cursor: pointer; }
-.ds-field-mark { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px;
-  border: none; cursor: pointer; transition: transform var(--dur-1) var(--ease); }
-.ds-field-mark:hover { transform: scale(1.12); }
-.ds-field.dimension .ds-field-mark { background: color-mix(in srgb, var(--c-table, #4d8dff) 16%, transparent);
-  color: var(--c-table, #4d8dff); }
-.ds-field.measure .ds-field-mark { background: color-mix(in srgb, #2fa37a 18%, transparent); color: #2fa37a; }
-.ds-sigma { font-size: 12px; font-weight: 700; line-height: 1; }
-.ds-field-body { display: flex; flex-direction: column; min-width: 0; }
-.ds-field-label { height: 19px; padding: 0 4px; margin-left: -4px; font-size: 12.5px; font-family: inherit;
-  color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 5px;
-  outline: none; width: 100%; }
-.ds-field-label:hover { border-color: var(--border); }
-.ds-field-label:focus { border-color: var(--accent); background: var(--surface-2); }
-.ds-field-label::placeholder { color: var(--text); opacity: .85; }
-.ds-field-name { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10.5px;
-  color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ds-agg { height: 22px; padding: 0 4px; font-size: 11px; font-family: inherit; color: var(--text-2);
-  background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
-.ds-agg:hover { border-color: var(--border-2); background: var(--surface-2); }
-
-.ds-preview-scroll { height: 100%; overflow: auto; }
-.ds-preview-scroll table { border-collapse: collapse; font-size: 11.5px; width: 100%; }
-.ds-preview-scroll th, .ds-preview-scroll td { padding: 5px 12px; border-bottom: 1px solid var(--border);
-  white-space: nowrap; text-align: left; }
-.ds-preview-scroll th { position: sticky; top: 0; background: var(--surface-3); font-weight: 600;
-  color: var(--text-2); }
-.ds-null { color: var(--text-3); font-style: italic; }
-
-/* 关联条件面板:多个条件,每条自带比较方式,条与条之间且/或 */
-.dc-cond-panel { width: 300px; }
-.dc-cond-kind { flex-direction: row; align-items: center; justify-content: space-between; }
-.dc-cond-kind select { width: 120px; }
-.dc-cond-row { display: flex; flex-direction: column; gap: 4px; }
-.dc-cond-join { align-self: flex-start; height: 22px; padding: 0 6px; font-size: 11px; font-family: inherit;
-  color: var(--text-3); background: var(--surface-3); border: 1px solid var(--border); border-radius: 6px; }
-.dc-cond-expr { display: grid; grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr) auto; gap: 5px;
-  align-items: center; }
-.dc-cond-op { text-align: center; font-family: ui-monospace, monospace; }
-.dc-cond-del { display: grid; place-items: center; width: 20px; height: 20px; border: none; border-radius: 5px;
-  background: transparent; color: var(--text-3); cursor: pointer; }
-.dc-cond-del:hover { background: var(--surface-3); color: var(--text); }
-.dc-cond-add { align-self: flex-start; padding: 0; font-size: 11.5px; font-family: inherit; color: var(--accent);
-  background: none; border: none; cursor: pointer; }
-
-/* 数据集自己算出来的字段 */
-.ds-group-head.as-row { display: flex; align-items: center; gap: 7px; padding: 8px 18px; }
-.ds-group-head.as-row > svg { color: #2fa37a; }
-.ds-field-edit { padding: 0; font-size: 12.5px; font-family: inherit; color: var(--text); background: none;
-  border: none; border-bottom: 1px dashed var(--border-2); cursor: pointer; text-align: left;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ds-field-edit:hover { color: var(--accent); border-bottom-color: var(--accent); }
-.ds-field-del { display: grid; place-items: center; width: 20px; height: 20px; border: none; border-radius: 5px;
-  background: transparent; color: var(--text-3); cursor: pointer; opacity: 0; transition: opacity var(--dur-1) var(--ease); }
-.ds-field:hover .ds-field-del { opacity: 1; }
-.ds-field-del:hover { background: var(--surface); color: var(--text); }
+/* ── 预览 ──────────────────────────────────── */
+.ds-preview { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.ds-preview table { border-collapse: collapse; font-size: 12.5px; }
+.ds-preview th, .ds-preview td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.ds-preview th { position: sticky; top: 0; background: var(--surface-2); font-weight: 500; color: var(--text-2); }
 
 /* ── 字段编辑器 ─────────────────────────────── */
-.fe-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+.fe-backdrop { position: fixed; inset: 0; z-index: 640; display: grid; place-items: center;
   background: rgba(0,0,0,.52); backdrop-filter: blur(2px); }
 .fe-modal { width: min(720px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 14px;

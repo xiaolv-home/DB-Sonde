@@ -18,7 +18,7 @@ try {
     },
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
-  const { buildDatasetSql, validateDataset, inferRole, createDataset, joinColumnAlias, buildWidgetSql, guessJoin, derivedExpr } =
+  const { buildDatasetSql, validateDataset, inferRole, createDataset, joinColumnAlias, buildWidgetSql, guessJoin, guessJoinAcross, recommendTables, tableStem, derivedExpr } =
     createRequire(import.meta.url)(outfile);
 
   // --- 字段角色推断 ---
@@ -124,23 +124,36 @@ try {
   assert(dimOnly.includes('ORDER BY `store`'), `a de-duplicated list still needs a stable order: ${dimOnly}`);
 
   // --- 关联字段自动推断:省掉从两串字段里翻出该对上的那两个 ---
-  assert.deepEqual(
-    guessJoin(['store_id', 'amount'], ['store_id', 'name']),
-    { field: 'store_id', targetField: 'store_id', reason: '同名主键字段' },
-  );
-  // 大小写和下划线不该影响判断
-  const cased = guessJoin(['StoreID'], ['store_id']);
-  assert.equal(cased.field, 'StoreID');
-  assert.equal(cased.targetField, 'store_id');
-  // id 结尾的同名字段优先于普通同名字段
-  const both = guessJoin(['name', 'store_id'], ['name', 'store_id']);
-  assert.equal(both.field, 'store_id', 'an id-like column beats a plain same-named one');
-  // 外键对主键:store_id -> store 表的 id
-  const fk = guessJoin(['store_id', 'amount'], ['id', 'title'], 't_store');
-  assert.equal(fk.field, 'store_id');
-  assert.equal(fk.targetField, 'id');
-  // 什么都不像就别猜 —— 猜错了看起来是对的,比不猜更糟
-  assert.equal(guessJoin(['amount'], ['title']), undefined);
+  // 以前真机上猜错过:demo_sales 连 demo_customers 猜成了 id = id(两边主键对主键)
+  const sales = ['id', 'sale_date', 'customer_id', 'product_id', 'amount'];
+  const customers = ['id', 'name', 'city', 'created_at'];
+  assert.deepEqual(guessJoin(customers, sales, 'demo_sales', 'demo_customers'),
+    { field: 'id', targetField: 'customer_id', reason: 'demo_sales.customer_id 指向 demo_customers' },
+    '已有表里指向新表的键优先:sales.customer_id = customers.id,不能是 id = id');
+  // 反过来:新表里有指向已有表的键
+  const items = guessJoin(['id', 'order_id', 'qty'], ['id', 'order_date'], 'orders', 'order_items');
+  assert.deepEqual([items.field, items.targetField], ['order_id', 'id'], 'order_items.order_id = orders.id');
+  // 分层前缀、复数、大小写、下划线都不影响
+  const dim = guessJoin(['id', 'store_name'], ['StoreID', 'gmv'], 'ads_store_day', 'dim_stores');
+  assert.deepEqual([dim.field, dim.targetField], ['id', 'StoreID']);
+  // 同名的键(两边都有 store_id)
+  const shared = guessJoin(['store_id', 'member_cnt'], ['store_id', 'gmv'], 'ads_store_day', 'ads_member_day');
+  assert.deepEqual([shared.field, shared.targetField], ['store_id', 'store_id']);
+  // 主键对主键、普通同名列(name / created_at)都不猜 —— 猜错了看起来是对的,比不猜更糟
+  assert.equal(guessJoin(['id', 'name'], ['id', 'name'], 'a', 'b'), undefined);
+  assert.equal(guessJoin(['amount'], ['title'], 'a', 'b'), undefined);
+  // 挂到哪张已有的表上:「指向」比「同名」有把握
+  const across = guessJoinAcross('dim_area', ['id', 'area_name'], [
+    { alias: 't1', table: 'ads_store_day', fields: ['store_id', 'gmv'] },
+    { alias: 't2', table: 'dim_store', fields: ['id', 'area_id'] },
+  ]);
+  assert.deepEqual([across.targetAlias, across.targetField, across.field], ['t2', 'area_id', 'id'], '区域表挂到门店表上(dim_store.area_id)');
+  // 推荐下一张表:已有表里的 xxx_id 在库里找得到对应的表
+  const rec = recommendTables([{ table: 'demo_sales', fields: sales }], ['demo_sales', 'demo_customers', 'demo_products', 'monthly_revenue']);
+  assert.deepEqual(rec, [{ table: 'demo_customers', via: 'customer_id' }, { table: 'demo_products', via: 'product_id' }]);
+  assert.deepEqual(recommendTables([{ table: 'ads_store_day', fields: ['store_id'] }], ['dim_sales_store', 'dim_store'])[0].table, 'dim_store',
+    '词干完全一样的优先');
+  assert.equal(tableStem('dw.dim_categories'), 'category');
 
   // --- 关联:多个条件、运算符、AND/OR ---
   const multi = {
