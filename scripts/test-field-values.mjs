@@ -90,13 +90,24 @@ try {
   assert.deepEqual(fallback.values, ['华东大区', '华南大区', '西北大区'], '退路走的是同一套去重排序');
   assert.equal(calls.length, 4, '编译产物是另一句 SQL,要真查');
 
+  /* 组件设了「前 5 名」:那是按度量截前 5 行。列筛选候选值时要是带着它,下拉里就只剩 5 个,
+     而且 5 行远没到上限,还会说成「就这些」。 */
+  const topped = {
+    ...compiled, id: 'w2', sql: 'SELECT war_zone, SUM(amount) FROM t GROUP BY war_zone ORDER BY 2 DESC LIMIT 5',
+    compiledFrom: { dataset, kind: 'mysql', query: { dimensions: ['war_zone'], measures: [{ field: 'amount', agg: 'sum' }], topN: 5,
+      orderBy: [{ name: 'amount', dir: 'desc', measure: true }] } },
+  };
+  await dimensionValues(topped, 'war_zone', t);
+  const listed = calls[calls.length - 1];
+  assert(!/LIMIT 5\b/.test(listed) && !/`amount` DESC/.test(listed), `列候选值不该带着组件的前 N 名: ${listed}`);
+
   // 行数顶到上限 = 后面还有没取回来的。以前直接当成"就这些",
   // 于是明明存在的取值在下拉里找不着,看上去就是"被吃了"。
   const capped = await datasetDimensionValues(dataset, 'war_zone', 'mysql', t, 4);
   assert.equal(capped.truncated, true, '取满上限要说出来,不能装作就这些');
   assert.equal(capped.values.length, 3, '截断了也照样去重');
 
-  console.log('field values: 13 assertions passed');
+  console.log('field values: 14 assertions passed');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

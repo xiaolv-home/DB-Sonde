@@ -35,6 +35,9 @@ const byRegion = semanticDataset(bar, [metric], scope);
 assert(compileSemanticDataset(byRegion, [metric]).sql.includes("GROUP BY region"));
 const filtered = compileSemanticDataset(byRegion, [metric], [{ field: "region", kind: "select", value: "O'Reilly" }]).sql;
 assert(filtered.includes("region='O''Reilly'"));
+// 指标编译要带上方言:取值转义各家不同(MySQL 里以 \ 结尾的取值会吃掉右引号)
+const slash = compileSemanticDataset(byRegion, [metric], [{ field: "region", kind: "select", value: "华东\\" }], "mysql").sql;
+assert(slash.includes("CONVERT(X'"), `mysql escaping in metric filters: ${slash}`);
 assert.equal(resolveSemanticDocument({ widgets: [bar], datasets: [], metrics: [] }, [metric]).metrics[0].id, "sales");
 const normalizedTable = normalizeDashboard({ schemaVersion: 3, id: "d", widgets: [{ ...widget, type: "table", bindings: { ...widget.bindings, dimensions: ["day", "region", "store", "channel"], metricIds: Array.from({ length: 13 }, (_, i) => `m${i}`), secondaryMetricIds: ["secondary"] } }] });
 assert.deepEqual(normalizedTable.widgets[0].bindings.dimensions, ["day", "region", "store", "channel"]);

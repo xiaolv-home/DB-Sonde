@@ -178,6 +178,19 @@ export function buildRowDelete(
   return `DELETE FROM ${qualifiedTable(kind, database, schema, table)} WHERE ${clauses.join(" AND ")}`;
 }
 
+/**
+ * 一个日历日(YYYY-MM-DD,调用方已校验)写成能跟日期列比的字面量。
+ *
+ * Oracle 不能写 '2026-10-01':DATE 列跟字符串比要按会话的 NLS_DATE_FORMAT 隐式转换,
+ * 默认是 DD-MON-RR,直接 ORA-01861。DATE '…' 对 DATE 和 TIMESTAMP 列都成立;
+ * 反过来,存成字符串的日期列不认 DATE '…'(同样 ORA-01861),所以知道是文本列时照旧比字符串。
+ * 别家的字符串跟日期列比都会自己转,不用管。
+ */
+export function dateLiteral(day: string, kind?: DbKind, textColumn = false): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`不是日期:${day}`);
+  return kind === "oracle" && !textColumn ? `DATE '${day}'` : sqlLiteral(day, kind);
+}
+
 /** Render a cell value as a SQL literal for a filter built from the context menu. */
 export function sqlLiteral(value: unknown, kind?: DbKind): string {
   if (value === null || value === undefined) return "NULL";
@@ -265,7 +278,7 @@ export function scanSql(
   state: SqlScanState = emptyScanState(),
   onCode?: (index: number) => void,
 ): SqlScanState {
-  const { backslashEscapes, hashComments } = dialectFor(kind);
+  const { backslashEscapes, hashComments, dollarQuotes } = dialectFor(kind);
   let { quote, escapeString, dollarTag, lineComment, blockDepth } = state;
   let i = 0;
 
@@ -317,7 +330,7 @@ export function scanSql(
         !/[A-Za-z0-9_$]/.test(text[i - 2] ?? "");
       quote = ch;
       i += 1;
-    } else if (ch === "$") {
+    } else if (ch === "$" && dollarQuotes) {
       const match = text.slice(i).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
       if (match) { dollarTag = match[0]; i += dollarTag.length; }
       else { onCode?.(i); i += 1; }
@@ -363,18 +376,63 @@ export function stripLeadingComments(sql: string): string {
   }
 }
 
+/** Oracle 的 PL/SQL 程序单元:体内的分号是它自己的一部分,结尾的 `END;` 也得原样带着发出去。 */
+const PLSQL_UNIT = /^(?:BEGIN|DECLARE|CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:NON)?EDITIONABLE\s+)?(?:PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE))\b/i;
+/** MySQL 客户端的 `DELIMITER $$`。分隔符只认符号 —— 拿一个词当分隔符(`DELIMITER DELETE`)
+ *  会把那个词从语句里「吃掉」,只读校验就看不到它了。 */
+const DELIMITER_LINE = /^DELIMITER[ \t]+([^\w\s'"`]+)[ \t]*(?:\r?\n|$)/i;
+
+/**
+ * 把脚本拆成一条条语句,拆的规矩跟各家的命令行客户端一致:
+ *
+ * - 一般按顶层分号拆(字符串、注释、PG 的 $$ 体里的不算,见 scanSql)。
+ * - **Oracle 的 PL/SQL 块**(BEGIN / DECLARE / CREATE PROCEDURE、FUNCTION、PACKAGE、TRIGGER、TYPE)
+ *   体内全是分号,按分号拆就成了 `BEGIN NULL` 和 `END` 两句,哪句都跑不了。它整段算一条,
+ *   到单独一行的 `/` 为止(SQL*Plus / SQL Developer 的写法);没写 `/` 就到脚本末尾。
+ * - **MySQL 的 `DELIMITER $$`**:之后按 `$$` 拆,存储过程体里的分号就不切了。
+ * - 只有注释的片段扔掉 —— 脚本末尾留一行 `-- 备注`,Oracle 会对它报 ORA-00900,
+ *   结果页最后停在一个莫名其妙的报错上。
+ */
 export function splitSqlStatements(script: string, kind?: DbKind): string[] {
   const statements: string[] = [];
-  let start = 0;
-  const push = (end: number) => {
+  const oracle = kind === "oracle";
+  const delimiterLines = kind === "mysql" || kind === "mariadb";
+  let delimiter = ";";
+  let start = 0;       // 当前语句从哪儿开始
+  let skip = 0;        // 这之前的字符已经当分隔符 / DELIMITER 行处理掉了
+  let begun = false;   // 当前语句里见到过正文没有
+  let plsql = false;
+  const lineEnd = (i: number) => {
+    const nl = script.indexOf("\n", i);
+    return nl < 0 ? script.length : nl + 1;
+  };
+  const aloneOnLine = (i: number) => {
+    const before = script.lastIndexOf("\n", i - 1) + 1;
+    return !script.slice(before, i).trim() && !script.slice(i + 1, lineEnd(i)).trim();
+  };
+  const push = (end: number, next: number) => {
     const statement = script.slice(start, end).trim();
-    if (statement) statements.push(statement);
-    start = end + 1;
+    if (stripLeadingComments(statement)) statements.push(statement);
+    start = skip = next;
+    begun = plsql = false;
   };
   scanSql(script, kind, emptyScanState(), (i) => {
-    if (script[i] === ";") push(i);
+    if (i < skip) return;
+    const ch = script[i];
+    if (!begun) {
+      if (/\s/.test(ch)) return;
+      const directive = delimiterLines ? DELIMITER_LINE.exec(script.slice(i, lineEnd(i))) : null;
+      if (directive) {
+        delimiter = directive[1];
+        push(i, lineEnd(i));
+        return;
+      }
+      begun = true;
+      plsql = oracle && PLSQL_UNIT.test(script.slice(i, i + 120));
+    }
+    if (oracle && ch === "/" && aloneOnLine(i)) push(i, i + 1);
+    else if (!plsql && script.startsWith(delimiter, i)) push(i, i + delimiter.length);
   });
-  const tail = script.slice(start).trim();
-  if (tail) statements.push(tail);
+  push(script.length, script.length);
   return statements;
 }

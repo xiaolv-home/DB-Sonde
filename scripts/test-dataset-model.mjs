@@ -241,6 +241,15 @@ try {
   }, 'mysql');
   assert(ranged.includes("WHERE `stat_date` >= '2026-09-01' AND `stat_date` < '2026-09-17'"), `date range: ${ranged}`);
 
+  /* Oracle 的 DATE 列不认 '2026-09-01':隐式转换按会话 NLS_DATE_FORMAT(默认 DD-MON-RR),
+     真库上直接 ORA-01861。DATE '…' 对 DATE / TIMESTAMP 都成立;字符串存的日期列反过来不认它。 */
+  const oraRange = (type) => buildWidgetSql({ ...tsDs, fields: [{ name: 'stat_date', role: 'dimension', type }] }, {
+    dimensions: [], measures: [{ field: 'gmv', agg: 'sum' }],
+    dateRange: { field: 'stat_date', start: '2026-09-01', end: '2026-09-16' },
+  }, 'oracle');
+  assert(oraRange('DATE').includes(`"stat_date" >= DATE '2026-09-01' AND "stat_date" < DATE '2026-09-17'`), `oracle date: ${oraRange('DATE')}`);
+  assert(oraRange('VARCHAR2(10)').includes(`"stat_date" >= '2026-09-01'`), 'oracle text date column compares as text');
+
   // --- 时间粒度:分组和取值必须用同一个表达式 ---
   assert(ranged.includes("DATE_FORMAT(`stat_date`, '%Y-%m') AS `stat_date`"), `select grain: ${ranged}`);
   assert(ranged.includes("GROUP BY DATE_FORMAT(`stat_date`, '%Y-%m')"),

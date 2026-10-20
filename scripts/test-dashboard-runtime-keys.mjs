@@ -122,6 +122,11 @@ try {
   const stale = resolveWidgetDatasets([widget], [trimmed], () => 'mysql')[0].sql;
   assert(!/SUM/i.test(stale), `别去 SUM 一个已经没有的列: ${stale}`);
 
+  // 看板日期也一样:组件按 sale_date 分组,可它被标成不保留了 —— 日期条件得落在还在的那根时间列上。
+  const hiddenDate = { ...dataset, fields: [{ ...dataset.fields[0], hidden: true }, dataset.fields[1], { name: 'biz_day', column: 'biz_day', from: 't1', role: 'dimension' }] };
+  assert.equal(widgetQueryOf(widget, hiddenDate, { start: '2026-10-01', end: '2026-10-07' }).dateRange?.field, 'biz_day',
+    '日期条件别落在不保留的列上,那是一句「没有这一列」');
+
   // 锁定范围也一样 —— 锁在一个已经没有的列上会让整个组件查不出来。
   const lockedWidget = { ...widget, options: { ...widget.options, lockedScope: { filters: { amount: ['1'] } } } };
   assert.deepEqual(widgetQueryOf(lockedWidget, trimmed).filters, [], '锁在没有的列上就忽略,别让整张卡片报错');

@@ -43,7 +43,11 @@ export function dimensionValues(
   translateError: Parameters<typeof executeDataset>[1],
   limit = 1000,
 ): Promise<DimensionValues> {
-  return distinctOf({ ...dataset, groupBy: [field] }, field, translateError, limit);
+  /* 组件自己的「前 N 名」和排序不能带过来:那是按度量截前 N 行,列取值时就只剩 N 个,
+     而且行数没到上限,还会说成「就这些」。 */
+  const from = dataset.compiledFrom;
+  const listing = from ? { ...from, query: { ...from.query, topN: 0, orderBy: undefined } } : undefined;
+  return distinctOf({ ...dataset, groupBy: [field], compiledFrom: listing }, field, translateError, limit);
 }
 
 /** 枚举某个维度在**全局数据集**里的取值。

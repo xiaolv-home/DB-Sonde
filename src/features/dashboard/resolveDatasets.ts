@@ -14,7 +14,11 @@ import type { DbKind } from "../../types";
 
 /** 数据集里的时间列 —— 看板顶上的「数据日期」落在它身上。 */
 function dateFieldOf(dataset: Dataset, widget: DashboardWidget): string | undefined {
-  const timeNamed = (name: string) => isTimeField(dataset.fields.find((f) => f.name === name));
+  // 标成不保留的列不在子查询里,日期条件落在它身上就是一句「没有这一列」。
+  const timeNamed = (name: string) => {
+    const field = dataset.fields.find((f) => f.name === name);
+    return !field?.hidden && isTimeField(field);
+  };
   // 组件自己按日期分组的话就用那一列,口径最直观。
   const bound = (widget.bindings.dimensions ?? []).find(timeNamed);
   if (bound) return bound;

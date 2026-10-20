@@ -310,7 +310,7 @@ export function compileSemanticDataset(
     g.ms.forEach((m) => { fieldUnit[metricField(m)] = idx; });
   }
   for (const m of solos) {
-    const compiled = compileMetric(m, { groupBy: dims, scope, filters: whereExpr || undefined }, (id) => metrics.find((mm) => mm.id === id));
+    const compiled = compileMetric(m, { dialect, groupBy: dims, scope, filters: whereExpr || undefined }, (id) => metrics.find((mm) => mm.id === id));
     if (compiled.error || !compiled.sql) throw new Error(compiled.error || "指标缺少查询定义");
     fieldUnit[metricField(m)] = units.push({ sql: compiled.sql }) - 1;
   }

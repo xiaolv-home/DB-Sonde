@@ -7,7 +7,7 @@ import { isCalendarDay, nextCalendarDay } from "../../lib/dates";
  * 影响这一层。
  */
 import { paginationClause } from "../../lib/databaseDialect";
-import { sqlLiteral, quoteIdent } from "../../lib/sql";
+import { dateLiteral, sqlLiteral, quoteIdent } from "../../lib/sql";
 import type { DbKind } from "../../types";
 import { buildDatasetSql, type Dataset } from "./domain";
 
@@ -125,7 +125,9 @@ export function buildWidgetSql(dataset: Dataset, query: WidgetQuery, kind: DbKin
   if (range?.field && range.start && range.end) {
     if (!isCalendarDay(range.start) || !isCalendarDay(range.end) || range.start > range.end)
       throw new Error("日期范围无效，未执行查询");
-    where.push(`${q(range.field)} >= ${sqlLiteral(range.start, kind)} AND ${q(range.field)} < ${sqlLiteral(nextCalendarDay(range.end), kind)}`);
+    const text = /char|text|string|clob/i.test(dataset.fields.find((f) => f.name === range.field)?.type ?? "");
+    const day = (value: string) => dateLiteral(value, kind, text);
+    where.push(`${q(range.field)} >= ${day(range.start)} AND ${q(range.field)} < ${day(nextCalendarDay(range.end))}`);
   }
 
   const lines = [

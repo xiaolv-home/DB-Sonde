@@ -120,6 +120,38 @@ try {
     assert.equal(n(`SELECT 'O''Reilly';\nSELECT 2;`, 'postgres'), 2, "'' 是标准转义,哪个方言都认");
   }
 
+  // ── 按各家客户端的规矩拆:PL/SQL 块、DELIMITER、只有注释的片段 ────────────
+  {
+    const split = splitSqlStatements;
+    /* 真库(Oracle 23ai)上:`BEGIN NULL; END;` 整句能跑;按分号拆成 `BEGIN NULL` 和 `END`
+       两句,一句 ORA-06550、一句 ORA-00900 —— Oracle 上任何匿名块、存储过程都执行不了。 */
+    assert.deepEqual(split('BEGIN NULL; END;', 'oracle'), ['BEGIN NULL; END;'], 'PL/SQL 块整段一条,END; 的分号要带着');
+    assert.deepEqual(split(`CREATE OR REPLACE PROCEDURE p AS\nBEGIN\n  UPDATE t SET a = 1;\n  COMMIT;\nEND;\n/\nSELECT 1 FROM dual;\nSELECT 2 FROM dual`, 'oracle'),
+      ['CREATE OR REPLACE PROCEDURE p AS\nBEGIN\n  UPDATE t SET a = 1;\n  COMMIT;\nEND;', 'SELECT 1 FROM dual', 'SELECT 2 FROM dual'],
+      '单独一行的 / 收尾,之后照常按分号拆');
+    assert.deepEqual(split('DECLARE n NUMBER; BEGIN n := 1; END;\n/\nBEGIN NULL; END;', 'oracle'),
+      ['DECLARE n NUMBER; BEGIN n := 1; END;', 'BEGIN NULL; END;'], 'DECLARE 块同理,最后一块没写 / 就到末尾');
+    assert.deepEqual(split(`-- 说明\nCREATE EDITIONABLE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW BEGIN :new.a := 1; END;`, 'oracle').length, 1, '前面有注释也认得出');
+    assert.deepEqual(split('SELECT 10\n/ 2 FROM dual;', 'oracle'), ['SELECT 10\n/ 2 FROM dual'], '同一行还有别的东西,/ 是除号');
+    assert.equal(split('BEGIN NULL; END;\nSELECT 1;', 'postgres').length, 3, '别的库不按 PL/SQL 处理');
+
+    // MySQL 写存储过程的 DELIMITER;$$ 在 MySQL 不是字符串,不能被当成 PG 的 $$ 体
+    assert.deepEqual(split('DELIMITER $$\nCREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END$$\nDELIMITER ;\nCALL p();\nSELECT 3;', 'mysql'),
+      ['CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END', 'CALL p()', 'SELECT 3'], 'DELIMITER $$ 之后按 $$ 拆');
+    assert.deepEqual(split('DELIMITER //\nCREATE TRIGGER x BEFORE INSERT ON t FOR EACH ROW BEGIN SET NEW.a = 1; END //', 'mariadb'),
+      ['CREATE TRIGGER x BEFORE INSERT ON t FOR EACH ROW BEGIN SET NEW.a = 1; END'], 'MariaDB 同理');
+    assert.deepEqual(split('DELIMITER DELETE\nSELECT 1 DELETE FROM t;', 'mysql').some((s) => /DELETE/.test(s)), true,
+      '拿词当分隔符不认:那会把 DELETE 从语句里吃掉,只读校验就看不到了');
+    assert.equal(split('SELECT $$a;b$$;', 'mysql').length, 2, 'MySQL 没有 $$ 字符串');
+
+    /* 脚本末尾留一行注释:Oracle 对它报 ORA-00900,结果页最后停在一个莫名其妙的报错上;
+       AI 的只读校验也会因为那个「空语句」认不出是查询而拦下。 */
+    assert.deepEqual(split('SELECT 1;\n-- 备注', 'oracle'), ['SELECT 1'], '只有注释的片段不算语句');
+    assert.deepEqual(split('SELECT 1; /* 收尾 */', 'postgres'), ['SELECT 1']);
+    assert.deepEqual(split('-- 说明\nSELECT 1', 'mysql'), ['-- 说明\nSELECT 1'], '贴在语句上的注释照旧跟着语句');
+    assert.equal(isReadOnlySql('SELECT 1;\n-- 备注', 'mysql'), true, '末尾的注释不该让只读查询被拦');
+  }
+
   // ── SQL 语境扫描器:全项目只许有一份 ────────────────────────────────────
   {
     /* 这套"跳过字符串/注释"的循环原来有三份:拆语句一份,SqlEditor 里
