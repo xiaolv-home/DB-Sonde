@@ -39,6 +39,9 @@ export interface DataQueryOptions {
   orderBy?: { column: string; dir: "asc" | "desc" }[];
   limit: number;
   offset: number;
+  /** 主键列。按 OFFSET 翻页必须有确定的顺序,否则 PG / Oracle 每页的行序可以不一样,
+   *  往下滚会看到重复的行、漏掉的行。没排序就按主键排;排序列有并列时主键补在后面。 */
+  stableBy?: string[];
 }
 
 /**
@@ -51,25 +54,24 @@ export interface DataQueryOptions {
  * 返回 null 表示可以用,否则是给用户看的原因。
  */
 export function checkWhereClause(where: string, kind?: DbKind): string | null {
-  const { backslashEscapes, hashComments } = dialectFor(kind);
-  let quote: string | null = null;
-  for (let i = 0; i < where.length; i += 1) {
-    const ch = where[i];
-    if (quote) {
-      if (backslashEscapes && ch === "\\" && quote !== "`") { i += 1; continue; }
-      if (ch === quote) {
-        if (where[i + 1] === quote) { i += 1; continue; } // '' "" `` 是转义
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === "'" || ch === '"' || ch === "`") { quote = ch; continue; }
-    if (ch === ";") return "过滤条件里不能有分号 —— 这里只能写一个条件,不能写多条语句";
-    if ((ch === "-" && where[i + 1] === "-") || (ch === "/" && where[i + 1] === "*") || (hashComments && ch === "#"))
-      return "过滤条件里不能写注释(-- /* #),会把后面的分页条件注释掉";
-  }
-  if (quote) return "过滤条件里有没闭合的引号";
+  /* 引号、注释怎么算走唯一那份扫描器 —— 这儿原来自己写了一个,不认 PG 的 E'…'(那里面 \ 是转义),
+     `a = E'\''; DELETE FROM t; SELECT E'\''` 在它眼里分号全在字符串里,PG 读出来却是三条语句。 */
+  let problem: string | null = null;
+  const end = scanSql(where, kind, emptyScanState(), (i) => {
+    if (where[i] === ";") problem ??= "过滤条件里不能有分号 —— 这里只能写一个条件,不能写多条语句";
+  }, () => { problem ??= "过滤条件里不能写注释(-- /* #),会把后面的分页条件注释掉"; });
+  if (problem) return problem;
+  if (end.quote || end.dollarTag) return "过滤条件里有没闭合的引号";
   return null;
+}
+
+/**
+ * 在已有的过滤条件上再叠一个。旧条件要加括号:`a=1 OR b=2` 直接接 `AND c=3`
+ * 就成了 `a=1 OR (b=2 AND c=3)` —— 看到的行不对,整列赋值也会改到不该改的行。
+ */
+export function andWhere(current: string, clause: string): string {
+  const cur = current.trim();
+  return cur ? `(${cur}) AND ${clause}` : clause;
 }
 
 function assertWhere(where: string | undefined, kind?: DbKind): string | undefined {
@@ -91,8 +93,12 @@ export function buildDataQuery(
   const parts = ["SELECT *", `FROM ${qualifiedTable(kind, database, schema, table)}`];
   const where = assertWhere(opts.where, kind);
   if (where) parts.push(`WHERE ${where}`);
-  if (opts.orderBy?.length) {
-    const clauses = opts.orderBy.map((sort) =>
+  const sorts = [...(opts.orderBy ?? [])];
+  for (const column of opts.stableBy ?? []) {
+    if (!sorts.some((sort) => sort.column === column)) sorts.push({ column, dir: "asc" });
+  }
+  if (sorts.length) {
+    const clauses = sorts.map((sort) =>
       `${quoteIdent(kind, sort.column)} ${sort.dir === "desc" ? "DESC" : "ASC"}`,
     );
     parts.push(`ORDER BY ${clauses.join(", ")}`);
@@ -277,6 +283,8 @@ export function scanSql(
   kind: DbKind | undefined,
   state: SqlScanState = emptyScanState(),
   onCode?: (index: number) => void,
+  /** 每遇到一处注释的开头就回调一次。 */
+  onComment?: (index: number) => void,
 ): SqlScanState {
   const { backslashEscapes, hashComments, dollarQuotes } = dialectFor(kind);
   let { quote, escapeString, dollarTag, lineComment, blockDepth } = state;
@@ -315,12 +323,12 @@ export function scanSql(
       continue;
     }
 
-    if (ch === "-" && next === "-") { lineComment = true; i += 2; }
+    if (ch === "-" && next === "-") { onComment?.(i); lineComment = true; i += 2; }
     /* MySQL / ClickHouse 的 `#` 行注释。不认它的话,注释里写个分号就会把语句切成两半
        —— 「# 网点实收日汇总;点评平台」这种中文注释里带分号很常见。
        PG 不能开:那儿 `#` 是 `#>` 这类运算符的一部分,当成注释会吞掉后面整行。 */
-    else if (hashComments && ch === "#") { lineComment = true; i += 1; }
-    else if (ch === "/" && next === "*") { blockDepth = 1; i += 2; }
+    else if (hashComments && ch === "#") { onComment?.(i); lineComment = true; i += 1; }
+    else if (ch === "/" && next === "*") { onComment?.(i); blockDepth = 1; i += 2; }
     else if (ch === "'" || ch === '"' || ch === "`") {
       /* PG 的 E'...' / e'...':前一个字符是 E 且再前面不是标识符的一部分
          (免得把 `value` 这种以 e 结尾的词尾巴当成前缀)。 */

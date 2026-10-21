@@ -15,6 +15,7 @@
     "test:agent-rules": "node scripts/test-agent-rules.mjs",
     "test:agent-pipeline": "node scripts/test-agent-pipeline.mjs",
     "test:metrics": "node scripts/test-metrics.mjs",
+    "test:result-export": "node scripts/test-result-export.mjs",
     "test:workspace": "node scripts/test-workspace-regressions.mjs",
     "test:design": "node scripts/test-design-loop.mjs",
     "test:quality": "node scripts/test-chart-quality.mjs",

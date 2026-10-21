@@ -25,6 +25,7 @@ import {
   buildRowInsert,
   quoteIdent,
   sqlLiteral,
+  andWhere,
   checkWhereClause,
 } from "../lib/sql";
 import { buildCellRequest } from "../lib/tableEditing";
@@ -190,6 +191,10 @@ interface DataPanelProps {
 function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyChange }: DataPanelProps) {
   const { t } = useI18n();
   const nullableColumns = useMemo(() => Object.fromEntries(columns.map((c) => [c.name, c.nullable])), [columns]);
+  /* 按主键排是为了翻页稳定(见 buildDataQuery 的 stableBy)。用拼好的字符串当依赖:
+     列信息刷新一次就是新数组,拿数组当依赖会让数据页重新从头加载,滚动位置和没保存的修改全丢。 */
+  const primaryKeyId = columns.filter((c) => c.isPrimaryKey).map((c) => c.name).join("\u0001");
+  const primaryKey = useMemo(() => (primaryKeyId ? primaryKeyId.split("\u0001") : []), [primaryKeyId]);
   const columnComments = useMemo(() => Object.fromEntries(columns.filter((c) => c.comment?.trim()).map((c) => [c.name, c.comment!.trim()])), [columns]);
   const [pageSize, setPageSize] = useState(() => {
     const stored = Number(localStorage.getItem("dataPageSize"));
@@ -222,6 +227,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
         const sql = buildDataQuery(kind, tab.database, tab.schema, tab.table, {
           where: whereApplied,
           orderBy,
+          stableBy: primaryKey,
           limit,
           offset: base.length,
         });
@@ -243,7 +249,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
         }
       }
     },
-    [kind, tab.connId, tab.database, tab.schema, tab.table, whereApplied, orderBy, pageSize],
+    [kind, tab.connId, tab.database, tab.schema, tab.table, whereApplied, orderBy, pageSize, primaryKey],
   );
 
   useEffect(() => {
@@ -300,10 +306,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
   };
 
   /** AND a new clause onto the current WHERE (so multiple menu filters stack). */
-  const andFilter = (clause: string) => {
-    const cur = whereApplied.trim();
-    applyFilter(cur ? `${cur} AND ${clause}` : clause);
-  };
+  const andFilter = (clause: string) => applyFilter(andWhere(whereApplied, clause));
 
   const filterByValue = (colName: string, value: Cell, op: FilterOp) => {
     const col = quoteIdent(kind, colName);

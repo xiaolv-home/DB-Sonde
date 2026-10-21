@@ -20,13 +20,13 @@ try {
     stdin: { contents: `
       export { sqlLiteral } from './src/lib/sql';
       export { buildDatasetSql, normalizeDataset } from './src/features/datasets/domain';
-      export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, checkWhereClause, buildDataQuery, buildCountQuery, buildColumnUpdate } from './src/lib/sql';
+      export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate } from './src/lib/sql';
       export { isReadOnlySql } from './src/features/ai/readonly';`,
       resolveDir: resolve('.'), loader: 'ts' },
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, buildDataQuery, buildCountQuery, buildColumnUpdate } = createRequire(import.meta.url)(outfile);
+  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate } = createRequire(import.meta.url)(outfile);
 
   // ── 取值转义:以反斜杠结尾的值不能吃掉右引号 ────────────────────────────
   for (const kind of ['mysql', 'mariadb']) {
@@ -290,6 +290,23 @@ try {
     assert.throws(() => buildCountQuery('mysql', 'db', '', 't', 'x=1 -- c'), /注释/);
     assert.throws(() => buildColumnUpdate('mysql', 'db', '', 't', 'c', 1, '1=1; DROP TABLE t'), /分号/);
     assert.match(buildDataQuery('mysql', 'db', '', 't', { where: "a = 'x;y'", limit: 200, offset: 0 }), /WHERE a = 'x;y'[\s\S]*LIMIT 200/);
+    /* PG 的 E'…' 里 \ 是转义。原来这道检查自己写了一个扫描器,不认 E 前缀:
+       在它眼里两个分号都在字符串里,PG 读出来却是三条语句。 */
+    bad("a = E'\\''; DELETE FROM t; SELECT E'\\''", 'postgres');
+    ok("a = E'it\\'s'", 'postgres');
+    bad("a = $$x$$; DELETE FROM t", 'postgres'); ok("a = $$x;y$$", 'postgres'); bad('a = $$x', 'postgres');
+    bad('x = 1 /* 没闭合', 'postgres');
+
+    // 右键菜单叠条件:旧条件要加括号,不然 OR 会把新条件吞成它的一支
+    assert.equal(andWhere("s = 'a' OR s = 'b'", "city = '北京'"), "(s = 'a' OR s = 'b') AND city = '北京'");
+    assert.equal(andWhere('  ', 'x = 1'), 'x = 1', '没有旧条件就只有新的');
+
+    // OFFSET 翻页要有确定的顺序:没排序按主键,有排序主键补在后面破并列
+    assert.match(buildDataQuery('postgres', '', 'public', 't', { limit: 200, offset: 200, stableBy: ['id'] }), /ORDER BY "id" ASC\s+LIMIT 200 OFFSET 200/);
+    assert.match(buildDataQuery('postgres', '', 'public', 't', { orderBy: [{ column: 'city', dir: 'desc' }], limit: 200, offset: 0, stableBy: ['id'] }),
+      /ORDER BY "city" DESC, "id" ASC/);
+    assert.match(buildDataQuery('postgres', '', 'public', 't', { orderBy: [{ column: 'id', dir: 'desc' }], limit: 200, offset: 0, stableBy: ['id'] }),
+      /ORDER BY "id" DESC\s+LIMIT/, '主键已经在排序里就不重复');
   }
 
   console.log('sql safety: 59 assertions + WHERE 过滤框 passed');

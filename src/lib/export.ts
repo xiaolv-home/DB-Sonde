@@ -12,9 +12,18 @@ function csvCell(value: unknown): string {
 
 export function serializeResult(result: QueryResult, format: ExportFormat): string {
   if (format === "json") {
-    const rows = result.rows.map((row) =>
-      Object.fromEntries(result.columns.map((column, index) => [column.name, row[index]])),
-    );
+    /* 列名会重复:`SELECT * FROM a JOIN b` 两边各有一个 id。直接当对象的键,后一个就把前一个
+       覆盖掉了 —— 导出的文件里整列不见,还看不出来。重名的依次加 _2、_3。 */
+    const original = new Set(result.columns.map((column) => column.name));
+    const used = new Set<string>();
+    const keys = result.columns.map((column) => {
+      let key = column.name;
+      // 改出来的名字也不能撞上别的列本来的名字(真有一列就叫 id_2)
+      for (let n = 2; used.has(key) || (key !== column.name && original.has(key)); n += 1) key = `${column.name}_${n}`;
+      used.add(key);
+      return key;
+    });
+    const rows = result.rows.map((row) => Object.fromEntries(keys.map((key, index) => [key, row[index]])));
     return JSON.stringify(rows, null, 2);
   }
 

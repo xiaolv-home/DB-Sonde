@@ -27,6 +27,7 @@ import { api, type PyFile } from "../lib/api";
 import { useAi } from "../features/ai/aiStore";
 import { openEntity360 } from "../features/entity/Entity360";
 import DeleteObjectDialog from "./DeleteObjectDialog";
+import { useConfirm } from "./useConfirm";
 import TreeRow from "./TreeRow";
 import { useI18n } from "../hooks/useI18n";
 import { useViewportFit } from "../hooks/useViewportFit";
@@ -322,6 +323,20 @@ export default function Sidebar() {
   const hiddenCount = useApp((s) => s.hiddenKeys.length);
   const showHidden = useApp((s) => s.showHidden);
   const [deleteNode, setDeleteNode] = useState<TreeNode | null>(null);
+  const { askConfirm, confirmDialog } = useConfirm();
+  /* 删连接会连同保存的密码一起删掉,撤不回;手动提交模式下断开,没提交的修改会随连接一起回滚。
+     这两下原来点了就生效,右键菜单里点偏一行就没了。 */
+  const removeConnection = async (connId: string, name: string) => {
+    setMenu(null);
+    if (!(await askConfirm(`删除连接「${name}」?保存的密码会一起删除,不能撤销。`, "删除连接", "删除"))) return;
+    void useApp.getState().deleteConnection(connId).catch((e) => useApp.getState().showToast({ kind: "error", text: String(e) }));
+  };
+  const disconnectConnection = async (connId: string, name: string) => {
+    setMenu(null);
+    if (useApp.getState().autocommit[connId] === false
+      && !(await askConfirm(`「${name}」正处于手动提交模式,断开会回滚所有还没提交的修改。`, "断开连接", "回滚并断开"))) return;
+    void useApp.getState().disconnect(connId).catch((e) => useApp.getState().showToast({ kind: "error", text: String(e) }));
+  };
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuFit = useViewportFit(menu);
   const [section, setSection] = useState<Section>(
@@ -390,10 +405,7 @@ export default function Sidebar() {
               {
                 label: t("action.disconnect"),
                 icon: <Unplug size={15} />,
-                onClick: () => {
-                  s.disconnect(node.connId);
-                  setMenu(null);
-                },
+                onClick: () => void disconnectConnection(node.connId, cfg?.name ?? node.label),
                 sep: true,
               },
               {
@@ -408,10 +420,7 @@ export default function Sidebar() {
                 label: t("action.delete"),
                 icon: <Trash2 size={15} />,
                 danger: true,
-                onClick: () => {
-                  s.deleteConnection(node.connId);
-                  setMenu(null);
-                },
+                onClick: () => void removeConnection(node.connId, cfg?.name ?? node.label),
               },
             ]
           : [
@@ -435,10 +444,7 @@ export default function Sidebar() {
                 label: t("action.delete"),
                 icon: <Trash2 size={15} />,
                 danger: true,
-                onClick: () => {
-                  s.deleteConnection(node.connId);
-                  setMenu(null);
-                },
+                onClick: () => void removeConnection(node.connId, cfg?.name ?? node.label),
               },
             ];
       case "database":
@@ -622,6 +628,7 @@ export default function Sidebar() {
         {section === "files" && <FilesPanel />}
       </div>
 
+      {confirmDialog}
       {deleteNode && <DeleteObjectDialog key={deleteNode.key} node={deleteNode} onClose={() => setDeleteNode(null)}/>}
       {menu && (
         <>
