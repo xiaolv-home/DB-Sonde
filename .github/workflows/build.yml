@@ -140,6 +140,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 只取更新说明那一个目录,用不着整个仓库
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/releases
+          path: repo
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -162,19 +168,30 @@ jobs:
           ls -la out
           ( cd out && sha256sum ./* > SHA256SUMS.txt && cat SHA256SUMS.txt )
 
-      # 不标 prerelease、并显式 --latest:仓库的「Latest」和 /releases/latest 只认
-      # 非预发布版本。以前 app 全标成预发布,唯一的正式版是 Python 运行时,于是
-      # 「最新版本」指向了三个 150MB 的运行时压缩包。Beta 写在标题和 README 里。
+      # 说明 = docs/releases/<tag>.md(这一版改了什么)+ 固定的安装提示。
+      # 没写这一版的说明也照发,只是只有安装提示 —— 别为了一份文档卡住发版。
       - name: 建 Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          notes="repo/docs/releases/${GITHUB_REF_NAME}.md"
+          [ -f "$notes" ] || echo "::warning::没有 $notes,发布说明只有安装提示"
+          {
+            if [ -f "$notes" ]; then cat "$notes"; printf '\n---\n\n'; fi
+            cat <<'EOF'
+          三平台构建产物,均由 CI 在各自的原生 runner 上构建。校验和见 SHA256SUMS.txt。
+
+          **未签名**:macOS 首次打开走 系统设置 → 隐私与安全性 → 仍要打开;Windows 会弹 SmartScreen,点 更多信息 → 仍要运行。
+
+          本地 AI 与 Python 运行时不含在安装包内,见 README 的「可选运行时」。
+          EOF
+          } > release-notes.md
+          # 不标 prerelease、并显式 --latest:仓库的「Latest」和 /releases/latest 只认
+          # 非预发布版本。以前 app 全标成预发布,唯一的正式版是 Python 运行时,于是
+          # 「最新版本」指向了三个 150MB 的运行时压缩包。Beta 写在标题和 README 里。
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "DB Sonde ${GITHUB_REF_NAME#v} Beta" \
             --latest \
-            --notes "三平台构建产物,均由 CI 在各自的原生 runner 上构建。校验和见 SHA256SUMS.txt。
-
-            **未签名**:macOS 首次打开走 系统设置 → 隐私与安全性 → 仍要打开;Windows 会弹 SmartScreen,点 更多信息 → 仍要运行。
-
-            本地 AI 与 Python 运行时不含在安装包内,见 README 的「可选运行时」。"
+            --notes-file release-notes.md

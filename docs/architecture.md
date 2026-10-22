@@ -1,6 +1,6 @@
 # 模块结构与开发约定
 
-DB Sonde 使用 Tauri 2、Rust、React 和 TypeScript。数据库工作区是核心功能，指标、看板、AI、ETL 和调度通过功能模块接入。
+DB Sonde 使用 Tauri 2、Rust、React 和 TypeScript。数据库工作区是核心功能，数据集、指标、看板、链路画布、监控中心、AI 和 Python 工作台通过功能模块接入。
 
 ## 代码目录
 
@@ -9,7 +9,7 @@ DB Sonde 使用 Tauri 2、Rust、React 和 TypeScript。数据库工作区是核
 | `src/App.tsx` | 应用与功能模块装配 |
 | `src/components` | SQL 工作区、结果表格、连接和对象浏览界面 |
 | `src/store` | 连接、对象树、查询、工作区和界面状态 |
-| `src/features` | 指标、看板、AI、分析、血缘、ETL 和调度 |
+| `src/features` | 数据集、指标、看板、链路画布、监控中心、AI 分析 |
 | `src/lib` | 平台接口、SQL 方言、存储和共享模型 |
 | `src-tauri/src/commands.rs` | 桌面命令与会话管理 |
 | `src-tauri/src/db` | 数据库驱动、元数据、事务和数据编辑 |
@@ -23,7 +23,7 @@ DB Sonde 使用 Tauri 2、Rust、React 和 TypeScript。数据库工作区是核
 - 功能模块管理各自的界面、状态和业务流程；纯模型通过参数接收依赖。
 - 前端通过 `src/lib/api.ts` 调用桌面命令，Rust 执行数据库、文件与凭据操作。
 - 外部数据进入领域模型时必须校验，类型断言不能替代运行时验证。
-- 未配置模型、调度器或 ETL 来源时，数据库工作区仍应可用。
+- 未配置模型、指标或监控源时，数据库工作区仍应可用。
 
 ## 查询与编辑
 
@@ -52,13 +52,17 @@ DB Sonde 使用 Tauri 2、Rust、React 和 TypeScript。数据库工作区是核
 在 `src-tauri/src/db` 实现驱动操作，并更新 `src/lib/databaseDialect.ts` 的方言与能力声明。
 新增引擎需要验证连接、元数据、查询、数值类型和事务行为；不支持的能力应明确报错。
 
-### ETL 与调度
+### 数据集与看板
 
-ETL 解析器在 `src/features/etl/adapters/index.ts` 注册，将外部格式转换为 `EtlJob` / `Endpoint`。
-调度器在 `src/features/scheduler/providers.ts` 注册。当前可用调度适配器是 DolphinScheduler；标记为不可用的预留适配器不代表已经支持。
+数据集模型在 `src/features/datasets/domain.ts`，组件取数的 SQL 由 `widgetQuery.ts` 生成（数据集整段作为子查询）。
+看板在 `src/features/dashboard`：`resolveDatasets.ts` 把组件编译成查询，`queryRuntime.ts` 负责缓存、并发去重和重编（下钻、同环比、组件筛选）。
+用法见 [数据集、指标与看板](metrics-and-dashboards.md)。
 
-血缘模块只消费标准模型。解析失败、来源歧义和缺失依赖应保留为明确的缺口，不按名称猜测关联。
-配置格式与接入方法见 [指标、看板与 ETL 接入](semantic-and-etl.md)。
+### 链路画布与监控中心
+
+链路画布在 `src/features/canvas`：`canvasModel.ts` 是图的模型（分叉点、弧度、彗星节拍），
+`canvasExport.ts` / `canvasAnimation.ts` / `canvasVideo.ts` / `canvasHtml.ts` 分别负责 SVG/PNG、GIF、MP4 和 HTML 导出。
+监控中心在 `src/features/monitor`，目前只有「嵌网页」一种接入方式，新的方式在 `MONITOR_KINDS` 里加。
 
 ### AI
 
