@@ -34,15 +34,21 @@ export interface DatabaseDialect {
      * 扫描器把第一个 `$$` 当成字符串开头,后面整个脚本都被吞进「字符串」里。
      */
     dollarQuotes: boolean;
+    /**
+     * 块注释能不能嵌套。PG(和 ClickHouse)能;MySQL、Oracle、SQLite 不能 —— 那儿注释
+     * 遇到第一个「星号+斜杠」就结束了。当成能嵌套的话,注释里出现一次「斜杠+星号」,
+     * 后面的语句就全被当成还在注释里。
+     */
+    nestedComments: boolean;
 }
 /** Syntax contract for implemented engines. Compatible brands reuse their engine. */
 export const DATABASE_DIALECTS: Record<DbKind, DatabaseDialect> = {
-    mysql: { identifierQuote: "`", namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true, dollarQuotes: false },
-    mariadb: { identifierQuote: "`", namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true, dollarQuotes: false },
-    postgres: { identifierQuote: '"', namespace: "schema", pagination: "limit", backslashEscapes: false, hashComments: false, dollarQuotes: true },
-    sqlite: { identifierQuote: '"', namespace: "none", pagination: "limit", backslashEscapes: false, hashComments: false, dollarQuotes: false },
-    oracle: { identifierQuote: '"', namespace: "schema", pagination: "fetch", backslashEscapes: false, hashComments: false, dollarQuotes: false },
-    clickhouse: { identifierQuote: '"', namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true, dollarQuotes: false },
+    mysql: { identifierQuote: "`", namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true, dollarQuotes: false, nestedComments: false },
+    mariadb: { identifierQuote: "`", namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true, dollarQuotes: false, nestedComments: false },
+    postgres: { identifierQuote: '"', namespace: "schema", pagination: "limit", backslashEscapes: false, hashComments: false, dollarQuotes: true, nestedComments: true },
+    sqlite: { identifierQuote: '"', namespace: "none", pagination: "limit", backslashEscapes: false, hashComments: false, dollarQuotes: false, nestedComments: false },
+    oracle: { identifierQuote: '"', namespace: "schema", pagination: "fetch", backslashEscapes: false, hashComments: false, dollarQuotes: false, nestedComments: false },
+    clickhouse: { identifierQuote: '"', namespace: "database", pagination: "limit", backslashEscapes: true, hashComments: true, dollarQuotes: false, nestedComments: true },
 };
 export function dialectFor(kind?: DbKind): DatabaseDialect {
     return kind ? DATABASE_DIALECTS[kind] : DATABASE_DIALECTS.sqlite;

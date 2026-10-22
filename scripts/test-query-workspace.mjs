@@ -108,6 +108,34 @@ try {
   assert.equal(await m.tryWriteClipboardText('fixture'),false);
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
   assert.equal(await m.tryWriteClipboardText('fixture'),true);
+  // ── 改单元格:主键取对、旧值取对(变异测试发现这几条路一个测试都没有) ──────────────
+  {
+    const columns = [{ name: 'id', isPrimaryKey: true }, { name: 'name', isPrimaryKey: false }];
+    const res = { columns: [{ name: 'id' }, { name: 'name' }], rows: [[7, '旧'], [8, '另一行']], elapsedMs: 0, truncated: false };
+    const req = m.buildCellRequest('c', 'db', 's', 't', columns, res, 1, 1, '新');
+    // 主键在第 0 列是最常见的情况;取错列就会拿别的值当主键去改
+    assert.deepEqual(req.primaryKey, { id: 8 }, '主键按列名取,第 0 列也要取到');
+    assert.equal(req.column, 'name');
+    assert.equal(req.oldValue, '另一行', '旧值是那一格原来的值(乐观锁靠它)');
+    assert.throws(() => m.buildCellRequest('c', 'db', 's', 't', columns, { ...res, columns: [{ name: 'name' }] , rows: [['x']] }, 0, 0, 'y'),
+      /Primary key id is missing/, '结果里没有主键列就不能改');
+    assert.throws(() => m.buildCellRequest('c', 'db', 's', 't', columns, res, 5, 1, 'y'), /no longer available/, '行不在了');
+    assert.throws(() => m.buildCellRequest('c', 'db', 's', 't', columns, res, 0, 9, 'y'), /no longer available/, '列不在了');
+
+    const context = { database: 'db', schema: 's', table: 't', columns, previewSql: 'SELECT * FROM t LIMIT 200;', editable: true };
+    const prepared = m.prepareCellUpdate('c', '  SELECT * FROM t LIMIT 200;\n', context, res, 0, 1, '新');
+    assert.deepEqual(prepared.request.primaryKey, { id: 7 });
+    assert.deepEqual(prepared.nextResult.rows, [[7, '新'], [8, '另一行']], '只改那一格,别的格子别动');
+    assert.deepEqual(res.rows[0], [7, '旧'], '原结果不能被改');
+    assert.throws(() => m.prepareCellUpdate('c', 'SELECT name FROM t', context, res, 0, 1, 'x'), /changing the preview SQL/, 'SQL 改过就不能改格子');
+    assert.throws(() => m.prepareCellUpdate('c', context.previewSql, { ...context, editable: false, editDisabledReason: '视图不能改' }, res, 0, 1, 'x'), /视图不能改/);
+    assert.throws(() => m.prepareCellUpdate('c', context.previewSql, { ...context, editable: false }, res, 0, 1, 'x'), /read-only/);
+    assert.throws(() => m.prepareCellUpdate('c', context.previewSql, context, res, 9, 1, 'x'), /no longer available/);
+
+    assert.equal(m.matchesPreviewExecution(undefined, context.previewSql, 'mysql'), false, '还没跑过');
+    assert.equal(m.matchesPreviewExecution('SELECT * FROM t LIMIT 200', context.previewSql, 'mysql'), true, '去掉分号也算同一条');
+    assert.equal(m.matchesPreviewExecution('SELECT * FROM t LIMIT 200; SELECT 1', context.previewSql, 'mysql'), false, '多跑了一条就不算');
+  }
   // ── 格子里改出来的文本 → 写进库的值 ──────────────────────────────────────
   {
     const msg = { number: '不是合法数字', boolean: '不是合法布尔' };
@@ -174,6 +202,11 @@ try {
     assert.throws(() => parse('abc', 100), /不是合法数字/);
     assert.throws(() => parse('1e999', 100), /不是合法数字/, '溢出成 Infinity 不能写进去');
     assert.throws(() => parse('maybe', true), /不是合法布尔/);
+    // 变异测试补的:'false' 要认成 false;前后带空格的 NULL 也是 NULL;超大整数保持文本、去掉空格
+    assert.equal(parse('false', true), false);
+    assert.equal(parse('FALSE', true), false);
+    assert.equal(parse(' null ', 'x'), null);
+    assert.equal(parse(' 9007199254740993 ', 1), '9007199254740993');
     assert.throws(() => parse('{坏 json', { a: 1 }));
   }
 

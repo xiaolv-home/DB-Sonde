@@ -18,8 +18,99 @@ try {
     },
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
-  const { buildDatasetSql, validateDataset, inferRole, createDataset, joinColumnAlias, buildWidgetSql, guessJoin, guessJoinAcross, recommendTables, tableStem, derivedExpr } =
+  const { buildDatasetSql, validateDataset, inferRole, createDataset, joinColumnAlias, buildWidgetSql, guessJoin, guessJoinAcross, recommendTables, tableStem, derivedExpr, normalizeDataset, isTimeField } =
     createRequire(import.meta.url)(outfile);
+
+  // --- 变异测试补的缺口:这些地方改坏了原来没有测试会挂 ---
+  {
+    const sqlDs = { ...createDataset('x', 'c', 'db'), source: { kind: 'sql', sql: 'SELECT * FROM t' } };
+    const w = (query, kind = 'mysql') => buildWidgetSql(sqlDs, query, kind);
+    // 各引擎的季 / 周
+    assert(w({ dimensions: ['d'], measures: [], grains: { d: 'quarter' } }, 'oracle').includes(`TO_CHAR("d", 'YYYY-"Q"Q')`));
+    assert(w({ dimensions: ['d'], measures: [], grains: { d: 'week' } }, 'oracle').includes(`TO_CHAR("d", 'IYYY-"W"IW')`));
+    assert(w({ dimensions: ['d'], measures: [], grains: { d: 'month' } }, 'oracle').includes(`TO_CHAR("d", 'YYYY-MM')`));
+    assert(w({ dimensions: ['d'], measures: [], grains: { d: 'quarter' } }, 'sqlite')
+      .includes(`strftime('%Y', "d") || '-Q' || ((CAST(strftime('%m', "d") AS INTEGER) + 2) / 3)`));
+    // 日期范围:起止颠倒、不是日期都要拦,不能拼出一句查不出东西的 SQL
+    const range = (start, end) => w({ dimensions: [], measures: [{ field: 'g', agg: 'sum' }], dateRange: { field: 'd', start, end } });
+    assert.throws(() => range('2026-10-05', '2026-10-01'), /日期范围无效/);
+    assert.throws(() => range('2026-10-01', 'tomorrow'), /日期范围无效/);
+    assert.throws(() => range('昨天', '2026-10-01'), /日期范围无效/);
+    // 排序里已经有的维度不再补一遍
+    assert.match(w({ dimensions: ['d'], measures: [{ field: 'g', agg: 'sum' }], orderBy: [{ name: 'd', dir: 'desc' }] }), /ORDER BY `d` DESC\s*$/);
+    // 没有度量的前 N 名:只截行数,不能去 ORDER BY 一个不存在的度量
+    assert.doesNotMatch(w({ dimensions: [], measures: [], topN: 5 }), /ORDER BY/);
+    assert.match(w({ dimensions: [], measures: [], topN: 5 }), /LIMIT 5$/);
+    // 指标卡(无维度):不排序、不截断
+    assert.doesNotMatch(w({ dimensions: [], measures: [{ field: 'g', agg: 'sum' }] }), /ORDER BY|LIMIT/);
+    assert.throws(() => buildWidgetSql({ ...sqlDs, source: { kind: 'sql', sql: '   ' } }, { dimensions: [], measures: [] }, 'mysql'), /还没有可执行的 SQL/);
+
+    // 时间字段:没有字段就不是
+    assert.equal(isTimeField(undefined), false);
+    assert.equal(isTimeField({ name: 'x', type: 'TIMESTAMP' }), true);
+
+    // 关联数据集:不保留的列不进 SELECT;字段名和列名不一样要 AS
+    const joinDs = {
+      ...createDataset('j', 'c', 'db'),
+      source: { kind: 'join', base: { table: 'sales', alias: 't1' }, joins: [], columns: [] },
+      fields: [
+        { name: 'amount', column: 'amount', from: 't1', role: 'measure' },
+        { name: '门店', column: 'store_name', from: 't1', role: 'dimension' },
+        { name: 'secret', column: 'secret', from: 't1', role: 'dimension', hidden: true },
+      ],
+    };
+    const joinSql = buildDatasetSql(joinDs, 'mysql');
+    assert(joinSql.includes('`t1`.`amount`') && !joinSql.includes('`t1`.`amount` AS'), `同名不用 AS: ${joinSql}`);
+    assert(joinSql.includes('`t1`.`store_name` AS `门店`'), `改了名要 AS: ${joinSql}`);
+    assert(!joinSql.includes('secret'), `不保留的列不能出现在 SELECT 里: ${joinSql}`);
+
+    // 分组字段:没名字或没取值的分组扔掉;全扔光了就算不出来
+    const grouped = (buckets) => derivedExpr({ name: 'g', role: 'dimension', grouping: { source: 'amount', buckets } }, joinDs, 'mysql');
+    assert.equal(grouped([{ label: '', values: ['1'] }, { label: '大', values: [] }]), undefined);
+    assert.equal(grouped([{ label: '', values: ['1'] }, { label: '大', values: ['9'] }]), "CASE WHEN `t1`.`amount` = '9' THEN '大' ELSE NULL END");
+
+    // 计算字段:只换真正的引用 —— 带了表名前缀的、函数名、字符串里的都不动
+    const calc = (expr) => derivedExpr({ name: 'c', role: 'measure', expr }, joinDs, 'mysql');
+    assert.equal(calc('amount * 2'), '`t1`.`amount` * 2');
+    assert.equal(calc('x.amount + 1'), 'x.amount + 1', '已经带前缀的不动');
+    assert.equal(calc("amount(1) + 'amount'"), "amount(1) + 'amount'", '函数名和字符串不动');
+    assert.equal(calc('amount.x'), 'amount.x', '后面跟点的是限定名,不动');
+
+    // 存盘读回来:来源、角色、默认值都得还原对
+    const back = normalizeDataset({ name: '回来', connectionId: 'c', source: { kind: 'join', base: { table: 'sales' } }, fields: [{ name: 'a', role: 'measure' }, { name: 'b', role: 'weird' }] });
+    assert.equal(back.source.kind, 'join', '关联数据集读回来还是关联');
+    assert.equal(back.source.base.alias, 't1', '主表没别名就叫 t1');
+    assert.deepEqual(back.source.joins, []);
+    assert.deepEqual(back.fields.map((f) => f.role), ['measure', 'dimension'], '认不出的角色当维度');
+    assert.match(back.id, /^dataset-/, '没 id 就补一个');
+    const sqlBack = normalizeDataset({ id: 'keep', name: 's', source: { kind: 'sql', sql: 'SELECT 1' }, fields: [] });
+    assert.deepEqual(sqlBack.source, { kind: 'sql', sql: 'SELECT 1' });
+    assert.equal(sqlBack.id, 'keep', '有 id 就留着');
+    assert.equal(sqlBack.connectionId, '');
+
+    // 关联推断
+    assert.equal(guessJoin(['code', 'name'], ['id', 'sku_id'], 'sales', 'skus')?.targetField, 'sku_id', '新表主键叫 code 也认');
+    assert.deepEqual(guessJoin(['customer_id', 'name'], ['id', 'customer_id'], 'sales', 'customers'),
+      { field: 'customer_id', targetField: 'customer_id', reason: '两边都有 customer_id' }, '主键就叫「词干_id」');
+    // 几张已有表都能挂时,「指向」比「同名」有把握,哪怕「同名」那张排在前面
+    const across = guessJoinAcross('customers', ['id', 'name', 'region_id'], [
+      { alias: 't1', table: 'regions_x', fields: ['id', 'region_id'] },
+      { alias: 't2', table: 'sales', fields: ['id', 'customer_id'] },
+    ]);
+    assert.equal(across?.targetAlias, 't2');
+    // 把握一样的时候取第一个,不被后面的顶掉
+    const tie = guessJoinAcross('customers', ['id'], [
+      { alias: 't1', table: 'sales', fields: ['customer_id'] },
+      { alias: 't2', table: 'visits', fields: ['customer_id'] },
+    ]);
+    assert.equal(tie?.targetAlias, 't1');
+    // 词干太短不靠后缀匹配:ab_id 不该指向 tab
+    assert.equal(guessJoin(['id'], ['ab_id'], 'x', 'tab'), undefined, '两个字母的词干不按后缀匹配');
+    assert.equal(guessJoin(['id'], ['abc_id'], 'x', 'dim_xabc')?.targetField, 'abc_id', '三个字母起按后缀匹配');
+    // 推荐数量
+    const many = recommendTables([{ table: 'f', fields: ['a_id', 'bb_id', 'cc_id'] }], ['a', 'bb', 'cc'], 2);
+    assert.equal(many.length, 2, '推荐数量不超过上限');
+  }
 
   // --- 字段角色推断 ---
   assert.equal(inferRole('int'), 'measure');

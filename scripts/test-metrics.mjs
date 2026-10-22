@@ -9,7 +9,9 @@ const m = loadSrc("metrics", {
   "src/features/metrics/queryPlan.ts": "{ planSourceTables }",
   "src/features/metrics/metricHealth.ts": "{ checkMetrics, referencedColumns }",
   "src/features/entity/entityPrompt.ts": "{ buildEntityPrompt, collectEntityFacts }",
+  "src/features/metrics/metricSql.ts": "{ compileMetric, metricSourceTables, metricTimeColumn }",
 });
+const { compileMetric, metricSourceTables, metricTimeColumn } = m;
 const { compileSemanticDataset, metricsStore, importSummary, planSourceTables, checkMetrics, referencedColumns, buildEntityPrompt, collectEntityFacts } = m;
 
 // ── 导入指标目录:"一个都没导进去"绝不能报绿的 ────────────────────
@@ -146,6 +148,52 @@ const { compileSemanticDataset, metricsStore, importSummary, planSourceTables, c
   const prompt = buildEntityPrompt(facts, "仓库");
   assert.ok(/共 2 个/.test(prompt) && !/object Object/.test(prompt), prompt);
   assert.ok(/没有指标用到/.test(buildEntityPrompt(collectEntityFacts({ table: "nothing" }, catalog), "x")), "没有指标就直说");
+}
+
+// ── 指标编译(变异测试发现度量 / 比率 / 派生这几支几乎没有测试) ──────────────
+{
+  const scope = { start: "2026-10-01", end: "2026-10-07" };
+  const gmv = { id: "gmv", key: "gmv", type: "measure", source: "orders", expression: "SUM(amount)", timeField: "biz_date" };
+  const cnt = { id: "cnt", key: "cnt", type: "measure", source: "visits", expression: "COUNT(*)", dimensions: ["dt"] };
+  const rate = { id: "rate", key: "rate", type: "ratio", source: "orders", numerator: "SUM(paid)", denominator: "SUM(amount)", scale: 100, timeField: "biz_date" };
+  const lookup = (id) => [gmv, cnt, rate].find((x) => x.id === id);
+
+  assert.equal(compileMetric(gmv, { scope }).sql, "SELECT SUM(amount) AS gmv FROM orders WHERE biz_date >= '2026-10-01' AND biz_date < '2026-10-08'");
+  assert.equal(compileMetric(gmv, { scope, groupBy: [" region "], filters: "city='上海'" }).sql,
+    "SELECT region, SUM(amount) AS gmv FROM orders WHERE biz_date >= '2026-10-01' AND biz_date < '2026-10-08' AND city='上海' GROUP BY region");
+  assert.equal(compileMetric(gmv, {}).sql, "SELECT SUM(amount) AS gmv FROM orders", "没给日期就不收窄");
+  assert.equal(compileMetric({ ...gmv, timeField: "" }, { scope }).sql, "SELECT SUM(amount) AS gmv FROM orders", "认不出时间列就不收窄,不能拼出 undefined >= …");
+  assert.equal(compileMetric(gmv, { scope: { start: "2026-10-01" } }).sql, "SELECT SUM(amount) AS gmv FROM orders", "只有开始没有结束也不收窄");
+  assert.match(compileMetric({ ...gmv, source: "" }).error, /基表/);
+  assert.match(compileMetric({ ...gmv, expression: "" }).error, /聚合表达式/);
+  assert.equal(compileMetric(rate, { scope }).sql,
+    "SELECT (SUM(paid))/NULLIF(SUM(amount),0)*100 AS rate FROM orders WHERE biz_date >= '2026-10-01' AND biz_date < '2026-10-08'");
+  for (const broken of [{ source: "" }, { numerator: "" }, { denominator: "" }])
+    assert.match(compileMetric({ ...rate, ...broken }).error, /分子/, `比率缺东西要说: ${JSON.stringify(broken)}`);
+  assert.equal(compileMetric({ id: "x", key: "x", type: "sql", sql: "  SELECT 1  " }).sql, "SELECT 1");
+  assert.match(compileMetric({ id: "x", type: "nope" }).error, /未知/);
+  assert.equal(compileMetric({ ...gmv, key: "1bad" }).sql.includes(" AS value "), true, "不合法的标识用 value 当列名");
+  assert.throws(() => compileMetric(gmv, { scope: { start: "2026-10-07", end: "2026-10-01" } }), /日期范围无效/);
+
+  /* 派生指标(指标 ÷ 指标):分子分母各自带上日期。原来没带 —— 指标中心预览时不管选哪段日期,
+     出来的都是整段历史的比值。 */
+  const derived = { id: "per", key: "per", type: "derived", numeratorMetricId: "gmv", denominatorMetricId: "cnt", scale: 100 };
+  assert.equal(compileMetric(derived, { scope }, lookup).sql,
+    "SELECT (SELECT SUM(amount) FROM orders WHERE biz_date >= '2026-10-01' AND biz_date < '2026-10-08')/NULLIF((SELECT COUNT(*) FROM visits WHERE dt >= '2026-10-01' AND dt < '2026-10-08'),0)*100 AS per");
+  assert.match(compileMetric({ ...derived, denominatorMetricId: "missing" }, {}, lookup).error, /分子指标 \+ 分母指标/);
+  assert.match(compileMetric({ ...derived, numeratorMetricId: undefined }, {}, lookup).error, /分子指标/);
+  const tpl = { id: "tpl", type: "template", queryPlan: { kind: "sql", template: "SELECT 1", sourceTables: ["t"], dimensions: {} } };
+  assert.match(compileMetric({ ...derived, numeratorMetricId: "tpl" }, {}, (id) => id === "tpl" ? tpl : lookup(id)).error, /度量\/比率/);
+
+  // 时间列:显式的优先,不合法的不要;否则从维度里认
+  assert.equal(metricTimeColumn({ timeField: " t.biz_date " }), "t.biz_date");
+  assert.equal(metricTimeColumn({ timeField: "biz date; drop", dimensions: ["stat_date"] }), "stat_date", "不像列名的显式时间列不认");
+  assert.equal(metricTimeColumn({ dimensions: ["region", " DT "] }), " DT ");
+  assert.equal(metricTimeColumn({ dimensions: ["region"] }), undefined);
+  // 底表
+  assert.deepEqual(metricSourceTables(rate), ["orders"]);
+  assert.deepEqual(metricSourceTables(derived, lookup), ["orders", "visits"]);
+  assert.deepEqual(metricSourceTables({ type: "sql" }), []);
 }
 
 console.log("metrics: 导入提示、底表解析、指标体检、维度归一化、表详情的相关指标都对");

@@ -192,7 +192,7 @@ export function buildRowDelete(
  * 反过来,存成字符串的日期列不认 DATE '…'(同样 ORA-01861),所以知道是文本列时照旧比字符串。
  * 别家的字符串跟日期列比都会自己转,不用管。
  */
-export function dateLiteral(day: string, kind?: DbKind, textColumn = false): string {
+export function dateLiteral(day: string, kind: DbKind | undefined, textColumn: boolean): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`不是日期:${day}`);
   return kind === "oracle" && !textColumn ? `DATE '${day}'` : sqlLiteral(day, kind);
 }
@@ -286,7 +286,7 @@ export function scanSql(
   /** 每遇到一处注释的开头就回调一次。 */
   onComment?: (index: number) => void,
 ): SqlScanState {
-  const { backslashEscapes, hashComments, dollarQuotes } = dialectFor(kind);
+  const { backslashEscapes, hashComments, dollarQuotes, nestedComments } = dialectFor(kind);
   let { quote, escapeString, dollarTag, lineComment, blockDepth } = state;
   let i = 0;
 
@@ -300,7 +300,7 @@ export function scanSql(
       continue;
     }
     if (blockDepth > 0) {
-      if (ch === "/" && next === "*") { blockDepth += 1; i += 2; }
+      if (nestedComments && ch === "/" && next === "*") { blockDepth += 1; i += 2; }
       else if (ch === "*" && next === "/") { blockDepth -= 1; i += 2; }
       else i += 1;
       continue;

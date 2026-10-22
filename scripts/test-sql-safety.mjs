@@ -20,13 +20,13 @@ try {
     stdin: { contents: `
       export { sqlLiteral } from './src/lib/sql';
       export { buildDatasetSql, normalizeDataset } from './src/features/datasets/domain';
-      export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate } from './src/lib/sql';
+      export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate, buildRowInsert, dateLiteral } from './src/lib/sql';
       export { isReadOnlySql } from './src/features/ai/readonly';`,
       resolveDir: resolve('.'), loader: 'ts' },
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate } = createRequire(import.meta.url)(outfile);
+  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate, buildRowInsert, dateLiteral } = createRequire(import.meta.url)(outfile);
 
   // ── 取值转义:以反斜杠结尾的值不能吃掉右引号 ────────────────────────────
   for (const kind of ['mysql', 'mariadb']) {
@@ -150,6 +150,53 @@ try {
     assert.deepEqual(split('SELECT 1; /* 收尾 */', 'postgres'), ['SELECT 1']);
     assert.deepEqual(split('-- 说明\nSELECT 1', 'mysql'), ['-- 说明\nSELECT 1'], '贴在语句上的注释照旧跟着语句');
     assert.equal(isReadOnlySql('SELECT 1;\n-- 备注', 'mysql'), true, '末尾的注释不该让只读查询被拦');
+  }
+
+  // ── 变异测试补上的缺口:这些地方改坏了原来没有一个测试会挂 ──────────────────
+  {
+    const split = splitSqlStatements;
+    // 取值:NULL 就是 NULL,不是字符串 'null';ClickHouse 里反斜杠要加倍
+    assert.equal(sqlLiteral(null, 'mysql'), 'NULL');
+    assert.equal(sqlLiteral(undefined, 'postgres'), 'NULL');
+    assert.equal(sqlLiteral('a\\b', 'clickhouse'), "'a\\\\b'", 'ClickHouse 的反斜杠是转义符,要写成两个');
+    assert.equal(sqlLiteral('a\\b', 'sqlite'), "'a\\b'", 'SQLite 不认反斜杠转义,原样');
+
+    // 新增的行:没填的格子不写进 INSERT,留给库的默认值 / 自增
+    assert.equal(buildRowInsert('postgres', '', 'public', 't', ['id', 'name', 'note'], [null, '咖啡', undefined]),
+      `INSERT INTO "public"."t" ("name") VALUES (E'咖啡')`);
+    assert.equal(buildRowInsert('mysql', 'db', '', 't', ['id'], [null]), null, '一格都没填就不插');
+
+    // 删除:MySQL 上超出 JS 精度的整数主键要再按文本核对一遍(数值比较会四舍五入到相邻的行)
+    const del = (value, kind = 'mysql') => buildRowDelete(kind, 'db', 'public', 't', { id: value });
+    assert.match(del('9007199254740993'), /`id` = '9007199254740993' AND CAST\(`id` AS CHAR\) = '9007199254740993'/);
+    assert.match(del('-9007199254740993'), /CAST\(`id` AS CHAR\)/, '负数同理');
+    assert.doesNotMatch(del('9007199254740991'), /CAST/, '安全整数范围内不用');
+    assert.doesNotMatch(del('abc'), /CAST/, '不是整数的文本不用');
+    assert.doesNotMatch(del('9007199254740993', 'postgres'), /CAST/, '只有 MySQL 一族需要');
+    assert.doesNotMatch(del('9007199254740993', 'mariadb').replace(/CAST\(`id` AS CHAR\)/, 'X'), /CAST/);
+    assert.match(del('9007199254740993', 'mariadb'), /CAST/);
+
+    // 日期字面量的「是不是文本列」必须由调用方说清楚
+    assert.equal(dateLiteral('2026-10-01', 'oracle', false), "DATE '2026-10-01'");
+    assert.equal(dateLiteral('2026-10-01', 'oracle', true), "'2026-10-01'");
+
+    /* # 注释里的分号:原来只数条数。丢掉纯注释片段之后,# 就算不再被当成注释,条数也碰巧还对 ——
+       那个测试就形同虚设了。要看切出来的内容。 */
+    assert.deepEqual(split('# 网点;汇总\nSELECT 1;\nSELECT 2;', 'mysql'), ['# 网点;汇总\nSELECT 1', 'SELECT 2']);
+    // MySQL 的双引号是字符串,里面的 \" 是转义;PG 的双引号是标识符,反斜杠是普通字符
+    assert.deepEqual(split('SELECT "a\\";b";\nSELECT 2;', 'mysql'), ['SELECT "a\\";b"', 'SELECT 2']);
+    assert.deepEqual(split('SELECT "a\\" FROM t;\nSELECT 2;', 'postgres'), ['SELECT "a\\" FROM t', 'SELECT 2']);
+    // Oracle 的 / 前后可以有空白;同一行前面还有东西就是除号
+    assert.deepEqual(split('BEGIN NULL; END;\n   /   \nSELECT 1 FROM dual', 'oracle'), ['BEGIN NULL; END;', 'SELECT 1 FROM dual']);
+    assert.deepEqual(split('SELECT 10 /\n 2 FROM dual;\nSELECT 3 FROM dual', 'oracle'), ['SELECT 10 /\n 2 FROM dual', 'SELECT 3 FROM dual']);
+
+    // 块注释只有 PG 能嵌套。MySQL / Oracle / SQLite 遇到第一个「星号斜杠」就结束 ——
+    // 原来一律按嵌套算,注释里再写一个「斜杠星号」就把后面的语句全吞成注释。
+    for (const kind of ['mysql', 'oracle', 'sqlite']) {
+      assert.deepEqual(split('/* 见 /*旧版 */ SELECT 1;\nSELECT 2;', kind), ['/* 见 /*旧版 */ SELECT 1', 'SELECT 2'], `${kind}:注释不嵌套`);
+    }
+    assert.deepEqual(split('/* a /* b */ ; c */ SELECT 1;\nSELECT 2;', 'postgres'), ['/* a /* b */ ; c */ SELECT 1', 'SELECT 2'], 'PG 的注释能嵌套:里层结束了外层还在,分号不切');
+    assert.deepEqual(split('/* a /* b */ ; SELECT 1;', 'mysql'), ['SELECT 1'], 'MySQL 第一个结束符就结束,后面的分号是真分号');
   }
 
   // ── SQL 语境扫描器:全项目只许有一份 ────────────────────────────────────

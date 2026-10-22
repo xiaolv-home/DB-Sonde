@@ -32,13 +32,17 @@ export function metricDateWhere(m: Metric, scope?: QueryScope): string {
   return `${col} >= '${scope.start}' AND ${col} < '${nextCalendarDay(scope.end)}'`;
 }
 
-/** A scalar expression for a metric (no dimension), for use inside derived. */
-function scalarSubquery(m: Metric): string | null {
+/** A scalar expression for a metric (no dimension), for use inside derived.
+ *  分子分母各自带上自己的日期区间和筛选 —— 原来没带,指标中心预览派生指标时
+ *  不管选哪段日期,出来的都是整段历史的比值。 */
+function scalarSubquery(m: Metric, scope?: QueryScope, filters?: string): string | null {
   if (!m.source) return null;
-  if (m.type === "measure" && m.expression) return `(SELECT ${m.expression} FROM ${m.source})`;
+  const parts = [metricDateWhere(m, scope), filters?.trim() || ""].filter(Boolean);
+  const where = parts.length ? ` WHERE ${parts.join(" AND ")}` : "";
+  if (m.type === "measure" && m.expression) return `(SELECT ${m.expression} FROM ${m.source}${where})`;
   if (m.type === "ratio" && m.numerator && m.denominator) {
     const s = m.scale ? `*${m.scale}` : "";
-    return `(SELECT (${m.numerator})/NULLIF(${m.denominator},0)${s} FROM ${m.source})`;
+    return `(SELECT (${m.numerator})/NULLIF(${m.denominator},0)${s} FROM ${m.source}${where})`;
   }
   return null;
 }
@@ -84,8 +88,8 @@ export function compileMetric(
     const num = m.numeratorMetricId ? lookup?.(m.numeratorMetricId) : undefined;
     const den = m.denominatorMetricId ? lookup?.(m.denominatorMetricId) : undefined;
     if (!num || !den) return { sql: "", error: "派生指标需要选 分子指标 + 分母指标" };
-    const ns = scalarSubquery(num);
-    const ds = scalarSubquery(den);
+    const ns = scalarSubquery(num, opts.scope, opts.filters);
+    const ds = scalarSubquery(den, opts.scope, opts.filters);
     if (!ns || !ds) return { sql: "", error: "派生指标的分子/分母暂只支持 度量/比率 型" };
     const s = m.scale ? `*${m.scale}` : "";
     return { sql: `SELECT ${ns}/NULLIF(${ds},0)${s} AS ${a}` };

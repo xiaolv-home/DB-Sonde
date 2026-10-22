@@ -15,7 +15,7 @@ try {
   await build({
     stdin: {
       contents: `
-        export { resolveWidgetDatasets, widgetQueryOf, datasetOf } from './src/features/dashboard/resolveDatasets';
+        export { resolveWidgetDatasets, widgetQueryOf, datasetOf, reuseUnchanged } from './src/features/dashboard/resolveDatasets';
         export { mergeCanvasRuntime } from './src/features/dashboard/useDashboardRuntime';
         export { resolveWidgetMetrics } from './src/features/dashboard/metrics';
       `,
@@ -24,7 +24,7 @@ try {
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-  const { resolveWidgetDatasets, widgetQueryOf, datasetOf, mergeCanvasRuntime, resolveWidgetMetrics } = createRequire(import.meta.url)(outfile);
+  const { resolveWidgetDatasets, widgetQueryOf, datasetOf, reuseUnchanged, mergeCanvasRuntime, resolveWidgetMetrics } = createRequire(import.meta.url)(outfile);
 
   const widget = {
     id: 'w1', type: 'line', title: '折线图', datasetId: 'ds1',
@@ -158,6 +158,42 @@ try {
     ...parts, drillRuntime: {},
   }, () => []);
   assert.equal(backToTop[widget.id].result.columns[0].name, 'sale_date', '返回之后回到基础那份,而不是空');
+
+  // ── 变异测试补的:编译结果的复用、日期列的选择、时间轴上的指标排序 ──
+  {
+    const a = { id: 'w1', connectionId: 'c', database: 'db', sql: 'SELECT 1' };
+    const b = { id: 'w2', connectionId: 'c', database: 'db', sql: 'SELECT 2' };
+    const prev = [a, b];
+    assert.strictEqual(reuseUnchanged(prev, [{ ...a }, { ...b }]), prev, '什么都没变:连数组都沿用');
+    const changed = reuseUnchanged(prev, [{ ...a }, { ...b, sql: 'SELECT 3' }]);
+    assert.notStrictEqual(changed, prev, 'SQL 变了就不能把旧的那份交回去 —— 那是一张不会更新的卡片');
+    assert.strictEqual(changed[0], a, '没变的那个照旧沿用(下游的 memo 才命中)');
+    assert.equal(changed[1].sql, 'SELECT 3');
+    const fewer = reuseUnchanged(prev, [{ ...a }]);
+    assert.notStrictEqual(fewer, prev, '少了一个组件也是变了');
+    assert.deepEqual(fewer, [a]);
+    const fresh = [{ ...a }];
+    assert.strictEqual(reuseUnchanged([], fresh), fresh, '第一次没有可沿用的');
+    const reordered = reuseUnchanged(prev, [{ ...b }, { ...a }]);
+    assert.notStrictEqual(reordered, prev, '顺序换了也是新数组');
+    assert.strictEqual(reordered[0], b);
+
+    // 组件自己按某根时间列分组,数据日期就落在那根上(而不是数据集里排第一的时间列)
+    const twoDates = { ...dataset, fields: [{ name: 'created_at', column: 'created_at', from: 't1', role: 'dimension' }, ...dataset.fields] };
+    assert.equal(widgetQueryOf(widget, twoDates, { start: '2026-10-01', end: '2026-10-07' }).dateRange?.field, 'sale_date');
+    // 组件按一个非时间的维度分组:日期条件不能落在这个维度上,要落在数据集的时间列上
+    const byRegion = { ...widget, bindings: { ...widget.bindings, dimensions: ['region'] } };
+    const regionDs = { ...dataset, fields: [...dataset.fields, { name: 'region', column: 'region', from: 't1', role: 'dimension' }] };
+    assert.equal(widgetQueryOf(byRegion, regionDs, { start: '2026-10-01', end: '2026-10-07' }).dateRange?.field, 'sale_date');
+
+    // 图表只要有一个维度是时间,就不按指标值排(会把时间轴打乱)
+    const mixed = { ...widget, type: 'bar', bindings: { ...widget.bindings, dimensions: ['sale_date'], seriesDimension: 'region' },
+      options: { ...widget.options, table: { metricSort: { key: 'field:amount', dir: 'desc' } } } };
+    const withRegion = { ...dataset, fields: [...dataset.fields, { name: 'region', column: 'region', from: 't1', role: 'dimension' }] };
+    assert.equal(widgetQueryOf(mixed, withRegion).orderBy, undefined, '时间轴 + 系列维度也不按指标排');
+    assert.deepEqual(widgetQueryOf({ ...mixed, bindings: { ...mixed.bindings, dimensions: ['region'], seriesDimension: undefined } }, withRegion).orderBy,
+      [{ name: 'amount', dir: 'desc', measure: true }], '分类轴不是时间就照排');
+  }
 
   console.log('dashboard runtime keys: 33 assertions passed');
 } finally {
