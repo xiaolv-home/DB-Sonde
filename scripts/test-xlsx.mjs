@@ -2,7 +2,7 @@
 // 而这件事在界面上点一下才发现,发现时也只有一句打不开。这儿直接写出来验结构。
 // 能不能真打开由 scripts/verify-xlsx.py 用 openpyxl 读一遍(npm run test:xlsx 会带上)。
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +49,7 @@ assert(csv.split('\r\n').length === rows.length + 1, '表头 + 每行一条');
 /* 自己拼的 zip + XML,光自己检查不算数 —— 用 openpyxl(真正的 Excel 解析器)读一遍。
    没装 openpyxl 就跳过这一段,别让别人的机器上跑不了 npm run check。 */
 const py = spawnSync('python3', ['scripts/verify-xlsx.py', out], { encoding: 'utf8' });
+rmSync(out, { force: true }); // 读完就删,别每跑一次检查就在临时目录里留一份
 if (py.status === 0) {
   console.log(py.stdout.trim().split('\n').pop());
 } else if (/ModuleNotFoundError|No module named|command not found/.test((py.stderr || '') + (py.error?.message ?? ''))) {
