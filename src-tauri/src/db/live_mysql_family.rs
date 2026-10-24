@@ -57,7 +57,7 @@ async fn live_mysql_family_everyday_operations() {
     rep.step("INSERT", q(run_query(&pool, &format!(
         "INSERT INTO {t} VALUES (1, '甲', 12.50, '2026-10-01 08:30:00', '2026-10-01', 1.5, true), (2, NULL, NULL, NULL, NULL, NULL, false)"), None).await),
         |r| format!("{:?}", r.rows_affected));
-    rep.step("批量语句(run_statements)", run_statements(&pool, &[format!("INSERT INTO {t} VALUES (3, '丙', 3.00, '2026-10-02 00:00:00', '2026-10-02', 3.0, true)")]).await.map_err(|e| e.to_string()), |n| format!("{n}"));
+    rep.step("批量语句(run_statements)", run_statements(&pool, &[format!("INSERT INTO {t} VALUES (3, '丙', 3.00, '2026-10-02 00:00:00', '2026-10-02', 3.0, true)")], &[]).await.map_err(|e| e.to_string()), |n| format!("{n}"));
     rep.step("SELECT *", q(run_query(&pool, &format!("SELECT * FROM {t} ORDER BY id"), None).await), rows_of);
     rep.step("SELECT 分页(LIMIT/OFFSET)", q(run_query(&pool, &format!("SELECT * FROM {t} ORDER BY id LIMIT 2 OFFSET 1"), None).await), rows_of);
     rep.step("COUNT", q(run_query(&pool, &format!("SELECT COUNT(*) AS n FROM {t}"), None).await), rows_of);

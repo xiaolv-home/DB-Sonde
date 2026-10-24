@@ -99,12 +99,29 @@ pub async fn rollback_tx(tx: SessionTx) -> AppResult<()> {
     Ok(())
 }
 
+/// 第 index 条语句的影响行数是不是调用方要求的那个数(没要求就不管)。
+///
+/// 表格里删一行,0 行 = 那一行已经变了,或者按整行的值没对上 —— 界面上那行消失了,
+/// 库里还在;没有主键时整行一模一样的有好几行,不限定就会一起删掉。都不能当成功。
+fn check_rows(expect: &[Option<u64>], index: usize, affected: u64) -> Option<String> {
+    match expect.get(index).copied().flatten() {
+        Some(want) if want != affected => Some(format!(
+            "第 {} 条语句应影响 {want} 行,实际 {affected} 行 —— 那一行可能已经被改过或删掉了",
+            index + 1
+        )),
+        _ => None,
+    }
+}
+
 /// 一批写语句跑在**同一笔事务**里:要么全成,要么一条都不留。
 ///
 /// Oracle / ClickHouse 没有可回滚的会话事务,只能一条条来。那就不假装原子 ——
 /// 出错时把"前几条已经生效"写进错误里,让用户知道该去核对什么。
 /// 最怕的是既没回滚、又不说,留下一个谁也不知道停在哪儿的半拉状态。
-pub async fn run_statements(pool: &DbPool, statements: &[String]) -> AppResult<u64> {
+///
+/// expect[i] = 第 i 条必须正好影响几行(空 = 不核对)。对不上:能回滚的整批撤销;
+/// 不能回滚的停下并说清前几条已经生效。
+pub async fn run_statements(pool: &DbPool, statements: &[String], expect: &[Option<u64>]) -> AppResult<u64> {
     if statements.is_empty() {
         return Ok(0);
     }
@@ -112,7 +129,17 @@ pub async fn run_statements(pool: &DbPool, statements: &[String]) -> AppResult<u
         let mut total = 0u64;
         for (index, sql) in statements.iter().enumerate() {
             match run_query(pool, sql, Some(0)).await {
-                Ok(result) => total += result.rows_affected.unwrap_or(0),
+                Ok(result) => {
+                    let affected = result.rows_affected.unwrap_or(0);
+                    if let Some(problem) = check_rows(expect, index, affected) {
+                        // 0 行 = 这一条什么也没动;多了 = 这一条也已经生效了
+                        let landed = if affected == 0 { format!("前 {index} 条") } else { format!("这一条和前 {index} 条") };
+                        return Err(AppError::msg(format!(
+                            "{problem}。这个数据库不支持可回滚的批量写入,{landed}已经生效,请自行核对。"
+                        )));
+                    }
+                    total += affected;
+                }
                 Err(error) => {
                     return Err(AppError::msg(format!(
                         "第 {} 条语句失败:{error}。这个数据库不支持可回滚的批量写入,前 {} 条已经生效,请自行核对。",
@@ -126,9 +153,16 @@ pub async fn run_statements(pool: &DbPool, statements: &[String]) -> AppResult<u
     }
     let mut tx = begin_tx(pool).await?;
     let mut total = 0u64;
-    for sql in statements {
+    for (index, sql) in statements.iter().enumerate() {
         match run_query_on_tx(&mut tx, sql, Some(0)).await {
-            Ok(result) => total += result.rows_affected.unwrap_or(0),
+            Ok(result) => {
+                let affected = result.rows_affected.unwrap_or(0);
+                if let Some(problem) = check_rows(expect, index, affected) {
+                    let _ = rollback_tx(tx).await;
+                    return Err(AppError::msg(format!("{problem},这一批已撤销。")));
+                }
+                total += affected;
+            }
             Err(error) => {
                 // 回滚本身失败也不该盖掉真正的原因,原样把原错误交回去。
                 let _ = rollback_tx(tx).await;
@@ -141,15 +175,21 @@ pub async fn run_statements(pool: &DbPool, statements: &[String]) -> AppResult<u
 }
 
 /// A failed batch rolls back only its savepoint, preserving earlier manual work.
-pub async fn run_statements_on_tx(tx: &mut SessionTx, statements: &[String]) -> AppResult<u64> {
+/// expect 同 run_statements;对不上也只撤销这一批。
+pub async fn run_statements_on_tx(tx: &mut SessionTx, statements: &[String], expect: &[Option<u64>]) -> AppResult<u64> {
     use sqlx::Acquire;
     macro_rules! batch {
         ($parent:expr, |$c:ident, $sql:ident| $run:expr) => {{
             let mut nested = $parent.begin().await?;
             let mut total = 0;
-            for $sql in statements {
+            for (index, $sql) in statements.iter().enumerate() {
                 let $c = &mut *nested;
-                total += $run.await?.rows_affected();
+                let affected = $run.await?.rows_affected();
+                // 直接返回:nested 被丢掉就是回滚到保存点
+                if let Some(problem) = check_rows(expect, index, affected) {
+                    return Err(AppError::msg(format!("{problem},这一批已撤销。")));
+                }
+                total += affected;
             }
             nested.commit().await?;
             Ok(total)
@@ -318,6 +358,7 @@ mod batch_tests {
                 "INSERT INTO items (id, name) VALUES (2, 'b')".to_string(),
                 "DELETE FROM items WHERE id = 1".to_string(),
             ],
+            &[],
         )
         .await
         .unwrap();
@@ -343,6 +384,7 @@ mod batch_tests {
                 // NOT NULL 约束:这条必炸
                 "INSERT INTO items (id, name) VALUES (3, NULL)".to_string(),
             ],
+            &[],
         )
         .await
         .unwrap_err();
@@ -354,11 +396,30 @@ mod batch_tests {
         );
     }
 
+    /// 表格删行要求每条正好删一行:一条落空(那一行已经变了、或按整行的值没对上),
+    /// 整批撤销 —— 不能界面上那行消失了,库里还在;前面删掉的也得回来。
+    #[tokio::test]
+    async fn a_delete_that_misses_its_row_rolls_the_batch_back() {
+        let (db, raw) = fixture().await;
+        sqlx::query("INSERT INTO items (id, name) VALUES (1, 'a'), (2, 'b')").execute(&raw).await.unwrap();
+        let error = run_statements(
+            &db,
+            &["DELETE FROM items WHERE id = 1".to_string(), "DELETE FROM items WHERE id = 99".to_string()],
+            &[Some(1), Some(1)],
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{error}").contains("第 2 条语句应影响 1 行,实际 0 行"), "{error}");
+        assert_eq!(ids(&raw).await, vec![1, 2], "第一条也得撤销");
+        // 不核对的语句不受影响
+        assert_eq!(run_statements(&db, &["DELETE FROM items WHERE id = 99".to_string()], &[None]).await.unwrap(), 0);
+    }
+
     /// 空批次不该去开一笔事务。
     #[tokio::test]
     async fn empty_batch_is_a_no_op() {
         let (db, raw) = fixture().await;
-        assert_eq!(run_statements(&db, &[]).await.unwrap(), 0);
+        assert_eq!(run_statements(&db, &[], &[]).await.unwrap(), 0);
         assert!(ids(&raw).await.is_empty());
     }
 

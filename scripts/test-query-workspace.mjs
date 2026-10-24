@@ -122,6 +122,26 @@ try {
     assert.throws(() => m.buildCellRequest('c', 'db', 's', 't', columns, res, 5, 1, 'y'), /no longer available/, '行不在了');
     assert.throws(() => m.buildCellRequest('c', 'db', 's', 't', columns, res, 0, 9, 'y'), /no longer available/, '列不在了');
 
+    /* 没有主键:按整行的值定位(DBeaver 的「所有列」)。比不准的列不拿来比:
+       大对象 / 二进制 / JSON / 单精度浮点(存进去和读出来不是同一个数)。 */
+    const noPk = [
+      { name: 'note', dataType: 'varchar(20)', isPrimaryKey: false }, { name: 'qty', dataType: 'int', isPrimaryKey: false },
+      { name: 'body', dataType: 'CLOB', isPrimaryKey: false }, { name: 'doc', dataType: 'json', isPrimaryKey: false },
+      { name: 'w', dataType: 'float', isPrimaryKey: false }, { name: 'r', dataType: 'real', isPrimaryKey: false },
+      { name: 'p', dataType: 'double precision', isPrimaryKey: false }, { name: 'f8', dataType: 'float8', isPrimaryKey: false },
+      { name: 'bin', dataType: 'varbinary(16)', isPrimaryKey: false }, { name: 'big', dataType: 'longtext', isPrimaryKey: false },
+    ];
+    assert.deepEqual(m.rowKeyOf(noPk), { columns: ['note', 'qty', 'p', 'f8', 'big'], wholeRow: true });
+    assert.deepEqual(m.rowKeyOf(columns), { columns: ['id'], wholeRow: false }, '有主键就只用主键');
+    assert.deepEqual(m.rowKeyOf([{ name: 'b', dataType: 'BLOB', isPrimaryKey: false }]).columns, [], '一列都比不了就是空的');
+    const noPkRes = { columns: noPk.map(({ name }) => ({ name })), rows: [['a', 1, 'x', '{}', 0.1, 0.2, 0.3, 0.4, 'bb', 'long'], ['b', null, 'y', '{}', 0, 0, 0, 0, 'cc', 'l2']], elapsedMs: 0, truncated: false };
+    const wholeReq = m.buildCellRequest('c', 'db', 's', 'logs', noPk, noPkRes, 1, 0, 'B');
+    assert.deepEqual(wholeReq.primaryKey, { note: 'b', qty: null, p: 0, f8: 0, big: 'l2' }, '按整行定位,NULL 也照实带上');
+    assert.throws(() => m.buildCellRequest('c', 'db', 's', 'logs', noPk, { ...noPkRes, columns: noPkRes.columns.slice(1) , rows: [noPkRes.rows[0].slice(1)] }, 0, 0, 'x'),
+      /按整行定位需要所有列/);
+    assert.throws(() => m.buildCellRequest('c', 'db', 's', 'b', [{ name: 'b', dataType: 'BLOB', isPrimaryKey: false }], { columns: [{ name: 'b' }], rows: [['x']] }, 0, 0, 'y'),
+      /没有能用来定位一行的列/);
+
     const context = { database: 'db', schema: 's', table: 't', columns, previewSql: 'SELECT * FROM t LIMIT 200;', editable: true };
     const prepared = m.prepareCellUpdate('c', '  SELECT * FROM t LIMIT 200;\n', context, res, 0, 1, '新');
     assert.deepEqual(prepared.request.primaryKey, { id: 7 });

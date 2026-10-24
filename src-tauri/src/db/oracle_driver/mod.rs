@@ -177,11 +177,7 @@ pub async fn get_object_ddl(
 /// 命中行数不对时的说法 —— 跟 db::edit::guard 对其余引擎给的是同一句,
 /// 免得同一件事在 Oracle 上换个说法,用户以为是另一个毛病。
 fn rows_error(affected: u64) -> AppError {
-    if affected == 0 {
-        AppError::msg("The row changed since it was loaded. Refresh before saving again.")
-    } else {
-        AppError::msg("Safety check failed: more than one row matched the edit.")
-    }
+    crate::db::edit::hit_error(affected)
 }
 
 pub async fn update_cell(conn: &OracleConn, request: UpdateCellRequest) -> AppResult<u64> {
@@ -196,18 +192,14 @@ pub async fn update_cell(conn: &OracleConn, request: UpdateCellRequest) -> AppRe
 mod row_guard_tests {
     use super::rows_error;
 
-    /// Oracle 这边的"命中行数不对"要跟其余引擎(db::edit::guard)说**同一句话**。
-    /// 同一件事换个说法,用户会以为是另一个毛病。两处文案一旦走散,这条就变红。
+    /// Oracle 这边的"命中行数不对"要跟其余引擎(db::edit::guard)说**同一句话** —— 现在是同一个函数。
     #[test]
     fn wording_matches_the_shared_guard() {
-        assert_eq!(
-            rows_error(0).to_string(),
-            "The row changed since it was loaded. Refresh before saving again."
-        );
-        assert_eq!(
-            rows_error(5).to_string(),
-            "Safety check failed: more than one row matched the edit."
-        );
+        for n in [0, 2, 5] {
+            assert_eq!(rows_error(n).to_string(), crate::db::edit::hit_error(n).to_string());
+        }
+        assert!(rows_error(0).to_string().contains("刷新"));
+        assert!(rows_error(2).to_string().contains("不止一行"));
     }
 }
 

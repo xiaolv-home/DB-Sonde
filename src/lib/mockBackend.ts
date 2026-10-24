@@ -22,6 +22,9 @@ import { compareText } from "./collate";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+const rowCountMismatch = (index: number, expected: number, actual: number) =>
+  `第 ${index + 1} 条语句应影响 ${expected} 行,实际 ${actual} 行,这一批已撤销`;
+
 const demo: ConnectionConfig = {
   id: "demo-sqlite",
   name: "Demo (SQLite)",
@@ -551,14 +554,19 @@ export const mockApi = {
     );
     const columnIndex = tableColumns.findIndex((column) => column.name === request.column);
     if (!row || columnIndex < 0 || row[columnIndex] !== request.oldValue) {
-      throw new Error("The row changed since it was loaded. Refresh and try again.");
+      throw new Error("这一行在读出来之后已经被改过或删掉了,请刷新后再改。");
     }
     row[columnIndex] = request.newValue;
     return 1;
   },
-  async runStatements(connId: string, statements: string[]): Promise<number> {
+  async runStatements(connId: string, statements: string[], expectRows?: (number | null)[]): Promise<number> {
     let total = 0;
-    for (const sql of statements) total += (await this.runQuery(connId, sql)).rowsAffected ?? 0;
+    for (const [index, sql] of statements.entries()) {
+      const affected = (await this.runQuery(connId, sql)).rowsAffected ?? 0;
+      const expected = expectRows?.[index];
+      if (expected != null && affected !== expected) throw new Error(rowCountMismatch(index, expected, affected));
+      total += affected;
+    }
     return total;
   },
 

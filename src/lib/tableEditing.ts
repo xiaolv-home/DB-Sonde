@@ -74,6 +74,39 @@ export function parseEditedValue(
   return input;
 }
 
+/**
+ * 定位「这一行」用哪几列。有主键用主键;没有主键就用整行的列 —— 跟 DBeaver 的「所有列」虚拟键一样。
+ *
+ * 整行定位时,值对不准的列不拿来比:大对象 / 二进制 / JSON / 空间类型比不了或比不准,
+ * 单精度浮点存进去和读出来不是同一个数(0.1 存成 0.100000001…),拿它比永远对不上。
+ * 少比几列不会删错:改和删都要求「正好命中一行」,命中多行会整笔撤销。
+ */
+export interface RowKey {
+  columns: string[];
+  /** 没有主键,按整行定位 */
+  wholeRow: boolean;
+}
+const UNMATCHABLE_TYPE = /lob\b|blob|binary|bytea|json|xml|geometry|geography|point|polygon|linestring|image|\braw\b|^float4?\b|^real\b/i;
+
+export function rowKeyOf(columns: ColumnInfo[]): RowKey {
+  const primary = columns.filter((column) => column.isPrimaryKey).map((column) => column.name);
+  if (primary.length) return { columns: primary, wholeRow: false };
+  return { columns: columns.filter((column) => !UNMATCHABLE_TYPE.test(column.dataType.trim())).map((column) => column.name), wholeRow: true };
+}
+
+/** 按 rowKeyOf 从结果的一行里取出定位用的值。 */
+function rowKeyValues(columns: ColumnInfo[], result: QueryResult, cells: Cell[]): Record<string, Cell> {
+  const key = rowKeyOf(columns);
+  if (!key.columns.length) throw new Error("这张表没有能用来定位一行的列");
+  const values: Record<string, Cell> = {};
+  for (const name of key.columns) {
+    const index = result.columns.findIndex((item) => item.name === name);
+    if (index < 0) throw new Error(key.wholeRow ? `按整行定位需要所有列,结果里少了 ${name}` : `Primary key ${name} is missing from the result`);
+    values[name] = cells[index];
+  }
+  return values;
+}
+
 export function buildCellRequest(
   connId: string,
   database: string,
@@ -89,12 +122,7 @@ export function buildCellRequest(
   const cells = result.rows[row];
   if (!columnName || !cells) throw new Error("The selected cell is no longer available");
 
-  const primaryKey: Record<string, Cell> = {};
-  for (const key of columns.filter((item) => item.isPrimaryKey)) {
-    const index = result.columns.findIndex((item) => item.name === key.name);
-    if (index < 0) throw new Error(`Primary key ${key.name} is missing from the result`);
-    primaryKey[key.name] = cells[index];
-  }
+  const primaryKey = rowKeyValues(columns, result, cells);
   return {
     connId,
     database,
@@ -129,12 +157,7 @@ export function prepareCellUpdate(
   const cells = result.rows[row];
   if (!columnName || !cells) throw new Error("The selected cell is no longer available");
 
-  const primaryKey: Record<string, Cell> = {};
-  for (const key of context.columns.filter((item) => item.isPrimaryKey)) {
-    const index = result.columns.findIndex((item) => item.name === key.name);
-    if (index < 0) throw new Error(`Primary key ${key.name} is missing from the result`);
-    primaryKey[key.name] = cells[index];
-  }
+  const primaryKey = rowKeyValues(context.columns, result, cells);
 
   const nextResult: QueryResult = {
     ...result,

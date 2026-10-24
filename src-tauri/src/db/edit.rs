@@ -52,8 +52,18 @@ async fn validate(pool: &DbPool, request: &UpdateCellRequest) -> AppResult<()> {
         .filter(|column| column.is_primary_key)
         .map(|column| column.name.as_str())
         .collect();
-    if primary_keys.is_empty()
-        || request.primary_key.len() != primary_keys.len()
+    /* 没有主键:前端按整行的值定位(跟 DBeaver 的「所有列」一样,值对不准的列不参与)。
+       这里只认「键里每一列都是这张表真有的列」;到底是不是只命中一行,由 guard 兜底 ——
+       命中 0 行或多行都整笔撤销。 */
+    if primary_keys.is_empty() {
+        if request.primary_key.is_empty()
+            || request.primary_key.keys().any(|key| !columns.iter().any(|column| &column.name == key))
+        {
+            return Err(AppError::msg("这张表没有主键,要按整行的列定位,但给的列对不上表结构。"));
+        }
+        return Ok(());
+    }
+    if request.primary_key.len() != primary_keys.len()
         || primary_keys
             .iter()
             .any(|column| !request.primary_key.contains_key(*column))
@@ -262,12 +272,16 @@ where
 fn guard(affected: u64) -> AppResult<()> {
     match affected {
         1 => Ok(()),
-        0 => Err(AppError::msg(
-            "The row changed since it was loaded. Refresh before saving again.",
-        )),
-        _ => Err(AppError::msg(
-            "Safety check failed: more than one row matched the edit.",
-        )),
+        n => Err(hit_error(n)),
+    }
+}
+
+/// 改一格没有正好命中一行时说什么。Oracle 驱动(在它自己那边提交前检查)也用这一份。
+pub(crate) fn hit_error(affected: u64) -> AppError {
+    if affected == 0 {
+        AppError::msg("这一行在读出来之后已经被改过或删掉了,请刷新后再改。")
+    } else {
+        AppError::msg("这次修改会同时改到不止一行(没有主键的表里有一模一样的重复行),已撤销;这种行只能用 SQL 改。")
     }
 }
 

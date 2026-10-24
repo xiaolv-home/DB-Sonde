@@ -192,10 +192,11 @@ export const api = {
       : mockApi.updateCell(request),
 
   /** 一批写语句跑在同一笔事务里 —— 中途失败整笔回滚,不留半拉状态。 */
-  runStatements: (connId: string, database: string | undefined, statements: string[]) =>
+  /** expectRows[i] = 第 i 条必须正好影响这么多行,对不上整批撤销;null / 不传 = 不核对。 */
+  runStatements: (connId: string, database: string | undefined, statements: string[], expectRows?: (number | null)[]) =>
     inTauri
-      ? invoke<number>("run_statements", { connId, database: database || null, statements })
-      : mockApi.runStatements(connId, statements),
+      ? invoke<number>("run_statements", { connId, database: database || null, statements, expectRows: expectRows ?? null })
+      : mockApi.runStatements(connId, statements, expectRows),
 
   applyCellEdits: (edits: UpdateCellRequest[]) =>
     inTauri

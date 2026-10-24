@@ -28,7 +28,7 @@ import {
   andWhere,
   checkWhereClause,
 } from "../lib/sql";
-import { buildCellRequest } from "../lib/tableEditing";
+import { buildCellRequest, rowKeyOf } from "../lib/tableEditing";
 import { useConfirm } from "./useConfirm";
 import { useApp, type TableTab } from "../store/appStore";
 import type {
@@ -401,24 +401,24 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
       .map((vals) => buildRowInsert(kind, tab.database, tab.schema, tab.table, colNames, vals))
       .filter((s): s is string => s !== null);
 
-    const pkCols = columns.filter((c) => c.isPrimaryKey);
+    const key = rowKeyOf(columns);
     const deleteSqls: string[] = [];
     if (deletes.length) {
-      if (!pkCols.length) throw new Error(t("edit.primaryKeyRequired"));
+      if (!key.columns.length) throw new Error(t("edit.primaryKeyRequired"));
       for (const idx of deletes) {
         const rowVals = rows[idx];
         if (!rowVals) continue;
         const pk: Record<string, Cell> = {};
-        for (const pkc of pkCols) {
-          const ci = cols.findIndex((c) => c.name === pkc.name);
+        for (const name of key.columns) {
+          const ci = cols.findIndex((c) => c.name === name);
           /* 主键列不在当前结果里(预览 SQL 只选了一部分列)时 findIndex 返回 -1,
              rowVals[-1] 是 undefined,拼出来就成了 `WHERE id IS NULL` ——
              主键不可能是 NULL,所以那条 DELETE 一行都删不掉,可界面上那行已经消失、
              还提示成功。改单元格那条路本来就有这道检查(tableEditing),删除这条漏了。 */
-          if (ci < 0) throw new Error(t("edit.primaryKeyMissingFromResult", { column: pkc.name }));
-          pk[pkc.name] = rowVals[ci];
+          if (ci < 0) throw new Error(t("edit.primaryKeyMissingFromResult", { column: name }));
+          pk[name] = rowVals[ci];
         }
-        deleteSqls.push(buildRowDelete(kind, tab.database, tab.schema, tab.table, pk));
+        deleteSqls.push(buildRowDelete(kind, tab.database, tab.schema, tab.table, pk, key.wholeRow));
       }
     }
 
@@ -437,7 +437,10 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
        前两条已经生效,而错误往上抛、下面的 setRows 不执行,表格还显示着那两行;
        用户再点一次保存,插入那批就重复插了一遍。
        先删后插的顺序保留 —— 主键冲突的改动(删掉旧行再插同一个主键)靠这个顺序。 */
-    await api.runStatements(tab.connId, tab.database, [...deleteSqls, ...insertSqls]);
+    /* 每条删除都必须正好删掉一行:0 行是那一行变了 / 按整行对不上(界面上消失了库里还在),
+       对不上就整批撤销,不能装作删掉了。 */
+    await api.runStatements(tab.connId, tab.database, [...deleteSqls, ...insertSqls],
+      [...deleteSqls.map(() => 1), ...insertSqls.map(() => null)]);
 
     const delSet = new Set(deletes);
     const kept = rows.filter((_, i) => !delSet.has(i));
@@ -611,13 +614,14 @@ export default function TableInspector({ tab }: { tab: TableTab }) {
 
   // 双击改注释 / 数据类型;改成功后重新读一遍表结构(DDL、列、注释都跟着变)
   const structure = useStructureEditor(tab, info?.estimatedRows, () => setMetadataReloadKey((value) => value + 1));
-  const hasPrimaryKey = columns.some((column) => column.isPrimaryKey);
-  const editable = tab.objectKind === "table" && hasPrimaryKey;
+  /* 没有主键也能改:按整行定位(见 rowKeyOf)。ClickHouse 没有逐行改删的语义,照旧只读。 */
+  const rowKey = rowKeyOf(columns);
+  const editable = tab.objectKind === "table" && kind !== "clickhouse" && rowKey.columns.length > 0;
   const editHint = tab.objectKind === "view"
     ? t("edit.viewReadOnly")
-    : !hasPrimaryKey
+    : !editable
       ? t("edit.primaryKeyRequired")
-      : t("edit.hint");
+      : rowKey.wholeRow ? t("edit.hintWholeRow") : t("edit.hint");
 
   const sections: { id: Section; label: string; icon: typeof TableProperties; tint: string; count?: number }[] = [
     { id: "properties", label: t("inspector.properties"), icon: TableProperties, tint: "var(--c-schema)" },

@@ -28,7 +28,7 @@ async fn failed_manual_statements_revert_batch_and_parent_remains_usable() {
     let pool = fixture().await;
     let mut tx = db::begin_tx(&pool).await.unwrap();
     db::run_query_on_tx(&mut tx, "UPDATE items SET name='earlier' WHERE id=3", None).await.unwrap();
-    assert!(db::run_statements_on_tx(&mut tx, &["DELETE FROM items WHERE id=1".into(), "INSERT INTO items VALUES(2,'duplicate')".into()]).await.is_err());
+    assert!(db::run_statements_on_tx(&mut tx, &["DELETE FROM items WHERE id=1".into(), "INSERT INTO items VALUES(2,'duplicate')".into()], &[]).await.is_err());
     db::run_query_on_tx(&mut tx, "UPDATE items SET name='later' WHERE id=2", None).await.unwrap();
     db::commit_tx(tx).await.unwrap();
     assert_eq!(db::run_query(&pool, "SELECT name FROM items ORDER BY id", None).await.unwrap().rows,
@@ -67,7 +67,7 @@ async fn manual_queries_writes_and_reopen_stay_on_selected_database() {
     for sql in ["SELECT 1", "DELETE FROM items", "UPDATE items SET name='wrong'"] {
         assert!(commands::query::run_query(state.clone(), "c".into(), Some("primary".into()), sql.into(), None, None).await.is_err());
     }
-    assert!(commands::query::run_statements(state.clone(), "c".into(), Some("primary".into()), vec!["DELETE FROM items".into()]).await.is_err());
+    assert!(commands::query::run_statements(state.clone(), "c".into(), Some("primary".into()), vec!["DELETE FROM items".into()], None).await.is_err());
     assert!(commands::query::apply_cell_edits(state.clone(), vec![req(json!(1), "before")]).await.is_err());
     commands::query::run_query(state.clone(), "c".into(), Some("other".into()), "UPDATE items SET name='right' WHERE id=1".into(), None, None).await.unwrap();
     commands::query::commit_session(state.clone(), "c".into()).await.unwrap();
@@ -107,4 +107,35 @@ fn manual_session_cannot_be_ended_or_retargeted_by_sql() {
     }
     assert!(readonly::validate_dashboard_sql("SELECT 1 /*! INTO OUTFILE '/tmp/out' */").is_err());
     readonly::validate_manual_sql(true, "SELECT CASE WHEN 1=1 THEN 'COMMIT' ELSE 'ROLLBACK' END").unwrap();
+}
+
+/// 没有主键的表:按整行的值定位(前端 rowKeyOf / buildRowDelete 的整行模式)。
+/// NULL 要能对上;有一模一样的两行时,改不了(命中两行整笔撤销),删只删其中一行。
+#[tokio::test]
+async fn tables_without_a_primary_key_are_edited_by_whole_row() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+    sqlx::query("CREATE TABLE logs (note TEXT, qty INTEGER)").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO logs VALUES ('a',1),('a',1),(NULL,2)").execute(&pool).await.unwrap();
+    let pool = DbPool::Sqlite(pool);
+    let edit = |key: Value, old: Value, new: Value| UpdateCellRequest {
+        conn_id: "c".into(), database: "main".into(), schema: "main".into(), table: "logs".into(), column: "qty".into(),
+        primary_key: serde_json::from_value(key).unwrap(), old_value: old, new_value: new,
+    };
+    let rows = |pool: DbPool| async move { db::run_query(&pool, "SELECT note, qty FROM logs ORDER BY rowid", None).await.unwrap().rows };
+
+    db::edit::apply_edits(&pool, &[edit(json!({"note": null, "qty": 2}), json!(2), json!(3))]).await.unwrap();
+    assert_eq!(rows(pool.clone()).await[2], vec![json!(null), json!(3)], "值是 NULL 的列也要对上");
+
+    let twin = db::edit::apply_edits(&pool, &[edit(json!({"note": "a", "qty": 1}), json!(1), json!(9))]).await.unwrap_err();
+    assert!(format!("{twin}").contains("不止一行"), "{twin}");
+    assert_eq!(rows(pool.clone()).await[0], vec![json!("a"), json!(1)], "两行一模一样:改不了,也不能两行一起改");
+
+    assert!(db::edit::apply_edits(&pool, &[edit(json!({"nope": 1}), json!(1), json!(2))]).await.is_err(), "键里的列必须是表里真有的");
+
+    // 前端 buildRowDelete(…, wholeRow=true) 在 SQLite 上生成的就是这句
+    let delete = r#"DELETE FROM "logs" WHERE rowid = (SELECT rowid FROM "logs" WHERE "note" = 'a' AND "qty" = 1 LIMIT 1)"#;
+    db::run_statements(&pool, &[delete.into()], &[Some(1)]).await.unwrap();
+    assert_eq!(rows(pool.clone()).await.len(), 2, "两行一模一样的只删掉一行");
+    let gone = r#"DELETE FROM "logs" WHERE rowid = (SELECT rowid FROM "logs" WHERE "note" = 'zzz' LIMIT 1)"#;
+    assert!(db::run_statements(&pool, &[gone.into()], &[Some(1)]).await.is_err(), "对不上就报错,不能当成删掉了");
 }

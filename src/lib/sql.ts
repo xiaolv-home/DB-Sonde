@@ -157,14 +157,21 @@ export function buildRowInsert(
   return `INSERT INTO ${qualifiedTable(kind, database, schema, table)} (${cols}) VALUES (${vals})`;
 }
 
-/** DELETE for one row, matched by its full primary key. */
+/**
+ * DELETE for one row, matched by its full primary key —— 或者(表没有主键时)按整行的值。
+ *
+ * 整行定位时:值是 NULL 的列写 IS NULL;而且只删一行 —— 有两行一模一样时,界面上消失的
+ * 是一行,库里也只该少一行。各家「只删一行」的写法不同。
+ */
 export function buildRowDelete(
   kind: DbKind | undefined,
   database: string | undefined,
   schema: string | undefined,
   table: string,
   primaryKey: Record<string, Cell>,
+  wholeRow = false,
 ): string {
+  if (wholeRow) return buildWholeRowDelete(kind, qualifiedTable(kind, database, schema, table), primaryKey);
   /* 主键按定义不可能是 NULL。这儿收到 null/undefined 只说明调用方没把值取全
      (最常见的是主键列不在当前结果里),而 `WHERE id IS NULL` 会变成一条删不掉任何行、
      却看着执行成功的语句 —— 界面上那行消失了,库里还在。宁可报错。 */
@@ -182,6 +189,28 @@ export function buildRowDelete(
     return `${column} = ${literal}${exact}`;
   });
   return `DELETE FROM ${qualifiedTable(kind, database, schema, table)} WHERE ${clauses.join(" AND ")}`;
+}
+
+function buildWholeRowDelete(kind: DbKind | undefined, table: string, values: Record<string, Cell>): string {
+  const entries = Object.entries(values);
+  if (!entries.length) throw new Error("这张表没有能用来定位一行的列");
+  const where = entries.map(([name, value]) => {
+    const column = quoteIdent(kind, name);
+    return value === null || value === undefined ? `${column} IS NULL` : `${column} = ${sqlLiteral(value, kind)}`;
+  }).join(" AND ");
+  switch (kind) {
+    case "mysql":
+    case "mariadb":
+      return `DELETE FROM ${table} WHERE ${where} LIMIT 1`;
+    case "postgres":
+      return `DELETE FROM ${table} WHERE ctid = (SELECT ctid FROM ${table} WHERE ${where} LIMIT 1)`;
+    case "oracle":
+      return `DELETE FROM ${table} WHERE ${where} AND ROWNUM = 1`;
+    case "clickhouse":
+      throw new Error("ClickHouse 不支持在表格里删行");
+    default:
+      return `DELETE FROM ${table} WHERE rowid = (SELECT rowid FROM ${table} WHERE ${where} LIMIT 1)`;
+  }
 }
 
 /**

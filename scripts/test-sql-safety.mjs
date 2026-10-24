@@ -176,6 +176,21 @@ try {
     assert.doesNotMatch(del('9007199254740993', 'mariadb').replace(/CAST\(`id` AS CHAR\)/, 'X'), /CAST/);
     assert.match(del('9007199254740993', 'mariadb'), /CAST/);
 
+    // 没有主键的表按整行删:NULL 写 IS NULL,只删一行(有一模一样的两行时库里也只少一行)
+    const whole = (kind) => buildRowDelete(kind, 'db', 's', 'logs', { note: 'a', qty: 1, memo: null }, true);
+    assert.equal(whole('sqlite'), `DELETE FROM "logs" WHERE rowid = (SELECT rowid FROM "logs" WHERE "note" = 'a' AND "qty" = 1 AND "memo" IS NULL LIMIT 1)`);
+    assert.equal(whole('mysql'), "DELETE FROM `db`.`logs` WHERE `note` = 'a' AND `qty` = 1 AND `memo` IS NULL LIMIT 1");
+    assert.equal(whole('mariadb'), "DELETE FROM `db`.`logs` WHERE `note` = 'a' AND `qty` = 1 AND `memo` IS NULL LIMIT 1");
+    assert.equal(whole('postgres'), `DELETE FROM "s"."logs" WHERE ctid = (SELECT ctid FROM "s"."logs" WHERE "note" = E'a' AND "qty" = 1 AND "memo" IS NULL LIMIT 1)`);
+    assert.equal(whole('oracle'), `DELETE FROM "s"."logs" WHERE "note" = 'a' AND "qty" = 1 AND "memo" IS NULL AND ROWNUM = 1`);
+    assert.throws(() => whole('clickhouse'), /ClickHouse/);
+    assert.throws(() => buildRowDelete('mysql', 'db', '', 'logs', {}, true), /定位一行/);
+    // Rust 端的测试(safety_tests 的 tables_without_a_primary_key…)拿这句 SQLite 的去真库跑
+    assert.equal(buildRowDelete('sqlite', '', '', 'logs', { note: 'a', qty: 1 }, true),
+      `DELETE FROM "logs" WHERE rowid = (SELECT rowid FROM "logs" WHERE "note" = 'a' AND "qty" = 1 LIMIT 1)`);
+    // 有主键时照旧:主键缺值就拒绝
+    assert.throws(() => buildRowDelete('mysql', 'db', '', 't', { id: null }), /完整的主键/);
+
     // 日期字面量的「是不是文本列」必须由调用方说清楚
     assert.equal(dateLiteral('2026-10-01', 'oracle', false), "DATE '2026-10-01'");
     assert.equal(dateLiteral('2026-10-01', 'oracle', true), "'2026-10-01'");

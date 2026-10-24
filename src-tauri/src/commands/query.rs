@@ -254,17 +254,20 @@ pub async fn run_statements(
     conn_id: String,
     database: Option<String>,
     statements: Vec<String>,
+    // 第 i 条必须正好影响几行(表格删行用);None / 不传 = 不核对
+    expect_rows: Option<Vec<Option<u64>>>,
 ) -> AppResult<u64> {
     if statements.is_empty() {
         return Ok(0);
     }
+    let expect = expect_rows.unwrap_or_default();
     let target = requested_database(&state, &conn_id, database.as_deref()).await?;
     if let Some(cell) = state.sessions.read().await.get(&conn_id).cloned() {
         let mut session = cell.lock().await;
         let tx = session.transaction(&target)?;
         for sql in &statements { crate::readonly::validate_manual_sql(matches!(tx, db::SessionTx::MySql(_)), sql)?; }
-        return db::run_statements_on_tx(tx, &statements).await;
+        return db::run_statements_on_tx(tx, &statements, &expect).await;
     }
     let (_kind, pool) = pool_for_database(&state, &conn_id, database.as_deref()).await?;
-    db::run_statements(&pool, &statements).await
+    db::run_statements(&pool, &statements, &expect).await
 }

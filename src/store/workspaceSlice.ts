@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { translate } from "../i18n";
 import { api } from "../lib/api";
 import { selectPreview } from "../lib/sql";
+import { rowKeyOf } from "../lib/tableEditing";
 import { isUnsavedTab } from "../lib/workspaceSession";
 import type { TableContext } from "../types";
 import type { AnalysisTab, AppSlice, DashboardTab, DatabaseTab, PythonTab, QueryTab, RoutineTab, TableTab } from "./appTypes";
@@ -324,7 +325,7 @@ export const createWorkspaceSlice: WorkspaceSlice = (set, get) => ({
         const sql = selectPreview(kind, database, schema, table);
         try {
             const columns = await api.listColumns(node.connId, database, schema, table);
-            const hasPrimaryKey = columns.some((column) => column.isPrimaryKey);
+            const hasRowKey = rowKeyOf(columns).columns.length > 0 && kind !== "clickhouse";
             const isTable = node.kind === "table";
             const tableContext: TableContext = {
                 database,
@@ -332,10 +333,10 @@ export const createWorkspaceSlice: WorkspaceSlice = (set, get) => ({
                 table,
                 columns,
                 previewSql: sql,
-                editable: isTable && hasPrimaryKey,
+                editable: isTable && hasRowKey,
                 editDisabledReason: !isTable
                     ? translate(get().language, "edit.viewReadOnly")
-                    : hasPrimaryKey
+                    : hasRowKey
                         ? undefined
                         : translate(get().language, "edit.primaryKeyRequired"),
             };
