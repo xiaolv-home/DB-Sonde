@@ -300,10 +300,25 @@ export default function ResultGrid({
     );
   };
 
-  // Select a whole row by clicking its row-number gutter.
-  const selectRow = (r: number) => {
-    setRanges([{ a: { r, c: 0 }, b: { r, c: Math.max(0, cols.length - 1) } }]);
-    anchorRef.current = { r, c: 0 };
+  // Select whole rows by clicking the row-number gutter: plain click = this row,
+  // ⇧ = every row from the anchor to here, ⌘ = add this row (⌘ again on it takes it out),
+  // the same as the column header and as cells.
+  const rowRect = (r: number): Rect => ({ a: { r, c: 0 }, b: { r, c: Math.max(0, cols.length - 1) } });
+  const selectRow = (r: number, e?: React.MouseEvent) => {
+    const last = Math.max(0, cols.length - 1);
+    if (e?.shiftKey && anchorRef.current) {
+      setRanges([{ a: { r: anchorRef.current.r, c: 0 }, b: { r, c: last } }]);
+    } else if (e && (e.metaKey || e.ctrlKey)) {
+      setRanges((prev) => {
+        const same = (x: Rect) => Math.min(x.a.r, x.b.r) === r && Math.max(x.a.r, x.b.r) === r
+          && Math.min(x.a.c, x.b.c) === 0 && Math.max(x.a.c, x.b.c) === last;
+        return prev.some(same) && prev.length > 1 ? prev.filter((x) => !same(x)) : [...prev, rowRect(r)];
+      });
+      anchorRef.current = { r, c: 0 };
+    } else {
+      setRanges([rowRect(r)]);
+      anchorRef.current = { r, c: 0 };
+    }
     setActive({ r, c: 0 });
     parentRef.current?.focus();
   };
@@ -841,7 +856,7 @@ export default function ResultGrid({
                 title={inserted ? "" : String(loaded + 1)}
                 onMouseDown={(e) => {
                   if (e.button === 2) return;
-                  selectRow(vr.index);
+                  selectRow(vr.index, e);
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
