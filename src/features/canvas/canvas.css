@@ -89,7 +89,7 @@
 }
 .cv-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .cv-dirty { font-size: 13px; color: var(--text-3); margin-right: 4px; white-space: nowrap; flex: none; }
-.cv-dirty.on { color: var(--amber, #d9a514); }
+.cv-dirty.on { color: var(--amber); }
 
 /* 选中东西后浮在画布上方的属性条 —— 浮着不占行,选中 / 取消选中时画布不会上下跳 */
 .cv-props {
@@ -108,10 +108,8 @@
   padding: 6px 10px;
   border: 1px solid var(--border-2);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: blur(14px) saturate(1.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.06);
+  background: var(--popover);
+  box-shadow: var(--shadow-sm);
 }
 .cv-props .cv-sep { margin: 0 2px; }
 .cv-props-label { font-size: 13px; color: var(--text-2); font-weight: 600; min-width: 40px; }
@@ -155,7 +153,7 @@
   font-size: 12.5px;
   cursor: default;
 }
-.cv-seg button.on { background: var(--accent); color: #fff; }
+.cv-seg button.on { background: var(--accent); color: var(--accent-ink); }
 .cv-overlay .btn.xs { height: 24px; padding: 0 8px; font-size: 12.5px; }
 .cv-overlay .btn.on { background: var(--accent-soft); border-color: var(--accent-border, var(--accent)); color: var(--accent); }
 .cv-label-input {
@@ -385,7 +383,7 @@
 .cv-picker-foot { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
 
 /* ---- 拖动时的对齐参考线 ---- */
-.cv-guide { position: absolute; z-index: 1000; pointer-events: none; background: #ff3b7f; }
+.cv-guide { position: absolute; z-index: 1000; pointer-events: none; background: var(--accent); }
 
 /* ---- 顶栏下拉 ---- */
 .cv-menu-wrap { position: relative; }
@@ -431,10 +429,8 @@
   padding: 4px;
   border: 1px solid var(--border-2);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.55);
+  background: var(--popover);
+  box-shadow: var(--shadow);
 }
 .cv-ctx button:disabled { color: var(--text-3); }
 .cv-ctx button.danger:hover { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
@@ -453,7 +449,7 @@
   padding: 5px 12px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-size: 12.5px;
   pointer-events: none;
 }

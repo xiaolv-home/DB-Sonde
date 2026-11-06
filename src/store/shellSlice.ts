@@ -8,6 +8,7 @@ import {
   isSyntaxTheme,
   type SyntaxTheme,
 } from "./syntaxThemes";
+import { applyTheme, isTheme, type Theme } from "./themes";
 type ShellSlice = AppSlice<
   | "theme"
   | "syntaxTheme"
@@ -33,7 +34,7 @@ type ShellSlice = AppSlice<
  *  没有 window 的环境(测试、SSR)只保下限 —— store 不该假定有 DOM。 */
 
 export const createShellSlice: ShellSlice = (set, get) => ({
-    theme: readStoredText<"dark" | "light">("theme", "dark", value => value === "dark" || value === "light"),
+    theme: readStoredText<Theme>("theme", "dark", isTheme),
     syntaxTheme: readStoredText<SyntaxTheme>("syntaxTheme", DEFAULT_SYNTAX_THEME, isSyntaxTheme),
     language: getStoredLanguage(),
     sidebarWidth: Number(readStoredText("sidebarWidth", "268", value => Number.isFinite(Number(value)) && Number(value) >= 200 && Number(value) <= 520)),
@@ -42,7 +43,7 @@ export const createShellSlice: ShellSlice = (set, get) => ({
     pyOutputHeight: clampPaneHeight(Number(readStoredText("pyOutputHeight", "260", acceptsPaneHeight(PY_OUTPUT_MIN_HEIGHT))), PY_OUTPUT_MIN_HEIGHT),
     pyOutputCollapsed: readStoredText<"0" | "1">("pyOutputCollapsed", "0", v => v === "0" || v === "1") === "1",
     async init() {
-        document.documentElement.setAttribute("data-theme", get().theme);
+        applyTheme(get().theme);
         applySyntaxTheme(get().syntaxTheme);
         document.documentElement.lang = get().language;
         try {
@@ -57,8 +58,10 @@ export const createShellSlice: ShellSlice = (set, get) => ({
     setTheme(t) {
         try { writeStoredText("theme", t); }
         catch (error) { get().showToast({ kind: "error", text: String(error) }); return; }
-        document.documentElement.setAttribute("data-theme", t);
-        set({ theme: t });
+        // 换主题时整屏淡过去,而不是每个控件各闪一下;图表要读新的 CSS 变量,所以 set 放在同一步里。
+        const apply = () => { applyTheme(t); set({ theme: t }); };
+        if (document.startViewTransition) document.startViewTransition(apply);
+        else apply();
     },
     setSyntaxTheme(t) {
         try { writeStoredText("syntaxTheme", t); }

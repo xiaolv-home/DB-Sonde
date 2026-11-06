@@ -327,7 +327,7 @@
 .ai-send.stop {
   background: var(--red);
   border-color: var(--red);
-  color: #fff;
+  color: var(--red-ink);
 }
 .ai-note {
   margin: 4px 0 8px;

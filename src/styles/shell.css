@@ -24,8 +24,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  font-weight: 650;
-  letter-spacing: 0.2px;
+  font-weight: 600;
   padding-right: 8px;
 }
 .brand .logo {
@@ -33,7 +32,6 @@
   height: 24px;
   border-radius: 6px;
   object-fit: cover;
-  box-shadow: var(--shadow-sm);
 }
 .brand small {
   color: var(--text-3);
@@ -68,40 +66,41 @@
   height: 30px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
   font-size: 15.5px;
-  font-weight: 550;
+  font-weight: 500;
   cursor: default;
-  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
   white-space: nowrap;
 }
 .btn:hover {
   background: var(--surface-3);
-  border-color: var(--text-3);
+  border-color: var(--border-2);
 }
 .btn:active {
-  transform: translateY(1px);
+  background: color-mix(in srgb, var(--surface-3) 88%, var(--text));
 }
 .btn.primary {
-  background: linear-gradient(180deg, var(--accent), var(--accent-2));
-  border-color: var(--accent-2);
+  background: var(--accent);
+  border-color: var(--accent);
   color: var(--accent-ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 16px -6px var(--accent);
 }
-.btn.primary:hover {
-  filter: brightness(1.07);
+.btn.primary:hover,
+.btn.primary:active {
+  background: var(--accent-2);
   border-color: var(--accent-2);
 }
 .btn.danger {
   background: var(--red);
   border-color: var(--red);
-  color: #fff;
+  color: var(--red-ink);
 }
-.btn.danger:hover {
-  filter: brightness(1.07);
-  border-color: var(--red);
+.btn.danger:hover,
+.btn.danger:active {
+  background: color-mix(in srgb, var(--red) 88%, var(--text));
+  border-color: transparent;
 }
 .btn.ghost {
   background: transparent;
@@ -147,7 +146,7 @@
   z-index: 151;
   min-width: 190px;
   padding: 5px;
-  background: var(--surface-3);
+  background: var(--popover);
   border: 1px solid var(--border-2);
   border-radius: 9px;
   box-shadow: var(--shadow);
@@ -162,13 +161,14 @@
   color: var(--text);
   font-size: 15.5px;
   cursor: default;
+  transition: background var(--dur-1) var(--ease);
 }
 .ctx-item:hover {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .ctx-item.danger:hover {
-  background: var(--red);
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--red);
 }
 .ctx-sep {
   height: 1px;
@@ -191,17 +191,33 @@
   font-family: var(--mono);
 }
 
-/* resizer handles */
+/* 分隔条:热区宽,线细。鼠标路过不闪(带一点延迟才亮),停住或按下才出现一道细线。 */
 .resizer-x {
+  position: relative;
   flex: 0 0 5px;
   margin: 0 -2px;
   cursor: col-resize;
   z-index: 5;
-  background: transparent;
 }
-.resizer-x:hover,
-.resizer-x.active {
-  background: var(--accent-border);
+.resizer-x::before,
+.resizer-y::before {
+  content: "";
+  position: absolute;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.resizer-x::before { inset: 0 2px; }
+.resizer-y::before { inset: 3px 0; }
+.resizer-x:hover::before,
+.resizer-y:hover::before {
+  opacity: 0.7;
+  transition-delay: 120ms;
+}
+.resizer-x.active::before,
+.resizer-y.active::before {
+  opacity: 1;
+  transition-delay: 0ms;
 }
 .resizer-y {
   position: relative;
@@ -210,7 +226,6 @@
   margin: -3px 0;
   cursor: row-resize;
   z-index: 5;
-  background: transparent;
 }
 /* 常驻的一道细握把,让人看得出这里能拖。 */
 .resizer-y::after {
@@ -218,20 +233,15 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 40px;
+  width: 32px;
   height: 3px;
   border-radius: 2px;
   transform: translate(-50%, -50%);
-  background: var(--border);
-  transition: background var(--dur-1) var(--ease), width var(--dur-1) var(--ease);
-}
-.resizer-y:hover,
-.resizer-y.active {
-  background: var(--accent-border);
+  background: var(--border-2);
+  transition: background var(--dur-1) var(--ease);
 }
 .resizer-y:hover::after,
 .resizer-y.active::after {
-  width: 72px;
   background: var(--accent);
 }
 
@@ -266,13 +276,14 @@
   height: 32px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-2);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text);
   padding: 0 10px;
   font-size: 16px;
   font-family: inherit;
   outline: none;
   width: 100%;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 .input:focus,
 .select:focus {
@@ -287,8 +298,7 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
+  background: var(--scrim);
   display: grid;
   place-items: center;
   z-index: 100;
@@ -299,7 +309,7 @@
   max-height: calc(100vh - 60px);
   overflow: auto;
   background: var(--surface);
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow);
 }
@@ -350,7 +360,7 @@
   font-size: 14.5px;
   color: var(--text-2);
   margin-bottom: 6px;
-  font-weight: 550;
+  font-weight: 500;
 }
 .form-grid {
   display: grid;
@@ -370,46 +380,30 @@
   gap: 6px;
   flex-wrap: wrap;
 }
-/* 这是一组**可换行**的芯片(连接类型、模型供应商…),不是一排切换项 ——
-   所以不给它滑动胶囊:换行之后胶囊要横跨两行窜过去,反而更乱。
-   但材质跟胶囊保持一致:选中那个也是上亮下暗的玻璃 + 一圈辉光,
-   这样整个应用里「被选中」长得是同一个样子。 */
+/* 一组可换行的芯片(连接类型、模型供应商…)。选中和标签胶囊同一个意思:兑一点强调色。 */
 .kind-tabs button {
   height: 30px;
   padding: 0 12px;
   border-radius: 7px;
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-2);
   font-size: 15.5px;
-  font-weight: 550;
+  font-weight: 500;
   cursor: default;
   transition:
     background var(--dur-1) var(--ease),
     border-color var(--dur-1) var(--ease),
-    color var(--dur-1) var(--ease),
-    box-shadow var(--dur-2) var(--ease),
-    transform var(--dur-1) var(--ease);
+    color var(--dur-1) var(--ease);
 }
 .kind-tabs button:hover {
-  border-color: color-mix(in srgb, var(--accent-border) 55%, var(--border-2));
+  border-color: var(--border-2);
   color: var(--text);
-}
-.kind-tabs button:active {
-  transform: scale(0.97);
 }
 .kind-tabs button.on {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent-soft) 100%, white 6%) 0%,
-    var(--accent-soft) 100%
-  );
+  background: var(--accent-soft);
   border-color: var(--accent-border);
   color: var(--text);
-  box-shadow:
-    inset 0 1px 0 var(--glass-line),
-    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
-    0 3px 14px -6px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .color-swatches {
   display: flex;
@@ -427,7 +421,7 @@
   transition: transform var(--dur-1) var(--ease);
 }
 .swatch:hover {
-  transform: scale(1.12);
+  transform: scale(1.08);
 }
 .swatch.on {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-2);
@@ -448,21 +442,24 @@
 .toast {
   position: fixed;
   bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* 用 auto 外边距居中,不用 translateX(-50%):进场动画也要动 transform,两者一叠就会横着窜 */
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin-inline: auto;
   z-index: 200;
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 10px 16px;
   border-radius: 10px;
-  background: var(--surface-3);
+  background: var(--popover);
   border: 1px solid var(--border-2);
   box-shadow: var(--shadow);
   color: var(--text);
   font-size: 15.5px;
   max-width: 70vw;
-  animation: toast-in 0.18s ease;
+  animation: sonde-rise var(--dur-2) var(--ease-out);
 }
 .toast.error {
   border-color: color-mix(in srgb, var(--red) 55%, var(--border-2));
@@ -491,13 +488,6 @@
 .toast.warn .tdot {
   background: var(--amber);
 }
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 8px);
-  }
-}
-
 .spin {
   animation: spin 0.8s linear infinite;
   display: inline-flex;

@@ -75,15 +75,10 @@
 .dash-canvas.preview { min-height: 620px; background-image: none; background-color: var(--surface-2); }
 .dash-canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); font-size: 15px; pointer-events: none; }
 .dash-widget { min-width: 0; min-height: 0; overflow: hidden; position: relative; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-sm); transition: border-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
-.dash-widget:hover { border-color: var(--border-2); box-shadow: 0 4px 18px rgba(0, 0, 0, .28); }
-/* 选中的样子跟标签胶囊、芯片用同一组 token —— 顶部高光 + 一圈淡描边 + 往下散的光。
-   原来是 2px 实心外圈,那看着像被框住,不像被选中。 */
+.dash-widget:hover { border-color: var(--border-2); }
 .dash-widget.selected {
-  border-color: color-mix(in srgb, var(--accent) 70%, var(--border-2));
-  box-shadow:
-    inset 0 1px 0 var(--glass-line),
-    0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
-    0 8px 26px -12px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border);
 }
 .dash-widget.hidden-widget { opacity: .48; border-style: dashed; }
 .dash-widget-header { position: relative; height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border-bottom: 1px solid var(--border); color: var(--text-3); cursor: grab; background: transparent; }
@@ -122,7 +117,7 @@
 .dash-widget-state { height: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--text-3); font-size: 13.5px; text-align: center; }
 .dash-widget-state.error { color: var(--red); align-items: flex-start; justify-content: flex-start; overflow: auto; text-align: left; }
 .dash-widget-runtime { position: relative; width: 100%; height: 100%; min-height: 0; }
-.dash-widget-loading { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: auto auto 8px 8px 8px; align-content: center; justify-content: center; align-items: center; gap: 7px; color: var(--text-2); font-size: 12.5px; background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(1.5px); }
+.dash-widget-loading { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: auto auto 8px 8px 8px; align-content: center; justify-content: center; align-items: center; gap: 7px; color: var(--text-2); font-size: 12.5px; background: color-mix(in srgb, var(--surface) 82%, transparent); }
 .dash-widget-body > .dash-widget-loading { position: relative; height: 100%; }
 .dash-widget-loading i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: dash-loading-dot .9s ease-in-out infinite; }
 .dash-widget-loading i:nth-of-type(2) { animation-delay: .12s; }
@@ -520,7 +515,7 @@
   width: 20px; height: 20px;
   border: 0; border-radius: 5px; background: transparent; color: var(--text-3); cursor: pointer;
 }
-.dash-well-x:hover { background: var(--surface-3); color: var(--danger, #e5484d); }
+.dash-well-x:hover { background: var(--surface-3); color: var(--red); }
 
 /* ── 单选下拉 ─────────────────────────────────────────────────────
    替掉原生 select。macOS 的系统菜单会盖在控件自己身上,配色也跟应用不是一套。 */
@@ -605,7 +600,7 @@
 .dash-dt-export-hint { color: var(--text-3); font-size: 11px; font-style: normal; }
 
 /* 取数撞到行数上限的提示:不说的话「536 行」看着就像是全部 */
-.dash-dt-truncated { color: var(--warn, #e0a03a); font-size: 11px; font-style: normal; }
+.dash-dt-truncated { color: var(--amber); font-size: 11px; font-style: normal; }
 
 /* 透视表的列分组分界线:一组列紧挨着下一组,不画线就看不出哪儿到头,
    一眼扫过去分不清这个「总GMV」是哪天的。 */

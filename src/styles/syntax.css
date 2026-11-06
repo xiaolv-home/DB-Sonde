@@ -153,18 +153,19 @@ button {
   font-family: inherit;
 }
 
+/* 滚动条只在颜色上存在感很低:用文字色兑透明,在三套主题和任何面板底色上都合适 */
 ::-webkit-scrollbar {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-2);
+  background: color-mix(in srgb, var(--text-3) 32%, transparent);
   border-radius: 8px;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-3);
+  background: color-mix(in srgb, var(--text-3) 58%, transparent);
   background-clip: padding-box;
   border: 3px solid transparent;
 }
@@ -191,7 +192,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: var(--surface-3);
+  background: var(--popover);
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -216,8 +217,9 @@ button {
   background: transparent;
   color: var(--text);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   font: inherit;
+  transition: background var(--dur-1) var(--ease);
 }
 
 .syntax-item:hover {

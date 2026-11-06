@@ -98,15 +98,15 @@
 .an-progress .done .an-step-symbol { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 35%,var(--border)); background:var(--accent-soft); }
 .an-progress .active { color:var(--accent); }
 .an-progress .active .an-step-symbol { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
-.an-progress .failed { color:#df7069; }
+.an-progress .failed { color:var(--red); }
 .an-progress-detail { display:flex; align-items:center; justify-content:center; gap:8px; padding-top:12px; font-size:11px; color:var(--text-2); }
 .an-quality { margin:20px 0; border:1px solid var(--border); border-radius:9px; background:var(--surface); padding:12px 14px; }
 .an-quality summary { display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-2); font-size:11px; }
 .an-quality summary>b { font-weight:500; }
 .an-quality summary>span { margin-left:auto; font-size:10px; color:var(--text-3); }
-.an-quality.pass summary>svg { color:#55a68a; }
-.an-quality.warn summary>svg { color:#c69245; }
-.an-quality.fail summary>svg { color:#df7069; }
+.an-quality.pass summary>svg { color:var(--green); }
+.an-quality.warn summary>svg { color:var(--amber); }
+.an-quality.fail summary>svg { color:var(--red); }
 .an-quality ul { list-style:none; margin:12px 0 0; padding:0; }
 .an-quality li { padding:8px 0; border-top:1px solid var(--border); font-size:11px; line-height:1.7; color:var(--text-2); overflow-wrap:anywhere; }
 .an-quality li>span { margin-right:7px; color:var(--text-3); }
@@ -142,7 +142,7 @@
 .an-dashboard-card p { font-size:10px; color:var(--text-3); margin:6px 0 0; }
 .an-notice { padding:12px 14px; border:1px solid var(--border); border-left:3px solid #bc8542; background:var(--surface); border-radius:6px; font-size:11px; line-height:1.8; margin-bottom:15px; color:var(--text-2); }
 .an-notice ul { margin:5px 0 0; padding-left:16px; }
-.an-failure { display:flex; gap:10px; color:#df7069; padding:15px; border:1px solid color-mix(in srgb,#df7069 35%,var(--border)); border-radius:8px; margin:14px 0; }
+.an-failure { display:flex; gap:10px; color:var(--red); padding:15px; border:1px solid color-mix(in srgb,#df7069 35%,var(--border)); border-radius:8px; margin:14px 0; }
 .an-failure>svg { flex-shrink:0; }
 .an-failure p { color:var(--text-2); font-size:12px; line-height:1.8; margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .an-mobile-tabs { display:none; }

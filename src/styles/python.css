@@ -146,7 +146,7 @@
   cursor: default;
   vertical-align: 1px;
 }
-.py-missing:hover { background: var(--accent); color: #fff; }
+.py-missing:hover { background: var(--accent); color: var(--accent-ink); }
 .py-line.sys {
   color: var(--accent);
   font-weight: 600;
@@ -343,7 +343,7 @@
   border-radius: 6px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-size: 12px;
   cursor: pointer;
 }

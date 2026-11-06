@@ -27,6 +27,7 @@ import {
   History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Split, Trash2, Undo2, X,
 } from "lucide-react";
 import { useApp } from "../../store/appStore";
+import { themeBase } from "../../store/themes";
 import { useConfirm } from "../../components/useConfirm";
 import { api } from "../../lib/api";
 import { inTauri } from "../../lib/mockBackend";
@@ -741,7 +742,7 @@ function Editor({ doc, versions, onSave, onDirty }: {
               onNodeDragStop={() => setGuides([])}
               onSelectionDragStart={beginChange}
               connectionMode={ConnectionMode.Loose}
-              colorMode={theme}
+              colorMode={themeBase(theme)}
               snapToGrid
               snapGrid={[8, 8]}
               selectionOnDrag

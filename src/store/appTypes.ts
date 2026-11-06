@@ -1,3 +1,4 @@
+import type { Theme } from "./themes";
 import type { StateCreator } from "zustand";
 import { type Language } from "../i18n";
 import type { CompletionCatalog, ConnectionConfig, ConnectionMeta, EditDraft, QueryExecution, QueryResult, RoutineInfo, TableContext, TableInfo } from "../types";
@@ -135,7 +136,7 @@ export interface Toast {
     text: string;
 }
 export interface AppState {
-    theme: "dark" | "light";
+    theme: Theme;
     /** 代码配色，与界面明暗互相独立 */
     syntaxTheme: SyntaxTheme;
     language: Language;
@@ -169,7 +170,7 @@ export interface AppState {
     passwordPromptId?: string;
     toast?: Toast;
     init: () => Promise<void>;
-    setTheme: (t: "dark" | "light") => void;
+    setTheme: (t: Theme) => void;
     setSyntaxTheme: (t: SyntaxTheme) => void;
     setLanguage: (language: Language) => void;
     showToast: (t: Toast) => void;

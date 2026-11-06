@@ -1,31 +1,39 @@
 /* ============================================================
    Sonde — design system
-   Dark-first, DBeaver-familiar layout. Tokens flip for light.
+   Dark-first, DBeaver-familiar layout. 三套主题:墨(深)、霜(冷白)、纸(暖白)。
    ============================================================ */
 
 :root {
-  --bg: #101013;
-  --surface: #17171b;
-  --surface-2: #212127;
-  --surface-3: #2e2e35;
-  --header: #131316;
-  --border: #36363f;
-  --border-2: #4a4a53;
-  --text: #e4e4ea;
-  --text-2: #b2b2bd;
-  --text-3: #8e8e99;
-  --accent: #33b1f5;
-  --accent-2: #159fe8;
-  --accent-ink: #05131e;
-  --accent-soft: #103048;
-  --accent-border: #33b1f5;
-  --green: #3ed06a;
-  --red: #ff5757;
-  --amber: #ffc233;
-  --sel: #16384f;
-  --dirty: #3c3210;
-  --shadow: 0 16px 42px rgba(0, 0, 0, 0.72);
-  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.55);
+  /* 深色「墨」。眼睛累的三个来源都在这儿压下去:
+     底色不用近黑(瞳孔放大,字的边缘会发散)、字不用近白(对比度压到约 10:1)、
+     强调色和语义色降饱和(霓虹色在暗底上最刺眼)。 */
+  --bg: #1b1c20;
+  --surface: #212226;
+  --surface-2: #292a2f;
+  --surface-3: #33343a;
+  --header: #1d1e22;
+  --popover: #2b2c31;
+  --border: #2e2f35;
+  --border-2: #3e3f46;
+  /* 表格网格线:比边框淡得多。几千个格子每格都描边,线一亮整屏就是一张网。 */
+  --grid-line: #27282d;
+  --scrim: rgba(10, 11, 14, 0.42);
+  --text: #cfd1d6;
+  --text-2: #a1a3ab;
+  --text-3: #868891;
+  --accent: #7aa7dd;
+  --accent-2: #6b97cd;
+  --accent-ink: #11161d;
+  --accent-soft: #25303f;
+  --accent-border: #5f86b5;
+  --green: #7fb98f;
+  --red: #dd7b78;
+  --red-ink: #1c1111;
+  --amber: #d6b06a;
+  --sel: #2a3646;
+  --dirty: #3a3424;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.25);
   --radius: 9px;
   --radius-sm: 6px;
   /* UI text (bundled Inter) */
@@ -36,14 +44,14 @@
   /* the SQL editor only (bundled JetBrains Mono) */
   --editor-font: "JetBrains Mono", "SF Mono", "Menlo", ui-monospace, monospace;
 
-  /* object-type accents (tree icons) — bright and distinct */
-  --c-connection: #ffc233;
-  --c-database: #3ed06a;
-  --c-table: #33b1f5;
-  --c-schema: #f0913a;
-  --c-view: #a3cf6b;
-  --c-procedure: #ff5757;
-  --c-function: #43d9d9;
+  /* 对象树图标:分得开就够了,不用鲜艳 */
+  --c-connection: #cdaa68;
+  --c-database: #7fb98f;
+  --c-table: #7aa7dd;
+  --c-schema: #c8956a;
+  --c-view: #a1b77e;
+  --c-procedure: #cc8380;
+  --c-function: #76b3b3;
 
   /* 代码配色 · 这里只是 JS 落 data-syntax 之前的兜底（= azure）。
      五套配色的完整定义在文件下方「代码配色」一节。 */
@@ -64,37 +72,41 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #f4f4f6;
+  /* 浅色「霜」:冷白 */
+  --bg: #f5f6f8;
   --surface: #ffffff;
-  --surface-2: #ededf0;
-  --surface-3: #e0e0e5;
-  --header: #fafafb;
-  --border: #d4d4da;
-  --border-2: #b6b6c0;
-  --text: #16161a;
-  --text-2: #55555f;
-  --text-3: #83838d;
-  --accent: #0b8fd6;
-  --accent-2: #0a7cbd;
+  --surface-2: #eff0f3;
+  --surface-3: #e4e5ea;
+  --header: #fafbfc;
+  --popover: #ffffff;
+  --border: #dddee3;
+  --border-2: #c5c6ce;
+  --grid-line: #eaebef;
+  --scrim: rgba(24, 28, 40, 0.2);
+  --text: #1f2024;
+  --text-2: #55575f;
+  --text-3: #71737d;
+  --accent: #2470c4;
+  --accent-2: #1d63b0;
   --accent-ink: #ffffff;
-  --accent-soft: #dcf0fb;
-  --accent-border: #0b8fd6;
-  --green: #16a34a;
-  --red: #dc2626;
-  --amber: #c98a00;
-  --sel: #d5ecfb;
-  --dirty: #fdf1cf;
-  --shadow: 0 14px 34px rgba(20, 20, 30, 0.16);
-  --shadow-sm: 0 2px 8px rgba(20, 20, 30, 0.10);
+  --accent-soft: #e3edf8;
+  --accent-border: #2470c4;
+  --green: #2a8a56;
+  --red: #cf4646;
+  --red-ink: #ffffff;
+  --amber: #a97a12;
+  --sel: #dbe8f7;
+  --dirty: #fbf0d0;
+  --shadow: 0 12px 32px rgba(24, 28, 40, 0.12);
+  --shadow-sm: 0 1px 3px rgba(24, 28, 40, 0.08);
 
-  /* object-type accents (tree icons) — bright and distinct */
-  --c-connection: #c98a00;
-  --c-database: #16a34a;
-  --c-table: #0b8fd6;
-  --c-schema: #d9730b;
-  --c-view: #558b0f;
-  --c-procedure: #dc2626;
-  --c-function: #0e9c9c;
+  --c-connection: #a97a12;
+  --c-database: #2a8a56;
+  --c-table: #2470c4;
+  --c-schema: #b96a24;
+  --c-view: #5f8423;
+  --c-procedure: #cf4646;
+  --c-function: #1f8585;
 
   /* 代码配色兜底（= azure 浅色版），完整定义见下方「代码配色」一节 */
   --syn-keyword: #0b47b5;
@@ -106,4 +118,43 @@
   --syn-operator: #3b3b44;
   --syn-variable: #001080;
   --syn-punct: #6e6e78;
+}
+
+/* 浅色「纸」:暖色纸面。它也是 data-theme="light",只换这一组色,
+   所以写在 light 之后、选择器多一个属性,才盖得住上面那组。 */
+:root[data-theme="light"][data-palette="paper"] {
+  --bg: #f2efe8;
+  --surface: #faf8f3;
+  --surface-2: #ece8df;
+  --surface-3: #e2ddd2;
+  --header: #f6f3ec;
+  --popover: #fdfbf7;
+  --border: #e0dacd;
+  --border-2: #cbc4b5;
+  --grid-line: #ebe6db;
+  --scrim: rgba(60, 48, 28, 0.2);
+  --text: #2c2a26;
+  --text-2: #5d5950;
+  --text-3: #736e62;
+  --accent: #2d5f96;
+  --accent-2: #265283;
+  --accent-ink: #ffffff;
+  --accent-soft: #e0e6ea;
+  --accent-border: #2d5f96;
+  --green: #4b7f52;
+  --red: #b5483f;
+  --red-ink: #ffffff;
+  --amber: #93701f;
+  --sel: #dbe2e6;
+  --dirty: #f2e7c6;
+  --shadow: 0 12px 32px rgba(60, 48, 28, 0.14);
+  --shadow-sm: 0 1px 3px rgba(60, 48, 28, 0.1);
+
+  --c-connection: #93701f;
+  --c-database: #4b7f52;
+  --c-table: #2d5f96;
+  --c-schema: #a8683a;
+  --c-view: #667a35;
+  --c-procedure: #b5483f;
+  --c-function: #3a7d7a;
 }

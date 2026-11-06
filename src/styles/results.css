@@ -122,7 +122,7 @@
 }
 .gfb-x:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-ink);
 }
 .gfb-and {
   font-size: 11px;
@@ -264,7 +264,7 @@
   z-index: 3;
   display: flex;
   background: var(--surface-2);
-  border-bottom: 1px solid var(--border-2);
+  border-bottom: 1px solid var(--border);
 }
 .gh-cell {
   position: relative;
@@ -273,9 +273,9 @@
   gap: 6px;
   height: 34px;
   padding: 0 10px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--grid-line);
   color: var(--text-2);
-  font-weight: 650;
+  font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -292,8 +292,10 @@
   width: 7px;
   cursor: col-resize;
 }
-.gh-cell .col-resizer:hover {
-  background: var(--accent-border);
+/* 拖列宽:热区 7px,看得见的只是右边一道细线 */
+.gh-cell .col-resizer:hover,
+.gh-cell .col-resizer:active {
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 .gh-gutter,
 .g-gutter {
@@ -302,7 +304,7 @@
   z-index: 2;
   flex: 0 0 auto;
   background: var(--surface-2);
-  border-right: 1px solid var(--border-2);
+  border-right: 1px solid var(--border);
   color: var(--text-3);
   display: flex;
   align-items: center;
@@ -316,8 +318,7 @@
 .g-row {
   display: flex;
   height: 30px;
-  border-bottom: 1px solid var(--border);
-  transition: background var(--dur-1) var(--ease);
+  border-bottom: 1px solid var(--grid-line);
 }
 .g-row:hover {
   background: var(--surface-2);
@@ -330,11 +331,10 @@
   align-items: center;
   height: 30px;
   padding: 0 10px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--grid-line);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 .g-cell.right {
   justify-content: flex-end;

@@ -19,7 +19,8 @@
   border-bottom: 1px solid var(--border);
 }
 .side-tab {
-  flex: 1;
+  /* 按内容分宽度:等分的话带数字角标的那个会把字挤成「编…」 */
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -35,7 +36,11 @@
   font-size: 12.5px;
   cursor: default;
 }
+.side-tab {
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
 .side-tab:hover {
+  transition-duration: var(--dur-0);
   background: var(--surface-2);
   color: var(--text-2);
 }
@@ -150,7 +155,7 @@
 }
 .el-close:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-ink);
 }
 
 /* files panel */
@@ -375,15 +380,13 @@
   background: var(--green);
   /* currentColor 给 .breathe-glow 的辉光用 */
   color: var(--green);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
-  transition: background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+  transition: background var(--dur-2) var(--ease);
 }
-/* 连接中:黄色 + 呼吸。连上之后停下来,变成稳定的绿色柔光 ——
+/* 连接中:黄色 + 呼吸。连上之后停下来,变成稳定的绿色 ——
    「在动」和「已经好了」要一眼分得出。 */
 .node .dot.connecting {
   background: var(--amber);
   color: var(--amber);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 22%, transparent);
 }
 .pk-badge {
   color: var(--amber);

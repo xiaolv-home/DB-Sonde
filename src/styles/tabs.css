@@ -20,9 +20,7 @@
   display: flex;
   align-items: stretch;
   background: var(--header);
-  /* 1px 实线换成一层极淡的渐变 —— 硬边把上下切成两块,渐变是过渡 */
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--glass-line) 40%, transparent) inset;
+  border-bottom: 1px solid var(--border);
   overflow-x: auto;
   overflow-y: hidden;
 }

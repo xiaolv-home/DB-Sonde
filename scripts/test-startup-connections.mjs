@@ -37,7 +37,7 @@ try {
   });
   const storage = new Map();
   globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v) };
-  globalThis.document = { documentElement: { setAttribute() {}, lang: '' } };
+  globalThis.document = { documentElement: { setAttribute() {}, removeAttribute() {}, lang: '' } };
   globalThis.window = { addEventListener() {}, removeEventListener() {} };
   const { useApp, api, QueryPanel } = createRequire(import.meta.url)(outfile);
   const profiles = ['saved', 'no-password', 'changed-password', 'offline', 'local-file'].map(id => ({

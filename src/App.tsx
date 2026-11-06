@@ -1,11 +1,11 @@
-import { Boxes, CircleCheck, CircleX, Database, Info, LayoutDashboard, LineChart, Moon, Plus, Sparkles, Sun, TriangleAlert } from "lucide-react";
+import { Boxes, CircleCheck, CircleX, Database, Info, LayoutDashboard, LineChart, Plus, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
 import ConnectionDialog from "./components/ConnectionDialog";
 import PanelErrorBoundary from "./components/PanelErrorBoundary";
 import PasswordDialog from "./components/PasswordDialog";
 import QueryPanel from "./components/QueryPanel";
 import Sidebar from "./components/Sidebar";
-import SyntaxThemePicker from "./components/SyntaxThemePicker";
+import { SyntaxThemePicker, ThemePicker } from "./components/ThemePickers";
 import StorageNotice from "./components/StorageNotice";
 import WorkspaceLifecycle from "./components/WorkspaceLifecycle";
 import { useAi } from "./features/ai/aiStore";
@@ -17,7 +17,6 @@ import { useApp } from "./store/appStore";
 import { kindLabel } from "./types";
 
 function Toolbar() {
-  const theme = useApp((s) => s.theme);
   const { language, t } = useI18n();
   return (
     <div className="toolbar">
@@ -53,13 +52,7 @@ function Toolbar() {
         {language === "zh-CN" ? "EN" : "中文"}
       </button>
       <SyntaxThemePicker />
-      <button
-        className="icon-btn"
-        title={t("toolbar.toggleTheme")}
-        onClick={() => useApp.getState().setTheme(theme === "dark" ? "light" : "dark")}
-      >
-        {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-      </button>
+      <ThemePicker />
     </div>
   );
 }

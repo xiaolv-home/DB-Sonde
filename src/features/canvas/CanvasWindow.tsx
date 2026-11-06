@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { CircleCheck, CircleX, Info, TriangleAlert } from "lucide-react";
 import { useApp } from "../../store/appStore";
 import { applySyntaxTheme, isSyntaxTheme } from "../../store/syntaxThemes";
+import { applyTheme, isTheme } from "../../store/themes";
 import { installAppEditKeys } from "../../components/editorKit";
 import CanvasOverlay from "./CanvasEditor";
 
@@ -22,11 +23,10 @@ async function closeWindow() {
 export default function CanvasWindow() {
   useEffect(() => {
     installAppEditKeys();
-    const root = document.documentElement;
-    root.setAttribute("data-theme", useApp.getState().theme);
+    applyTheme(useApp.getState().theme);
     applySyntaxTheme(useApp.getState().syntaxTheme);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "theme" && (e.newValue === "dark" || e.newValue === "light")) root.setAttribute("data-theme", e.newValue);
+      if (e.key === "theme" && isTheme(e.newValue)) applyTheme(e.newValue);
       if (e.key === "syntaxTheme" && e.newValue && isSyntaxTheme(e.newValue)) applySyntaxTheme(e.newValue);
     };
     window.addEventListener("storage", onStorage);
