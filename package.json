@@ -73,7 +73,8 @@
     "test:edit-shortcuts": "node scripts/test-edit-shortcuts.mjs",
     "test:keyword-case": "node scripts/test-keyword-case.mjs",
     "test:sql-punctuation": "node scripts/test-sql-punctuation.mjs",
-    "test:result-grid": "node scripts/test-result-grid.mjs"
+    "test:result-grid": "node scripts/test-result-grid.mjs",
+    "test:themes": "node scripts/test-themes.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

@@ -1,5 +1,35 @@
 import { useCallback, useState } from "react";
 
+/** 指针事件比屏幕刷新勤得多(触控板能到 120Hz 以上),每次都重排一遍是白干:
+ *  一帧只处理最新的那次。`flush` 在松手时用,保证停在最后的位置上。 */
+export function perFrame<A extends unknown[]>(fn: (...args: A) => void) {
+  let latest: A | null = null;
+  let frame = 0;
+  const run = () => {
+    frame = 0;
+    if (latest) { const args = latest; latest = null; fn(...args); }
+  };
+  const call = (...args: A) => {
+    latest = args;
+    if (!frame) frame = requestAnimationFrame(run);
+  };
+  call.flush = () => {
+    run(); // 还挂着的那一帧到时发现没有新值,什么也不做
+  };
+  return call;
+}
+
+/** 拖动期间全局锁光标、禁选中、关过渡(规则在 motion.css)。返回收尾函数。 */
+export function lockDragCursor(cursor: string) {
+  const { classList, style } = document.body;
+  classList.add("is-dragging");
+  style.setProperty("--drag-cursor", cursor);
+  return () => {
+    classList.remove("is-dragging");
+    style.removeProperty("--drag-cursor");
+  };
+}
+
 /**
  * 分隔条拖动。
  *
@@ -25,11 +55,15 @@ export function useDrag(
       const origin = axis === "x" ? e.clientX : e.clientY;
       const startValue = start();
       setActive(true);
+      const unlock = lockDragCursor(axis === "x" ? "col-resize" : "row-resize");
+      const apply = perFrame(move);
 
       const onMove = (ev: PointerEvent) => {
-        move(startValue, (axis === "x" ? ev.clientX : ev.clientY) - origin);
+        apply(startValue, (axis === "x" ? ev.clientX : ev.clientY) - origin);
       };
       const up = () => {
+        apply.flush();
+        unlock();
         setActive(false);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", up);

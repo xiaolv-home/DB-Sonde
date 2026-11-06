@@ -1,5 +1,5 @@
 import type { FilterOp, FilterCond, GridSort } from "../lib/queryResultView";
-import { useFloatingCorner } from "../hooks/useDrag";
+import { lockDragCursor, perFrame, useFloatingCorner } from "../hooks/useDrag";
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -260,9 +260,13 @@ export default function ResultGrid({
     e.stopPropagation();
     const startX = e.clientX;
     const startW = widthOf(c);
-    const move = (ev: PointerEvent) =>
-      setWidths((w) => ({ ...w, [c]: Math.max(MIN_W, startW + (ev.clientX - startX)) }));
+    const unlock = lockDragCursor("col-resize");
+    const apply = perFrame((x: number) =>
+      setWidths((w) => ({ ...w, [c]: Math.max(MIN_W, startW + (x - startX)) })));
+    const move = (ev: PointerEvent) => apply(ev.clientX);
     const up = () => {
+      apply.flush();
+      unlock();
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };

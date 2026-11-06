@@ -10,21 +10,20 @@
 
    原则:
      · 动的是 transform 和 opacity —— 这两个不触发布局和重绘,60fps 才稳得住。
-       宽高、阴影、滤镜能不动就不动(要动就让它动在一个独立的伪元素上)。
-     · 发光用叠加层的 opacity 过渡,不要过渡 box-shadow 本身(那是逐帧重绘)。
+     · **不回弹、不发光、不模糊。** 过冲、辉光、毛玻璃第一眼新鲜,看多了就是廉价;
+       好的界面动效是"没注意到它在动",只觉得顺。
+     · **进得快,退得缓**:鼠标移上去 50ms 就要有回应,移开用 140ms 慢慢退。
+       两头一样快会闪,两头都慢会觉得迟钝。
+     · 位移短、时间短:弹窗只抬 4px,进场不超过 200ms,绝不让人等动画。
      · **呼吸灯只给"正在发生的事"** —— 连接中、查询跑着、任务在跑。
-       给静止的装饰加呼吸,那就成了玩具。
-     · backdrop-filter 很贵,整个界面只给少数几个元素用(比如标签胶囊),
-       不要每个标签都糊一层。
    ============================================================ */
 
 /* 胶囊的强调色和「上色浓度」注册成有类型的变量,颜色才能渐变过去。
-   不注册的话,变量一变,依赖它的渐变背景就是「啪」地一下换掉 ——
-   从「属性」(橙)跳到「DDL」(青)、从「路过」变成「选中」,都会闪一下。 */
+   不注册的话,变量一变就是「啪」地一下换掉。 */
 @property --pill-accent {
   syntax: "<color>";
   inherits: true;
-  initial-value: #0b8fd6;
+  initial-value: #7aa7dd;
 }
 @property --pill-tint {
   syntax: "<percentage>";
@@ -33,64 +32,29 @@
 }
 
 :root {
-  /* 时长:按"这个变化有多大"分三档,不按控件分 */
-  --dur-1: 120ms;   /* 微交互:悬停、按下、图标换色 */
-  --dur-2: 220ms;   /* 位移和形变:胶囊滑动、面板展开 */
-  --dur-3: 340ms;   /* 大块进出:弹窗、抽屉 */
-  /* 跨距离滑动(胶囊从一项滑到另一项)单独一档 —— 它走的路比"展开一个面板"长,
-     用同一个时长会显得在窜。慢下来之后才看得清它是"滑过去"而不是"闪过去"。 */
-  --dur-travel: 420ms;
+  /* 时长:按"这个变化有多大"分档,不按控件分 */
+  --dur-0: 50ms;    /* 悬停进入:要立刻有回应 */
+  --dur-1: 140ms;   /* 悬停退出、颜色、图标 */
+  --dur-2: 180ms;   /* 小块进出:菜单、遮罩 */
+  --dur-3: 220ms;   /* 大块进出:弹窗、抽屉 */
+  --dur-travel: 260ms; /* 胶囊滑动 */
 
-  /* 缓动:出场快、落位稳 —— 线性是塑料感的另一半来源 */
-  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);        /* 常规 */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);        /* 颜色、透明度 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);       /* 位移:快出、稳稳落位,不过冲 */
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);    /* 来回都要顺的 */
-  /* 落位时轻微过冲一下再回来 —— 只给"落到某个位置"的东西用(胶囊),
-     用在颜色或透明度上会显得廉价 */
-  --ease-settle: cubic-bezier(0.34, 1.28, 0.52, 1);
 
-  /* 玻璃层
-     ------------------------------------------------------------------
-     一层平涂的白不是玻璃,是蒙了块布。玻璃之所以像玻璃,靠四件事同时成立:
-       1. 底色有**落差** —— 光从上方来,顶上亮、往下暗,所以用渐变不用纯色;
-       2. 边缘有**厚度** —— 内描一圈极淡的亮线,那是玻璃的侧面;
-       3. 背后的东西被**放大** —— 不只是模糊,还要提饱和和亮度,
-          玻璃会把后面的颜色"吸"出来,只模糊会显得脏;
-       4. 它**浮在表面之上** —— 底下要有影子,没有影子就是贴上去的贴纸。 */
-  --glass-blur: blur(20px) saturate(190%) brightness(1.06);
-  --glass-top: rgba(255, 255, 255, 0.115);   /* 渐变的上端 */
-  --glass-bottom: rgba(255, 255, 255, 0.028); /* 渐变的下端 */
-  --glass-line: rgba(255, 255, 255, 0.17);   /* 顶部那道高光 */
-  --glass-edge: rgba(255, 255, 255, 0.06);   /* 整圈描边 = 玻璃的厚度 */
-  --glass-shade: rgba(0, 0, 0, 0.26);
-  --glass-fill: var(--glass-top);            /* 兼容:还有别处按纯色用 */
-  /* 辉光:低透明度的大范围散射,不是霓虹灯圈。
-     一圈很淡的描边 + 一团往下散的光,加起来才有"亮着"的感觉;
-     只描边像贴纸,只散光像糊了一块。 */
-  /* 胶囊用的强调色。默认跟主题走,容器可以覆盖 —— 表详情那排每一项自带颜色
-     (属性/列/索引…),胶囊滑过去时要跟着换,而不是全都一个蓝。 */
   --pill-accent: var(--accent);
-  --glow: 0 0 0 1px color-mix(in srgb, var(--pill-accent) 30%, transparent),
-          0 4px 18px -6px color-mix(in srgb, var(--pill-accent) 50%, transparent);
-}
-
-:root[data-theme="light"] {
-  /* 亮色下玻璃要更"实":背景本来就亮,太透就看不出有块东西 */
-  --glass-blur: blur(20px) saturate(160%) brightness(1.02);
-  --glass-top: rgba(255, 255, 255, 0.86);
-  --glass-bottom: rgba(255, 255, 255, 0.58);
-  --glass-line: rgba(255, 255, 255, 0.95);
-  --glass-edge: rgba(16, 22, 34, 0.07);
-  --glass-shade: rgba(16, 22, 34, 0.09);
-  --glass-fill: var(--glass-top);
 }
 
 /* 系统里关掉了动效就别动 —— 这不是可选项:有人开这个开关是因为动效会让他头晕。
    留 1ms 而不是 0,是为了让依赖 transitionend 的代码还能收到事件。 */
 @media (prefers-reduced-motion: reduce) {
   :root {
+    --dur-0: 1ms;
     --dur-1: 1ms;
     --dur-2: 1ms;
     --dur-3: 1ms;
+    --dur-travel: 1ms;
   }
   *,
   *::before,
@@ -103,11 +67,8 @@
 }
 
 /* ---------- 标签胶囊 ----------------------------------------------------
-   一排可切换项后面跟着的那块玻璃。鼠标在这排上时跟着走,离开就回到选中那项。
-
-   为什么用 transform 而不是 left/width:left 和 width 每帧都要重新布局,
-   一排标签多起来就掉帧。transform 走合成层,不碰布局。
-   宽度确实得变,但它只影响这一个绝对定位的元素,代价可以忽略。 */
+   一排可切换项后面跟着的那块底。鼠标在这排上时跟着走,离开就回到选中那项。
+   用 transform 而不是 left:left 每帧都要重新布局,一排标签多起来就掉帧。 */
 .pill-track {
   position: relative;
 }
@@ -119,25 +80,13 @@
   z-index: 0;
   pointer-events: none;          /* 它只是背景,别挡住底下的点击 */
   border-radius: 999px;
-  /* 上亮下暗的渐变,不是平涂 —— 光从上方来 */
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--glass-top) 100%, var(--pill-accent) var(--pill-tint)) 0%,
-    color-mix(in srgb, var(--glass-bottom) 100%, var(--pill-accent) calc(var(--pill-tint) * 0.36)) 100%
-  );
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow:
-    inset 0 1px 0 var(--glass-line),      /* 顶部那道高光 */
-    inset 0 0 0 1px var(--glass-edge),    /* 整圈描边 —— 玻璃的侧面,厚度感在这儿 */
-    inset 0 -1px 0 var(--glass-shade),    /* 底部暗边 */
-    0 1px 2px rgba(0, 0, 0, 0.28),        /* 贴近表面的硬影 */
-    0 10px 26px -14px rgba(0, 0, 0, 0.7); /* 往下散的软影 —— 它是"浮着"的 */
+  /* 一块实色,只在选中时兑一点点强调色。不渐变、不模糊、不发光。 */
+  background: color-mix(in srgb, var(--surface-3) calc(100% - var(--pill-tint)), var(--pill-accent));
   opacity: 0;
   transition:
-    transform var(--dur-travel) var(--ease-settle),
-    width var(--dur-travel) var(--ease-settle),
-    height var(--dur-travel) var(--ease-settle),
+    transform var(--dur-travel) var(--ease-out),
+    width var(--dur-travel) var(--ease-out),
+    height var(--dur-travel) var(--ease-out),
     --pill-accent var(--dur-2) var(--ease),
     --pill-tint var(--dur-2) var(--ease),
     opacity var(--dur-1) var(--ease);
@@ -147,36 +96,14 @@
   opacity: 1;
 }
 
-/* 跟着鼠标走时是"路过":纯玻璃,不上色。落到选中项才染上强调色 ——
+/* 跟着鼠标走时是"路过",不上色;落到选中项才染一点 ——
    「临时指着」和「这就是当前项」要看得出区别。 */
 .pill.hovering {
   --pill-tint: 0%;
 }
 
-/* 选中态的辉光。单独一层伪元素做,过渡 opacity 而不是过渡 box-shadow */
-.pill::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  /* 在这儿现算,不用 :root 里的 --glow —— 那个在根上就把 --pill-accent 解析死了,
-     容器再覆盖也没用(CSS 变量的值是在定义处解析的)。 */
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--pill-accent) 30%, transparent),
-    0 4px 18px -6px color-mix(in srgb, var(--pill-accent) 50%, transparent);
-  opacity: 0;
-  transition: opacity var(--dur-2) var(--ease);
-}
-
 .pill.settled {
-  /* 选中时往玻璃里兑强调色,而且**上浓下淡** —— 光和颜色都从上面来,
-     方向一致才像同一块材质。纯白玻璃在深色面板上看得出"有块东西",
-     看不出"这是当前项"。浓度走 --pill-tint,「路过」→「选中」是渐变上色。 */
-  --pill-tint: 22%;
-}
-
-.pill.settled::after {
-  opacity: 1;
+  --pill-tint: 16%;
 }
 
 /* 第一次出现别从屏幕左边滑过来 */
@@ -221,23 +148,38 @@
 }
 
 /* ---------- 交互的统一手感 ---------------------------------------------
-   按下去要有一点点回应。1.5% 的缩放人几乎看不见,但手上能感觉到。 */
+   :hover 里写的是「进入」的时长,基础规则里写的是「退出」的时长。 */
 .press {
-  transition: transform var(--dur-1) var(--ease), filter var(--dur-1) var(--ease);
+  transition: transform var(--dur-1) var(--ease);
 }
 
 .press:active {
   transform: scale(0.985);
 }
 
-/* ---------- 交互反馈 ------------------------------------------------------
-   按钮按下去、键盘走到哪儿,都要有回应。少了这两样,再好看的界面也是"死"的。 */
+.btn:hover,
+.icon-btn:hover,
+.ai-icon:hover,
+.node:hover,
+.qtab:hover,
+.ctx-item:hover,
+.syntax-item:hover,
+.kind-tabs button:hover {
+  transition-duration: var(--dur-0);
+}
 
-/* 图标按钮按下去缩一点。SVG 缩放不会糊,文字按钮就别缩了 ——
-   非整数倍的缩放会让字发虚,那比没有反馈更廉价。 */
+/* 按下去的回应要立刻出现,松手再缓缓回去 */
+.btn:active,
+.icon-btn:active,
+.ai-icon:active,
+.kind-tabs button:active {
+  transition-duration: 0ms;
+}
+
+/* 图标按钮按下去缩一点。文字按钮不缩 —— 非整数倍缩放会让字发虚。 */
 .icon-btn:active,
 .ai-icon:active {
-  transform: scale(0.93);
+  transform: scale(0.95);
 }
 
 .icon-btn,
@@ -263,85 +205,84 @@
 }
 
 /* ---------- 进场 --------------------------------------------------------
-   弹窗、菜单、抽屉原来都是「啪」一下出现的。一个东西凭空出现,人得花一瞬间
-   反应「这是什么、从哪来的」;让它从某处长出来,这一瞬间就省了。
-
-   只做**进场**不做退场:退场要用 JS 把元素多留一会儿再卸载,那是另一档复杂度,
-   而收益远不如进场 —— 东西消失本来就不需要解释。 */
+   只做进场不做退场:东西消失本来就不需要解释。只淡入加几像素位移,不缩放 ——
+   缩放的那几帧字是糊的。 */
 
 @keyframes sonde-fade {
   from { opacity: 0; }
 }
 
-/* 从鼠标/触发点的方向微微长出来:往上抬 8px + 收 2% ——
-   位移和缩放一起用才像"浮上来",只缩放像被吹气球。 */
 @keyframes sonde-rise {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.985);
+    transform: translateY(4px);
   }
 }
 
-@keyframes sonde-pop {
+@keyframes sonde-drop {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.97);
+    transform: translateY(-3px);
   }
 }
 
-.modal-backdrop {
+.modal-backdrop,
+.fe-backdrop,
+.asset-overlay {
   animation: sonde-fade var(--dur-2) var(--ease);
 }
 
 .modal-backdrop > .modal,
-.modal-backdrop > .confirm-modal {
-  animation: sonde-rise var(--dur-3) var(--ease-settle);
+.modal-backdrop > .confirm-modal,
+.fe-modal {
+  animation: sonde-rise var(--dur-3) var(--ease-out);
 }
 
-/* 右键菜单从点的位置弹出来,所以是"往下压一点再展开",不是"浮上来" */
-.ctx-menu {
-  animation: sonde-pop var(--dur-2) var(--ease-settle);
-  transform-origin: top left;
-}
-
-/* 数据资产那个抽屉:遮罩淡入,面板从左侧滑出 */
-.asset-overlay {
-  animation: sonde-fade var(--dur-2) var(--ease);
+/* 菜单是手点出来的,要最快 */
+.ctx-menu,
+.syntax-menu {
+  animation: sonde-drop 110ms var(--ease-out);
 }
 
 @keyframes sonde-slide-left {
   from {
     opacity: 0;
-    transform: translateX(-18px);
+    transform: translateX(-10px);
   }
 }
 
 .asset-overlay > .asset-panel {
-  animation: sonde-slide-left var(--dur-3) var(--ease-settle);
+  animation: sonde-slide-left var(--dur-3) var(--ease-out);
 }
 
-/* 提示条从底下升起来 */
-.toast {
-  animation: sonde-rise var(--dur-2) var(--ease-settle);
+/* 换主题:整屏淡过去 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-3);
+  animation-timing-function: var(--ease);
+}
+
+/* ---------- 拖动 --------------------------------------------------------
+   拖动期间关掉所有过渡:面板跟手就得一帧到位,谁还在做 140ms 的过渡谁就是拖着走的那一下"肉"。
+   光标也锁住,鼠标滑出分隔条不至于闪成箭头。 */
+body.is-dragging,
+body.is-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: var(--drag-cursor, default) !important;
+  transition: none !important;
 }
 
 /* ---------- 结果网格 ----------------------------------------------------
-   网格是**最不能乱加效果**的地方:几千行,每行加阴影或变换就是掉帧之源。
-   所以这儿只动「一次只有一个」的元素 —— 表头、排序标记、列宽拖拽条。
-   行的悬停背景过渡已经在设计系统里,那个便宜(同一时刻只有一行在变)。 */
-
-.grid-head {
-  /* 表头贴在顶上,给它一道往下的淡影,滚动时才看得出内容是从它底下过去的 */
-  box-shadow: 0 1px 0 var(--border-2), 0 6px 12px -10px rgba(0, 0, 0, 0.6);
-}
+   网格是最不能乱加效果的地方:行和格子的悬停都不做过渡,鼠标扫过去要干干净净,不拖尾。
+   这儿只动「一次只有一个」的元素 —— 排序标记、列宽拖拽条。 */
 
 .gh-name {
   transition: color var(--dur-1) var(--ease);
 }
 
-/* 排序标记:换方向时转过去,不是瞬间翻面 */
 .gh-sort svg {
-  transition: transform var(--dur-2) var(--ease-settle);
+  transition: transform var(--dur-2) var(--ease-out);
 }
 
 .gh-sort b {
@@ -349,26 +290,3 @@
     background var(--dur-1) var(--ease),
     color var(--dur-1) var(--ease);
 }
-
-/* 列宽拖拽条:平时看不见,鼠标靠近才亮起来 */
-.col-resizer {
-  transition: background var(--dur-1) var(--ease);
-}
-
-.col-resizer:hover,
-.col-resizer:active {
-  background: color-mix(in srgb, var(--accent) 65%, transparent);
-}
-
-/* ---------- 「被选中」在全应用是同一个长相 --------------------------------
-   原来这儿写过一个 .press-card(悬停微抬 + 边缘光),**删掉了** ——
-   这个应用里没有它的诚实去处:左边那些是密集列表行(行间无间隔,抬起来会抖),
-   看板部件是可拖拽的画布元素(悬停就抬会跟拖拽打架,看着像已经在动了)。
-   加一个没地方用的工具类,下一个人看见只会犯嘀咕。
-
-   真正该统一的是**「被选中」长什么样**:胶囊、芯片、看板部件,
-   都用同一套材质 —— 上亮下暗的渐变 + 一圈很淡的强调色描边 + 往下散的光。
-   这样用户在哪儿看到这个样子,都知道是同一个意思。
-
-   共用的是**这组 token**(--glass-line / --pill-accent / --glass-top…),
-   不是一个工具类 —— 各处在自己的规则里用同一组值就行,不用记住还要挂个 class。 */

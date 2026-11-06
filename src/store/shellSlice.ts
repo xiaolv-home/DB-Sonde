@@ -33,6 +33,16 @@ type ShellSlice = AppSlice<
 /** 面板高度上限跟着窗口走,至少给上半部分留 160px,免得拖到编辑器没了。
  *  没有 window 的环境(测试、SSR)只保下限 —— store 不该假定有 DOM。 */
 
+/** 拖分隔条时尺寸一帧变一次,localStorage 是同步写盘的,没必要每帧都写:停下来再存。 */
+const pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
+function storeWhenSettled(key: string, value: string, onError: (error: unknown) => void) {
+  clearTimeout(pendingWrites.get(key));
+  pendingWrites.set(key, setTimeout(() => {
+    pendingWrites.delete(key);
+    try { writeStoredText(key, value); } catch (error) { onError(error); }
+  }, 150));
+}
+
 export const createShellSlice: ShellSlice = (set, get) => ({
     theme: readStoredText<Theme>("theme", "dark", isTheme),
     syntaxTheme: readStoredText<SyntaxTheme>("syntaxTheme", DEFAULT_SYNTAX_THEME, isSyntaxTheme),
@@ -98,15 +108,13 @@ export const createShellSlice: ShellSlice = (set, get) => ({
     setSidebarWidth(w) {
         if (!Number.isFinite(w)) return;
         const width = Math.max(200, Math.min(520, w));
-        try { writeStoredText("sidebarWidth", String(width)); }
-        catch (error) { get().showToast({ kind: "error", text: String(error) }); return; }
+        storeWhenSettled("sidebarWidth", String(width), (error) => get().showToast({ kind: "error", text: String(error) }));
         set({ sidebarWidth: width });
     },
     setResultHeight(h, tabId = get().activeTabId) {
         if (!Number.isFinite(h)) return;
         const height = clampPaneHeight(h, RESULT_MIN_HEIGHT);
-        try { writeStoredText("resultHeight", String(height)); }
-        catch (error) { get().showToast({ kind: "error", text: String(error) }); return; }
+        storeWhenSettled("resultHeight", String(height), (error) => get().showToast({ kind: "error", text: String(error) }));
         // 拖动即展开:收起状态下还按着分隔条拖,显然是想把它拉回来。
         set(s => ({
             resultHeight: height,
@@ -121,7 +129,7 @@ export const createShellSlice: ShellSlice = (set, get) => ({
     setPyOutputHeight(h) {
         if (!Number.isFinite(h)) return;
         const height = clampPaneHeight(h, PY_OUTPUT_MIN_HEIGHT);
-        try { writeStoredText("pyOutputHeight", String(height)); } catch { /* 同上 */ }
+        storeWhenSettled("pyOutputHeight", String(height), () => { /* 存不上不影响本次会话 */ });
         set({ pyOutputHeight: height, pyOutputCollapsed: false });
     },
     setPyOutputCollapsed(collapsed) {
