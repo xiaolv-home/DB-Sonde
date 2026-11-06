@@ -1,3 +1,4 @@
+import StartPage from "./StartPage";
 import {
   Loader2,
   PlugZap,
@@ -38,7 +39,7 @@ export default function QueryPanel() {
     return () => window.removeEventListener("keydown", save);
   }, []);
   return <div className="main"><WorkspaceTabBar />
-    {tabs.length === 0 && <div className="empty-main">打开一个数据库、表或 SQL 脚本开始工作</div>}
+    {tabs.length === 0 && <StartPage />}
     {tabs.filter(tab => tab.id === activeTabId || visited.has(tab.id)).map(tab =>
       <div className="workspace-pane" key={tab.id} style={{ display: tab.id === activeTabId ? "flex" : "none" }}>
         <PanelErrorBoundary name={tab.title}><WorkspaceContent tabId={tab.id} active={tab.id === activeTabId} /></PanelErrorBoundary>

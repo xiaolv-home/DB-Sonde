@@ -115,6 +115,165 @@
   font-size: 14px;
 }
 
+/* 首页:一列居中,靠留白和字号分层,不靠渐变和卡片阴影 */
+.start-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: 9vh 32px 48px;
+}
+.start-column {
+  width: min(680px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  animation: sonde-rise var(--dur-3) var(--ease-out);
+}
+.start-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.start-head img {
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
+  object-fit: cover;
+}
+.start-head h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.start-head p {
+  margin: 3px 0 0;
+  font-size: 15px;
+  color: var(--text-3);
+}
+.start-page section h2 {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.start-page .start-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  margin-bottom: 6px;
+}
+.start-page .start-section-head h2 {
+  margin: 0;
+}
+.start-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 268px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+.start-conn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 15.5px;
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur-1) var(--ease);
+}
+.start-conn:hover {
+  background: var(--surface);
+  transition-duration: var(--dur-0);
+}
+.start-conn:active {
+  background: var(--surface-2);
+  transition-duration: 0ms;
+}
+.start-conn > svg {
+  flex: none;
+  color: var(--text-3);
+}
+.start-conn-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.start-conn-kind {
+  flex: none;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+.start-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 15px;
+}
+.start-empty p {
+  flex: 0 0 100%;
+  margin: 0 0 6px;
+}
+.start-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.start-action {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.start-action:hover {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  transition-duration: var(--dur-0);
+}
+.start-action:active {
+  background: var(--surface-3);
+  transition-duration: 0ms;
+}
+.start-action > svg {
+  color: var(--text-2);
+}
+.start-action-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+.start-action-hint {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
 .sql-run-overlay { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 8px 12px; pointer-events: none; }
 .sql-run-status { position: relative; box-sizing: border-box; width: 280px; max-width: 100%; max-height: 100%; overflow: hidden; padding: 16px 22px; border: 1px solid var(--border-2); border-radius: 12px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); box-shadow: var(--shadow); font-size: 12px; }
 .sql-run-summary { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--accent); }
