@@ -678,6 +678,9 @@
   padding: 0 4px;
   outline: none;
 }
+.data-export {
+  flex: none;
+}
 .data-rowcount {
   font-size: 14.5px;
   font-variant-numeric: tabular-nums;

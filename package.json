@@ -74,7 +74,8 @@
     "test:keyword-case": "node scripts/test-keyword-case.mjs",
     "test:sql-punctuation": "node scripts/test-sql-punctuation.mjs",
     "test:result-grid": "node scripts/test-result-grid.mjs",
-    "test:themes": "node scripts/test-themes.mjs"
+    "test:themes": "node scripts/test-themes.mjs",
+    "test:table-export": "node scripts/test-table-export.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

@@ -54,3 +54,33 @@ export async function exportResultFile(
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
   return undefined;
 }
+
+/** 表「数据」页一次最多导出多少行。再多的话内存和文件都扛不住(后端单个导出文件上限 100 MB),
+ *  该让人先加筛选条件。 */
+export const TABLE_EXPORT_MAX_ROWS = 500_000;
+
+export type TableExportOutcome =
+  | { kind: "empty" }
+  | { kind: "tooMany"; count: number }
+  | { kind: "saved"; count: number; path?: string };
+
+/** 按表「数据」页当前的筛选和排序导出**全部**匹配的行,不只是已经加载的那一页。
+ *  先数一遍:超上限就不去取数据,免得白拉几十万行再拒绝。
+ *  取的时候多要一行 —— 数完到取之间表可能又进了数据,超了照样拒,不悄悄截断。 */
+export async function exportTableData(opts: {
+  countSql: string;
+  dataSql: (limit: number) => string;
+  run: (sql: string, maxRows: number) => Promise<QueryResult>;
+  save: (result: QueryResult) => Promise<string | undefined>;
+  max?: number;
+}): Promise<TableExportOutcome> {
+  const max = opts.max ?? TABLE_EXPORT_MAX_ROWS;
+  const counted = await opts.run(opts.countSql, 1);
+  const count = Number(counted.rows?.[0]?.[0] ?? 0);
+  if (count > max) return { kind: "tooMany", count };
+  if (count === 0) return { kind: "empty" };
+  const result = await opts.run(opts.dataSql(max + 1), max + 1);
+  if (result.rows.length > max) return { kind: "tooMany", count: result.rows.length };
+  if (result.rows.length === 0) return { kind: "empty" };
+  return { kind: "saved", count: result.rows.length, path: await opts.save(result) };
+}

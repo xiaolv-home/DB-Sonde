@@ -6,6 +6,7 @@ import {
   Braces,
   Columns3,
   Database,
+  Download,
   Filter,
   Info,
   KeyRound,
@@ -30,6 +31,7 @@ import {
 } from "../lib/sql";
 import { buildCellRequest, rowKeyOf } from "../lib/tableEditing";
 import { useConfirm } from "./useConfirm";
+import { exportResultFile, exportTableData, TABLE_EXPORT_MAX_ROWS } from "../lib/export";
 import { useApp, type TableTab } from "../store/appStore";
 import type {
   Cell,
@@ -211,6 +213,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
   const [error, setError] = useState<string>();
   const [dirty, setDirty] = useState(false);
   const { askConfirm, confirmDialog } = useConfirm();
+  const [exporting, setExporting] = useState(false);
   const rowsRef = useRef<Cell[][]>([]);
   const reqRef = useRef(0);
 
@@ -454,6 +457,33 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
     });
   };
 
+  /** 导出当前筛选、排序下的全部行(从数据库重新取,不是只导已加载的这一页)。 */
+  const exportCsv = async () => {
+    if (exporting) return;
+    if (dirty && !(await askConfirm(t("data.exportDirty"), t("query.exportCsv")))) return;
+    setExporting(true);
+    const toast = useApp.getState().showToast;
+    try {
+      const outcome = await exportTableData({
+        countSql: buildCountQuery(kind, tab.database, tab.schema, tab.table, whereApplied),
+        dataSql: (limit) => buildDataQuery(kind, tab.database, tab.schema, tab.table, {
+          where: whereApplied, orderBy, stableBy: primaryKey, limit, offset: 0,
+        }),
+        run: (sql, maxRows) => api.runQuery(tab.connId, tab.database, sql, maxRows),
+        save: (result) => exportResultFile(result, "csv", whereApplied ? `${tab.table}-筛选` : tab.table),
+      });
+      if (outcome.kind === "empty") toast({ kind: "info", text: t("data.exportEmpty") });
+      else if (outcome.kind === "tooMany") toast({ kind: "warn", text: t("data.exportTooMany", { count: outcome.count.toLocaleString(), max: TABLE_EXPORT_MAX_ROWS.toLocaleString() }) });
+      else toast({ kind: "success", text: outcome.path
+        ? t("data.exported", { count: outcome.count.toLocaleString(), path: outcome.path })
+        : t("query.downloadStarted", { format: "CSV" }) });
+    } catch (error) {
+      toast({ kind: "error", text: String(error) });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="data-panel">
       <div className="data-toolbar">
@@ -490,6 +520,9 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
         <span className="muted data-rowcount">
           {t("query.rowCount", { count: `${rows.length.toLocaleString()}${hasMore ? "+" : ""}` })}
         </span>
+        <button className="btn ghost sm data-export" onClick={() => void exportCsv()} disabled={exporting || cols.length === 0} title={t("data.exportHint")}>
+          {exporting ? <Loader2 size={13} className="spin" /> : <Download size={13} />} {t("query.exportCsv")}
+        </button>
       </div>
 
       <div className="data-grid-area">
