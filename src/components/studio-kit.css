@@ -1,0 +1,98 @@
+/* 工作台小部件(StudioKit.tsx)的样式:浮层、菜单、表单件、取值挑选、可折叠分组。
+   看板工作台和数据集工作台共用。颜色全走主题 token。 */
+
+/* ── 浮层与菜单 ────────────────────────────────────────────────────── */
+.st-pop { position: fixed; z-index: 1200; display: flex; flex-direction: column; overflow: auto; padding: 4px; border: 1px solid var(--border-2); border-radius: var(--radius); background: var(--popover); box-shadow: var(--shadow); color: var(--text); font-size: 13px; animation: sonde-drop var(--dur-1) var(--ease-out); }
+.st-pop-pad { padding: 6px 8px; }
+.st-menu-scroll { max-height: 300px; overflow: auto; display: flex; flex-direction: column; }
+.st-menu-group { padding: 7px 8px 3px; color: var(--text-3); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.st-menu-item { width: 100%; min-height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; }
+.st-menu-item > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-menu-item > small { color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
+.st-menu-item:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.st-menu-item:disabled { opacity: .5; }
+.st-menu-item.on { color: var(--accent); }
+.st-menu-item.danger { color: var(--red); }
+.st-menu-item.danger:hover { background: color-mix(in srgb, var(--red) 14%, transparent); }
+.st-menu-item svg { flex: none; color: var(--text-3); }
+.st-menu-item.on svg, .st-menu-item.danger svg { color: inherit; }
+.st-menu-check { margin-left: auto; }
+.st-pm-sep { height: 1px; margin: 4px 2px; background: var(--border); flex: none; }
+.st-empty { margin: 0; padding: 12px 8px; color: var(--text-3); font-size: 12.5px; text-align: center; }
+.st-foot-note { margin: 0; padding: 6px 8px; color: var(--text-3); font-size: 12px; border-top: 1px solid var(--border); }
+
+/* ── 表单件 ────────────────────────────────────────────────────────── */
+.st-input, .st-num input, .st-mini-sel, .st-textarea { height: 28px; min-width: 0; width: 100%; padding: 0 8px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; outline: none; user-select: text; }
+.st-input:focus, .st-num input:focus, .st-textarea:focus, .st-mini-sel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.st-textarea { height: auto; min-height: 96px; padding: 7px 8px; resize: vertical; line-height: 1.55; }
+.st-num { position: relative; display: inline-flex; align-items: center; min-width: 0; flex: 1; }
+.st-num input { padding-right: 26px; font-variant-numeric: tabular-nums; }
+.st-num em { position: absolute; right: 7px; color: var(--text-3); font-size: 11px; font-style: normal; pointer-events: none; }
+.st-sel { position: relative; display: inline-flex; align-items: center; min-width: 0; flex: 1; }
+.st-sel select { width: 100%; height: 28px; padding: 0 24px 0 8px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; outline: none; appearance: none; }
+.st-sel svg { position: absolute; right: 7px; color: var(--text-3); pointer-events: none; }
+.st-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 7px; background: var(--surface-3); }
+.st-seg button { height: 24px; min-width: 0; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; white-space: nowrap; }
+.st-seg button:hover { color: var(--text); }
+.st-seg button.on { background: var(--surface); color: var(--text); font-weight: 550; box-shadow: var(--shadow-sm); }
+.st-seg.sm button { height: 22px; padding: 0 8px; font-size: 12px; }
+.st-toggle { min-height: 30px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.st-toggle-text { flex: 1; min-width: 0; display: flex; flex-direction: column; color: var(--text); font-size: 13px; }
+.st-toggle-text small { color: var(--text-3); font-size: 11.5px; line-height: 1.35; }
+.st-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.st-toggle i { position: relative; width: 30px; height: 17px; flex: none; border-radius: 999px; background: var(--border-2); transition: background var(--dur-1) var(--ease); }
+.st-toggle i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform var(--dur-1) var(--ease-out); }
+.st-toggle input:checked + i { background: var(--accent); }
+.st-toggle input:checked + i::after { transform: translateX(13px); }
+.st-toggle input:focus-visible + i { box-shadow: 0 0 0 3px var(--accent-soft); }
+.st-row { min-height: 32px; display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 8px; }
+.st-row-label { display: flex; flex-direction: column; color: var(--text-2); font-size: 12.5px; }
+.st-row-label small { color: var(--text-3); font-size: 11px; }
+.st-row-ctl { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.st-row-ctl > .st-seg { flex: none; }
+.st-row-ctl input[type="range"] { flex: 1; accent-color: var(--accent); }
+.st-inline { display: flex; gap: 4px; flex-wrap: wrap; }
+.st-color { position: relative; width: 30px; height: 26px; flex: none; }
+.st-color input { width: 30px; height: 26px; padding: 0; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: none; cursor: pointer; }
+.st-color.unset input { opacity: .55; }
+.st-color button { position: absolute; top: -6px; right: -6px; width: 15px; height: 15px; display: none; padding: 0; border: 0; border-radius: 50%; background: var(--text-3); color: var(--surface); font-size: 11px; line-height: 15px; }
+.st-color:hover button { display: block; }
+.st-dash { color: var(--text-3); }
+.st-hint { display: block; color: var(--text-3); font-size: 11.5px; line-height: 1.45; margin: 0; }
+.st-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 3px 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12.5px; }
+.st-link:hover { text-decoration: underline; }
+.st-search { height: 30px; display: flex; align-items: center; gap: 6px; margin: 2px 2px 4px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-3); flex: none; }
+.st-search:focus-within { border-color: var(--accent); }
+.st-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; outline: none; user-select: text; }
+
+/* 取值挑选 */
+.st-values { display: flex; flex-direction: column; min-height: 0; }
+.st-values-bar { display: flex; align-items: center; gap: 10px; padding: 2px 8px 4px; font-size: 12px; }
+.st-values-bar button { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; }
+.st-values-bar button:disabled { color: var(--text-3); }
+.st-values-bar span { margin-left: auto; color: var(--text-3); }
+.st-values-list { max-height: 260px; overflow: auto; display: flex; flex-direction: column; }
+.st-values-list > button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; }
+.st-values-list > button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.st-values-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-check { width: 15px; height: 15px; flex: none; display: grid; place-items: center; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); }
+.st-values-list > button.on .st-check { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.st-values-add { color: var(--accent) !important; }
+
+
+/* 分组(样式 / 交互页) */
+.st-section { border-bottom: 1px solid var(--border); }
+.st-section:last-child { border-bottom: 0; }
+.st-section-head { width: 100%; height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 2px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; text-align: left; }
+.st-section-head b { font-weight: 600; color: var(--text); }
+.st-section-head svg { color: var(--text-3); }
+.st-section-aside { margin-left: auto; color: var(--text-3); font-size: 12px; }
+.st-section-body { display: flex; flex-direction: column; gap: 6px; padding: 0 2px 12px; }
+
+/* 字段图标(datasets/FieldIcon.tsx) */
+.st-ic.time { color: var(--amber); }
+.st-ic.measure { color: var(--green); }
+.st-ic.dim { color: var(--accent); }
+.st-ic.calc { color: var(--c-function); }
+.st-ic.cond { color: var(--amber); }
+.st-ic.warn { color: var(--red); }

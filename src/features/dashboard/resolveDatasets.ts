@@ -55,6 +55,7 @@ export function widgetQueryOf(widget: DashboardWidget, dataset?: Dataset, scope?
       field,
       agg: (aggregations[field] ?? "sum") as AggKind,
     })),
+    conditions: (widget.bindings.conditions ?? []).filter((c) => keep(c.field)),
     filters: Object.entries(locked?.filters ?? {})
       .filter(([field]) => keep(field))
       .map(([field, values]) => ({ field, values })),

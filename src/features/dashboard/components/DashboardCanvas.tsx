@@ -150,6 +150,7 @@ export default function DashboardCanvas({
     return (
     <article
       key={widget.id}
+      data-widget-id={widget.id}
       data-visual-preset={preset ?? "none"}
       className={`dash-widget dash-child-widget ${selectedId === widget.id && !preview ? "selected" : ""} ${!widget.visible ? "hidden-widget" : ""} ${drag?.id === widget.id ? "dragging" : ""}`}
       style={{
@@ -219,6 +220,7 @@ export default function DashboardCanvas({
         return (
         <article
           key={widget.id}
+          data-widget-id={widget.id}
           data-visual-preset={preset ?? "none"}
           className={`dash-widget ${selectedId === widget.id && !preview ? "selected" : ""} ${!widget.visible ? "hidden-widget" : ""} ${drag?.id === widget.id ? "dragging" : ""}`}
           style={{

@@ -52,7 +52,89 @@ export function grainExpr(kind: DbKind | undefined, column: string, grain: TimeG
   }
 }
 
+/**
+ * 条件运算符。组件上的「条件」和看板筛选器都走这一套 —— 维度按明细行筛(WHERE),
+ * 度量带上汇总方式就是按汇总后的结果筛(HAVING,「只看 GMV 过万的门店」)。
+ */
+export type ConditionOp =
+  | "eq" | "neq" | "in" | "not_in" | "contains" | "not_contains"
+  | "gt" | "gte" | "lt" | "lte" | "between" | "null" | "not_null";
+
+export const CONDITION_OPS: Record<ConditionOp, { label: string; arity: 0 | 1 | 2 | "n" }> = {
+  in: { label: "是", arity: "n" },
+  not_in: { label: "不是", arity: "n" },
+  eq: { label: "等于", arity: 1 },
+  neq: { label: "不等于", arity: 1 },
+  contains: { label: "包含", arity: 1 },
+  not_contains: { label: "不包含", arity: 1 },
+  gt: { label: "大于", arity: 1 },
+  gte: { label: "大于等于", arity: 1 },
+  lt: { label: "小于", arity: 1 },
+  lte: { label: "小于等于", arity: 1 },
+  between: { label: "介于", arity: 2 },
+  null: { label: "为空", arity: 0 },
+  not_null: { label: "不为空", arity: 0 },
+};
+
+export interface WidgetCondition {
+  field: string;
+  op: ConditionOp;
+  values: string[];
+  /** 有它就是按汇总后的值筛(HAVING),没有就是按明细行(WHERE)。 */
+  agg?: AggKind;
+}
+
+/** 条件填完整了没有。没填完的条件不进 SQL —— 编辑到一半的那一条不该让卡片报错。 */
+export function conditionReady(c: WidgetCondition): boolean {
+  if (!c.field || !CONDITION_OPS[c.op]) return false;
+  const arity = CONDITION_OPS[c.op].arity;
+  const vals = c.values.filter((v) => v !== "");
+  if (arity === 0) return true;
+  if (arity === "n") return vals.length > 0;
+  return vals.length >= arity;
+}
+
+const NUMERIC_OPS = new Set<ConditionOp>(["gt", "gte", "lt", "lte", "between"]);
+
+function containsExpr(kind: DbKind | undefined, col: string, lit: string): string {
+  switch (kind) {
+    case "mysql": case "mariadb": return `LOCATE(${lit}, ${col}) > 0`;
+    case "postgres": return `POSITION(${lit} IN CAST(${col} AS TEXT)) > 0`;
+    case "clickhouse": return `position(toString(${col}), ${lit}) > 0`;
+    default: return `INSTR(${col}, ${lit}) > 0`;
+  }
+}
+
+/**
+ * 一条条件编成 SQL 谓词。取值一律走 sqlLiteral;比大小的取值若是数字就写成数字字面量,
+ * 免得「10 > 9」按字符串比成假。
+ */
+export function conditionSql(kind: DbKind | undefined, col: string, c: WidgetCondition): string | undefined {
+  if (!conditionReady(c)) return undefined;
+  const vals = c.values.filter((v) => v !== "");
+  const lit = (v: string) => (NUMERIC_OPS.has(c.op) || c.agg) && v.trim() !== "" && Number.isFinite(Number(v))
+    ? String(Number(v))
+    : sqlLiteral(v, kind);
+  switch (c.op) {
+    case "eq": return `${col} = ${lit(vals[0])}`;
+    case "neq": return `(${col} <> ${lit(vals[0])} OR ${col} IS NULL)`;
+    case "in": return vals.length === 1 ? `${col} = ${lit(vals[0])}` : `${col} IN (${vals.map(lit).join(", ")})`;
+    case "not_in": return `(${col} NOT IN (${vals.map(lit).join(", ")}) OR ${col} IS NULL)`;
+    case "contains": return containsExpr(kind, col, sqlLiteral(vals[0], kind));
+    case "not_contains": return `(NOT (${containsExpr(kind, col, sqlLiteral(vals[0], kind))}) OR ${col} IS NULL)`;
+    case "gt": return `${col} > ${lit(vals[0])}`;
+    case "gte": return `${col} >= ${lit(vals[0])}`;
+    case "lt": return `${col} < ${lit(vals[0])}`;
+    case "lte": return `${col} <= ${lit(vals[0])}`;
+    case "between": return `${col} BETWEEN ${lit(vals[0])} AND ${lit(vals[1])}`;
+    case "null": return `${col} IS NULL`;
+    case "not_null": return `${col} IS NOT NULL`;
+  }
+}
+
 export interface WidgetQuery {
+  /** 组件上的条件:按明细行筛(WHERE)或按汇总结果筛(HAVING)。 */
+  conditions?: WidgetCondition[];
   /** 分组维度,按顺序出现在 SELECT 和 GROUP BY 里。 */
   dimensions: string[];
   /** 维度 → 时间粒度。只对时间字段有意义,不填按原样。 */
@@ -130,12 +212,25 @@ export function buildWidgetSql(dataset: Dataset, query: WidgetQuery, kind: DbKin
     where.push(`${q(range.field)} >= ${day(range.start)} AND ${q(range.field)} < ${day(nextCalendarDay(range.end))}`);
   }
 
+  // 组件条件:不带汇总的落在明细行上,带汇总的留给 HAVING。
+  const having: string[] = [];
+  for (const c of query.conditions ?? []) {
+    if (c.agg) {
+      const sql = conditionSql(kind, aggExpr(kind, c.agg, c.field), c);
+      if (sql) having.push(sql);
+    } else {
+      const sql = conditionSql(kind, q(c.field), c);
+      if (sql) where.push(sql);
+    }
+  }
+
   const lines = [
     `SELECT ${selected.length ? selected.join(", ") : "*"}`,
     `FROM (${inner}) ${q("t")}`,
   ];
   if (where.length) lines.push(`WHERE ${where.join(" AND ")}`);
   if (dims.length) lines.push(`GROUP BY ${dims.map(dimExpr).join(", ")}`);
+  if (having.length) lines.push(`HAVING ${having.join(" AND ")}`);
 
   /* 排序。优先用组件上设的那份(orderBy),其次是「前 N 名」,都没有就按维度升序。
      默认按维度而不是按度量,是因为反过来会让时间轴乱掉 —— 折线图的 X 轴变成按数值

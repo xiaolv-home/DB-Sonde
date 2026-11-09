@@ -1,15 +1,14 @@
 import { useUnsavedChanges } from "../../hooks/useUnsavedChanges";
-import WidgetDataPanel from "./components/WidgetDataPanel";
 import { resolveSemanticDocument } from "./semantic";
 import { widgetTitle } from "./widgetFactory";
 import * as service from "./dashboardService";
 import * as transfer from "./transfer";
 import { clearQueryCache } from "./query";
 import { downloadOfflineHtml } from "./export/offlineHtml";
-import DashboardControlStrip from "./components/DashboardControlStrip";
 import { refineAnalysisDashboard } from "./refineAnalysisDashboard";
 import AiProvenanceBanner from "./components/AiProvenanceBanner";
 import { defaultMetricScope } from "../metrics/queryPlan";
+import { placeWidget } from "./domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { DashboardTab } from "../../store/appStore";
@@ -21,7 +20,6 @@ import {
   type DashboardDataset,
   type DashboardDocument,
   type DashboardDrillFilter,
-  type DashboardFilter,
   type DashboardWidget,
   type DashboardWidgetType,
 } from "./domain";
@@ -30,9 +28,14 @@ import { dashboardRepository } from "./repository";
 import { api } from "../../lib/api";
 import { useDatasetRuntime, useFilteredRuntime, useDashboardVersions, useComparisonRuntime, useDrillRuntime, useComponentRuntime, mergeCanvasRuntime, nextDrillPath, type ComponentFilterValue, type ComponentFilterValueMap, type DrillPathMap } from "./useDashboardRuntime";
 import DashboardCanvas from "./components/DashboardCanvas";
-import DashboardToolbar from "./components/DashboardToolbar";
-import PageStructureRail from "./components/PageStructureRail";
-import WidgetInspector from "./components/WidgetInspector";
+import FieldPanel from "./studio/FieldPanel";
+import Inspector from "./studio/Inspector";
+import { FilterRail, TopBar } from "./studio/StudioBar";
+import { addToShelf, targetShelf, widgetFromField } from "./studio/smart";
+import { endFieldDrag, readDrag } from "./studio/Shelf";
+import { PanelLeftOpen } from "lucide-react";
+import { nanoid } from "nanoid";
+import "./studio/studio.css";
 import { useI18n } from "../../hooks/useI18n";
 import { activeDashboardFilters, type DashboardFilterValues } from "./filtering";
 import { useDashboardHistory } from "./useDashboardHistory";
@@ -43,7 +46,6 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
   const [documents, setDocuments] = useState<DashboardDocument[]>([]);
   const [storedDocument, setDocument] = useState<DashboardDocument>();
   const document = useMemo(() => storedDocument ? resolveSemanticDocument(storedDocument, centralMetrics) : undefined, [storedDocument, centralMetrics]);
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string>();
   const [selectedWidgetId, setSelectedWidgetId] = useState<string>();
   const [filterValues, setFilterValues] = useState<DashboardFilterValues>({});
   const [componentFilterValues, setComponentFilterValues] = useState<ComponentFilterValueMap>({});
@@ -56,7 +58,10 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
   const [dirty, setDirty] = useState(false);
   useUnsavedChanges(tab.id, dirty);
   const [preview, setPreview] = useState(false);
-  const [pageRailOpen, setPageRailOpen] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(() => { try { return localStorage.getItem("sonde.studio.fields") !== "0"; } catch { return true; } });
+  const toggleFields = (open: boolean) => { setFieldsOpen(open); try { localStorage.setItem("sonde.studio.fields", open ? "1" : "0"); } catch { /* 只在这次生效 */ } };
+  /** 没选组件时字段面板浏览的数据集;新加的组件也默认用它,点开就能加字段。 */
+  const [browseDatasetId, setBrowseDatasetId] = useState<string>();
   const markDirty = useCallback(() => setDirty(true), []);
   const {
     canUndo,
@@ -123,7 +128,6 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
            只能一个个删掉它的组件。已存的看板从工具栏的页面列表里挑。 */
         const selected = requested ?? createDashboard(t("dashboard.untitled"));
         setDocument(selected);
-        setSelectedDatasetId(selected.datasets[0]?.id);
         setFilterValues(Object.fromEntries(selected.filters.map((filter) => [filter.id, filter.defaultValue ?? ""])));
         /* 白板还没落库,把它的 id 挂到标签页上,切走再回来就会被当成「看板已被删除」
            而报错。等 save() 写进去 —— 那时它才真的存在。 */
@@ -156,27 +160,6 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
     useApp.getState().showToast({ kind: "success", text: t("dashboard.undone") });
   };
 
-  const addFilter = () => {
-    let failed = false;
-    updateDocument((current) => {
-      try {
-        /* 字段候选来自编译产物(组件当前真在查的那些列);存下来的 document.datasets
-           在数据集模型下是空的,拿它去加筛选器只会说「看板还没有数据集」。 */
-        const { filters } = service.addFilter({ ...current, datasets: runtimeDocument?.datasets ?? [] }, { datasetId: selectedDatasetId }).doc;
-        return { ...current, filters };
-      } catch {
-        failed = true;
-        return current;
-      }
-    });
-    if (failed) useApp.getState().showToast({ kind: "info", text: t("dashboard.filterNeedsDimension") });
-  };
-
-  const updateFilter = (filter: DashboardFilter) => {
-    setFilterValues((current) => ({ ...current, [filter.id]: "" }));
-    updateDocument((current) => service.updateFilter(current, filter));
-  };
-
   const updateWidget = (widget: DashboardWidget, record = true) =>
     updateDocument((current) => service.updateWidget(current, widget), record);
 
@@ -207,9 +190,60 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
 
   const addWidget = (type: DashboardWidgetType) =>
     runEdit(
-      (doc) => service.addWidget(doc, { type, title: widgetTitle(type, t) }),
+      (doc) => service.addWidget(doc, {
+        type, title: widgetTitle(type, t),
+        datasetId: type === "text" || type === "container" ? undefined : lastDatasetId(),
+      }),
       setSelectedWidgetId,
     );
+
+  /** 新组件默认用哪个数据集:正在浏览的,其次是看板里最近一个组件用的。 */
+  const lastDatasetId = () => {
+    if (browseDatasetId && globalDatasets.some((d) => d.id === browseDatasetId)) return browseDatasetId;
+    const used = [...(document?.widgets ?? [])].reverse().find((w) => w.datasetId && globalDatasets.some((d) => d.id === w.datasetId));
+    return used?.datasetId ?? (globalDatasets.length === 1 ? globalDatasets[0].id : undefined);
+  };
+
+  /** 字段拖到画布上:落在某张卡片上就加进那张,落在空白处就按字段长出一张新图。 */
+  const dropField = (event: React.DragEvent) => {
+    const payload = readDrag(event);
+    endFieldDrag();
+    if (!payload || payload.from || !document) return;
+    event.preventDefault();
+    const card = (event.target as HTMLElement).closest<HTMLElement>("[data-widget-id]");
+    const target = card ? document.widgets.find((w) => w.id === card.dataset.widgetId) : undefined;
+    if (target) {
+      const dataset = globalDatasets.find((d) => d.id === (target.datasetId || lastDatasetId()));
+      const field = dataset?.fields.find((f) => f.name === payload.name);
+      const shelf = field ? targetShelf(target, field) : undefined;
+      if (!dataset || !field || !shelf) {
+        useApp.getState().showToast({ kind: "info", text: dataset ? "这张卡片放不下这个字段" : "这个字段不在这张卡片的数据集里" });
+        return;
+      }
+      updateWidget(addToShelf({ ...target, datasetId: dataset.id }, shelf, field.name, dataset));
+      setSelectedWidgetId(target.id);
+      return;
+    }
+    const dataset = globalDatasets.find((d) => d.fields.some((f) => f.name === payload.name) && d.id === lastDatasetId())
+      ?? globalDatasets.find((d) => d.fields.some((f) => f.name === payload.name));
+    const created = dataset ? widgetFromField(dataset, payload.name) : undefined;
+    if (!created) return;
+    // 落点换算成网格坐标:拖到哪就放在哪附近
+    const grid = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(".dash-canvas");
+    let x = 0, y = 0;
+    if (grid) {
+      const rect = grid.getBoundingClientRect();
+      const styles = getComputedStyle(grid);
+      const row = (parseFloat(styles.gridAutoRows) || 60) + (parseFloat(styles.rowGap) || 8);
+      x = Math.max(0, Math.min(12 - created.w, Math.floor(((event.clientX - rect.left) / rect.width) * 12) - Math.floor(created.w / 2)));
+      y = Math.max(0, Math.floor((event.clientY - rect.top + grid.scrollTop) / row));
+    }
+    const top = document.widgets.filter((w) => !w.parentId);
+    const free = !top.some((w) => x < w.x + w.w && x + created.w > w.x && y < w.y + w.h && y + created.h > w.y);
+    const placed = free ? { ...created, x, y } : placeWidget(created, top);
+    updateDocument((current) => ({ ...current, widgets: [...current.widgets, placed] }));
+    setSelectedWidgetId(placed.id);
+  };
 
   const addChildWidget = (parentId: string, tabId: string, type: DashboardWidgetType) => {
     if (type === "container") return;
@@ -265,7 +299,6 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
    */
   const openDocument = (next: DashboardDocument, opts: { dirty: boolean }) => {
     setDocument(next);
-    setSelectedDatasetId(next.datasets[0]?.id);
     setSelectedWidgetId(undefined);
     setRuntime({});
     setFilteredRuntime({});
@@ -291,21 +324,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
     openDocument(createDashboard(t("dashboard.untitled")), { dirty: true });
   };
 
-  const renameDocument = (id: string) => {
-    const target = document?.id === id ? document : documents.find((item) => item.id === id);
-    if (!target) return;
-    const title = window.prompt("重命名页面", target.title)?.trim();
-    if (!title) return;
-    if (document?.id === id) {
-      updateDocument((current) => ({ ...current, title }));
-      useApp.getState().updateDashboardTab(tab.id, { title });
-    } else {
-      void dashboardRepository.save({ ...target, title, updatedAt: new Date().toISOString() })
-        .then((saved) => setDocuments((items) => items.map((item) => (item.id === id ? saved : item))))
-        .catch((error) => useApp.getState().showToast({ kind: "error", text: String(error) }));
-    }
-  };
-
+  const rootRef = useRef<HTMLDivElement>(null);
   const [storagePath, setStoragePath] = useState("");
   useEffect(() => { void api.dashboardStoragePath().then(setStoragePath).catch(() => setStoragePath("")); }, []);
 
@@ -374,78 +393,87 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
       (dataset) => activeDashboardFilters(dataset, runtimeDocument.filters, filterValues, drill),
     );
   }, [runtimeDocument, runtime, filteredRuntime, comparisonRuntime, drillRuntime, componentRuntime, filterValues, drill]);
+  /* 键盘:⌘S 存、⌘Z 撤销、⌘E 切预览、⌘D 复制、⌫ 删选中的组件、Esc 取消选中。
+     在输入框里打字时只认 ⌘S —— 别的键是给文字用的。 */
+  const onKey = (event: React.KeyboardEvent) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((event.target as HTMLElement).tagName) || (event.target as HTMLElement).isContentEditable;
+    const mod = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (mod && key === "s") { event.preventDefault(); void save(); return; }
+    if (typing) return;
+    if (mod && key === "z" && !event.shiftKey && !preview) { event.preventDefault(); undo(); }
+    else if (mod && key === "e") { event.preventDefault(); setSelectedWidgetId(undefined); setPreview((v) => !v); }
+    else if (mod && key === "d" && selectedWidgetId && !preview) { event.preventDefault(); duplicateWidget(selectedWidgetId); }
+    else if ((event.key === "Backspace" || event.key === "Delete") && selectedWidgetId && !preview) { event.preventDefault(); deleteWidget(selectedWidgetId); setSelectedWidgetId(undefined); }
+    else if (event.key === "Escape" && selectedWidgetId) setSelectedWidgetId(undefined);
+  };
+
   if (loading || !document) return <div className="object-state"><Loader2 size={18} className="spin" />{t("dashboard.loading")}</div>;
 
   return (
-    <div className={`dashboard-workspace ${preview ? "preview" : ""}`}>
-      <DashboardToolbar
+    <div className={`dashboard-workspace st-studio ${preview ? "preview" : ""}`} onKeyDown={onKey} tabIndex={-1} ref={rootRef}>
+      <TopBar
         document={document}
         documents={documents}
         dirty={dirty}
         saving={saving}
         preview={preview}
         canUndo={canUndo}
-        onTitle={(title) => updateDocument((current) => ({ ...current, title }))}
+        exportingHtml={exportingHtml}
+        storagePath={storagePath}
+        onTitle={(title) => { updateDocument((current) => ({ ...current, title })); useApp.getState().updateDashboardTab(tab.id, { title }); }}
         onSelectDocument={selectDocument}
         onNewDocument={newDocument}
+        onDuplicateDocument={() => openDocument({ ...structuredClone(document), id: `dashboard-${nanoid(10)}`, title: `${document.title} 副本`, revision: 1, status: "draft", updatedAt: new Date().toISOString() }, { dirty: true })}
         onAddWidget={addWidget}
         onPreview={() => { setSelectedWidgetId(undefined); setPreview((value) => !value); }}
         onUndo={undo}
         onSave={() => void save()}
-        onDeleteDashboard={() => { if (document) deleteDocument(document.id); }}
-        storagePath={storagePath}
-      />
-      <DashboardControlStrip
-        document={document}
-        preview={preview}
-        pageRailOpen={pageRailOpen}
-        exportingHtml={exportingHtml}
-        runtime={runtime}
-        filterValues={filterValues}
-        drill={drill}
-        onTogglePageRail={() => setPageRailOpen((v) => !v)}
+        onDelete={() => deleteDocument(document.id)}
         onImport={importJson}
         onExportJson={exportJson}
         onExportHtml={() => void exportHtml()}
-        onRefresh={() => setRuntimeRevision((v) => v + 1)}
-        onPatch={(patch) => updateDocument((current) => ({ ...current, ...patch }))}
-        onAddFilter={addFilter}
-        onChangeFilter={updateFilter}
-        onRemoveFilter={(id) => {
-          setFilterValues((current) => {
-            const next = { ...current };
-            delete next[id];
-            return next;
-          });
-          updateDocument((current) => ({ ...current, filters: current.filters.filter((item) => item.id !== id) }));
-        }}
-        onFilterValue={(id, value) => setFilterValues((current) => ({ ...current, [id]: value }))}
-        onClearDrill={() => setDrill(undefined)}
+        onRefreshInterval={(refreshInterval) => updateDocument((current) => ({ ...current, refreshInterval }))}
       />
-      <div className={`dashboard-layout${!preview && pageRailOpen ? " with-rail" : ""}`}>
-        {!preview && pageRailOpen && (
-          <PageStructureRail
-            documents={documents}
-            activeId={document.id}
-            dirty={dirty}
-            onSelect={selectDocument}
-            onNew={newDocument}
-            onRename={renameDocument}
-            onDelete={deleteDocument}
-            onClose={() => setPageRailOpen(false)}
-          />
-        )}
-        {!preview && (
-          <WidgetDataPanel widget={selectedWidget} scope={document.metricScope ?? defaultMetricScope()} onChange={updateWidget} />
-        )}
-        <main className="dash-canvas-shell">
+      <FilterRail
+        document={document}
+        preview={preview}
+        values={filterValues}
+        drill={drill}
+        refreshing={Object.values(canvasRuntime).some((item) => item.loading)}
+        onScope={(start, end) => updateDocument((current) => ({ ...current, metricScope: { ...(current.metricScope ?? defaultMetricScope()), start, end } }))}
+        onClearScope={() => updateDocument((current) => ({ ...current, metricScope: undefined }))}
+        onAddFilter={(filter) => { updateDocument((current) => ({ ...current, filters: [...current.filters, filter] })); setFilterValues((v) => ({ ...v, [filter.id]: "" })); }}
+        onChangeFilter={(filter) => updateDocument((current) => service.updateFilter(current, filter))}
+        onRemoveFilter={(id) => {
+          setFilterValues((current) => { const next = { ...current }; delete next[id]; return next; });
+          updateDocument((current) => service.deleteFilter(current, id));
+        }}
+        onValue={(id, value) => setFilterValues((current) => ({ ...current, [id]: value }))}
+        onClearDrill={() => setDrill(undefined)}
+        onRefresh={() => { clearQueryCache(); setRuntimeRevision((v) => v + 1); }}
+      />
+      <div className={`st-body ${!preview && fieldsOpen ? "with-fields" : ""}`}>
+        {!preview && (fieldsOpen
+          ? <FieldPanel widget={selectedWidget} datasetId={browseDatasetId ?? lastDatasetId()} onDataset={setBrowseDatasetId} onChange={updateWidget} onCollapse={() => toggleFields(false)} />
+          : <button type="button" className="st-fields-rail" title="展开字段面板" onClick={() => toggleFields(true)}><PanelLeftOpen size={15} /><span>字段</span></button>)}
+        <main className="dash-canvas-shell st-canvas"
+          onDragOver={(event) => { if (!preview && event.dataTransfer.types.includes("application/x-sonde-field")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
+          onDrop={(event) => { if (!preview) dropField(event); }}>
           {document.aiProvenance && <AiProvenanceBanner provenance={document.aiProvenance}
             onOptimize={!preview && !document.widgets.some((w) => w.type === "container" || w.parentId) ? () => {
               updateDocument((current) => refineAnalysisDashboard(current, centralMetrics));
               useApp.getState().showToast({ kind: "success", text: "版式已优化，可撤销。保存后保留这些修改。" });
             } : undefined} />}
+          {!preview && document.widgets.length === 0 && (
+            <div className="st-canvas-hint">
+              <b>从左边拖一个字段到这里</b>
+              <span>数值会变成指标卡,日期变成趋势线,其它维度变成柱状图 —— 之后随时换类型、加字段。</span>
+              <span>也可以点顶上的「添加组件」先放一个空的。</span>
+            </div>
+          )}
           <DashboardCanvas
-          widgetReasons={document.aiProvenance?.widgetReasons}
+            widgetReasons={document.aiProvenance?.widgetReasons}
             widgets={document.widgets}
             datasets={runtimeDocument?.datasets ?? []}
             metrics={document.metrics}
@@ -468,9 +496,9 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
             onDrillTo={drillTo}
           />
         </main>
-        {!preview && <WidgetInspector widget={selectedWidget} datasets={runtimeDocument?.datasets ?? []} metrics={document.metrics} onChange={updateWidget} />}
+        {!preview && <Inspector widget={selectedWidget} scope={document.metricScope ?? defaultMetricScope()} onChange={updateWidget}
+          onDelete={(id) => { deleteWidget(id); setSelectedWidgetId(undefined); }} />}
       </div>
-
     </div>
   );
 }

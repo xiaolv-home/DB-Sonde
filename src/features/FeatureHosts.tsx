@@ -6,6 +6,7 @@ import AssetShell, { AssetChromeHost, closeAssets, type AssetSection } from "./a
 import CanvasCenter from "./canvas/CanvasCenter";
 import { useCanvasCenter } from "./canvas/canvasCenterStore";
 import DatasetsCenter from "./datasets/DatasetsCenter";
+import { DatasetStudioHost } from "./datasets/DatasetsCenter";
 import { useDatasets } from "./datasets/datasetsStore";
 import Entity360 from "./entity/Entity360";
 import { useEntity } from "./entity/entityStore";
@@ -33,7 +34,12 @@ export function AssetFeatures() {
     <PanelErrorBoundary key={section} name={name} active={open} fallback={(error, retry) =>
       <AssetShell title={name}><PanelFailure name={name} error={error} retry={retry} close={closeAssets} /></AssetShell>}>
       <View />
-    </PanelErrorBoundary>)}</AssetChromeHost>;
+    </PanelErrorBoundary>)}
+    <PanelErrorBoundary name="数据集工作台" fallback={(error, retry) =>
+      <div className="modal-backdrop"><div className="modal"><PanelFailure name="数据集工作台" error={error} retry={retry} close={() => useDatasets.getState().edit(null)} /></div></div>}>
+      <DatasetStudioHost />
+    </PanelErrorBoundary>
+  </AssetChromeHost>;
 }
 
 export function EntityFeature() {

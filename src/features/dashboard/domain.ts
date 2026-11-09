@@ -296,6 +296,8 @@ export interface DashboardWidget {
     aggregations?: Record<string, import("../datasets/widgetQuery").AggKind>;
     /** 时间维度 → 粒度(年/季/月/周/日/时/分)。不填按原样。 */
     grains?: Record<string, import("../datasets/widgetQuery").TimeGrain>;
+    /** 组件上的条件(设计者定死,查看者改不了):维度按行筛,度量带汇总方式按结果筛。 */
+    conditions?: import("../datasets/widgetQuery").WidgetCondition[];
     metricIds: string[];
     secondaryMetricIds: string[];
   };

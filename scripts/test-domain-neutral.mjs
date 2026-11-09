@@ -64,9 +64,9 @@ try {
   // 下钻/筛选/锁定的候选维度必须从数据集自己的字段来。换个行业的库,字段名完全不一样,
   // 任何一处写死的清单都会让那边什么也选不出来 —— 或者更糟,选出一堆不存在的列。
   const dimSources = [
-    ['src/features/dashboard/components/WidgetInspector.tsx', /const dimensions = dataset\?\.fields\.filter/],
-    ['src/features/dashboard/components/WidgetDataPanel.tsx', /dataset\?\.fields\.filter\(\(f\) => f\.role === "dimension"/],
-    ['src/features/dashboard/components/DatasetBindingEditor.tsx', /dataset\?\.fields\.filter\(\(f\) => f\.role === "dimension"/],
+    ['src/features/dashboard/studio/Inspector.tsx', /const dims = \(dataset\?\.fields \?\? \[\]\)\.filter\(\(f\) => !f\.hidden && f\.role === "dimension"\)/],
+    ['src/features/dashboard/studio/StudioBar.tsx', /for \(const f of d\.fields\)/],
+    ['src/features/dashboard/studio/FieldPanel.tsx', /\(dataset\?\.fields \?\? \[\]\)\.filter/],
   ];
   for (const [file, pattern] of dimSources) {
     assert(pattern.test(readFileSync(resolve(file), 'utf8')), `${file} 的维度候选不再是从数据集字段来的`);
@@ -84,8 +84,9 @@ try {
   for (const file of [
     'src/features/dashboard/domain.ts',
     'src/features/dashboard/components/ComponentFilterBar.tsx',
-    'src/features/dashboard/components/WidgetInspector.tsx',
-    'src/features/dashboard/components/WidgetDataPanel.tsx',
+    'src/features/dashboard/studio/Inspector.tsx',
+    'src/features/dashboard/studio/StylePanel.tsx',
+    'src/features/dashboard/studio/smart.ts',
     'src/features/metrics/queryPlan.ts',
   ]) {
     // 看的是代码,不是散文 —— 注释里拿零售举例说明是可以的,写进逻辑里才不行。

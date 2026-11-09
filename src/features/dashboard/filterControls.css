@@ -8,23 +8,23 @@
 .dash-component-date input, .dash-component-select select { height: 26px; min-width: 104px; max-width: 150px; padding: 0 6px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--surface); color: var(--text-2); font: inherit; font-size: 12px; }
 .dash-component-date i { color: var(--text-3); font-style: normal; }
 
-.dash-v1-multi, .dash-mtree { position: relative; min-width: 0; width: 100%; }
-.dash-v1-multi-trigger, .dash-mtree-trigger { min-height: 30px; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; padding: 3px 6px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--surface-2); color: var(--text); cursor: pointer; outline: none; }
-.dash-v1-multi.open .dash-v1-multi-trigger, .dash-mtree.open .dash-mtree-trigger { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.dash-v1-multi-values, .dash-mtree-values { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.dash-v1-multi-values .placeholder, .dash-mtree-values .placeholder { padding-left: 2px; color: var(--text-3); font-size: 12px; }
-.dash-v1-multi-chip, .dash-mtree-chip { max-width: 100%; display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px 2px 7px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); color: var(--text-2); font-size: 11.5px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dash-v1-multi-chip button, .dash-mtree-chip button { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--text-3); cursor: pointer; }
-.dash-v1-multi-chevron, .dash-mtree-chevron { color: var(--text-3); transition: transform var(--dur-2) var(--ease); }
-.dash-v1-multi.open .dash-v1-multi-chevron, .dash-mtree.open .dash-mtree-chevron { transform: rotate(180deg); }
-.dash-v1-multi-menu, .dash-mtree-pop { position: fixed; z-index: 9100; max-height: 360px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface); box-shadow: 0 16px 44px rgba(0,0,0,.42); }
-.dash-v1-multi-search, .dash-mtree-search { height: 34px; display: flex; align-items: center; gap: 6px; margin: 7px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-3); }
-.dash-v1-multi-search input, .dash-mtree-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; }
-.dash-v1-multi-options, .dash-mtree-list { overflow-y: auto; padding: 5px; }
+.dash-v1-multi { position: relative; min-width: 0; width: 100%; }
+.dash-v1-multi-trigger { min-height: 30px; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; padding: 3px 6px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--surface-2); color: var(--text); cursor: pointer; outline: none; }
+.dash-v1-multi.open .dash-v1-multi-trigger { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.dash-v1-multi-values { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dash-v1-multi-values .placeholder { padding-left: 2px; color: var(--text-3); font-size: 12px; }
+.dash-v1-multi-chip { max-width: 100%; display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px 2px 7px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); color: var(--text-2); font-size: 11.5px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-v1-multi-chip button { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--text-3); cursor: pointer; }
+.dash-v1-multi-chevron { color: var(--text-3); transition: transform var(--dur-2) var(--ease); }
+.dash-v1-multi.open .dash-v1-multi-chevron { transform: rotate(180deg); }
+.dash-v1-multi-menu { position: fixed; z-index: 9100; max-height: 360px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface); box-shadow: 0 16px 44px rgba(0,0,0,.42); }
+.dash-v1-multi-search { height: 34px; display: flex; align-items: center; gap: 6px; margin: 7px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-3); }
+.dash-v1-multi-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; }
+.dash-v1-multi-options { overflow-y: auto; padding: 5px; }
 .dash-v1-multi-options > button { width: 100%; min-height: 34px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 5px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-2); text-align: left; cursor: pointer; }
 .dash-v1-multi-options > button:hover { background: var(--surface-2); }
 .dash-v1-multi-options > button.selected { color: var(--accent); font-weight: 600; }
-.dash-v1-multi-empty, .dash-mtree-empty { padding: 14px 10px; color: var(--text-3); font-size: 12px; text-align: center; }
+.dash-v1-multi-empty { padding: 14px 10px; color: var(--text-3); font-size: 12px; text-align: center; }
 
 .dash-daterange { position: relative; display: inline-block; }
 .dash-daterange-trigger { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--border-2, var(--border)); border-radius: 6px; background: var(--surface-2); color: var(--text); cursor: pointer; font: inherit; font-size: 13px; white-space: nowrap; }

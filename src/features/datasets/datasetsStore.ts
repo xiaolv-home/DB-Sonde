@@ -15,6 +15,9 @@ interface DatasetsState {
   /** 至少成功读过一次。看板要靠它判断「列表是空的」还是「还没读」。 */
   loaded: boolean;
   error?: string;
+  /** 正在编辑的数据集("new" = 新建);null = 停在列表。看板那边能直接跳进某一个。 */
+  editing: string | null;
+  edit: (id: string | null) => void;
   setOpen: (open: boolean) => void;
   /** 需要数据集但不确定读过没有时调它 —— 看板挑数据集、组件取数都走这里。 */
   ensureLoaded: () => void;
@@ -28,6 +31,8 @@ export const useDatasets = create<DatasetsState>((set, get) => ({
   datasets: [],
   loading: false,
   loaded: false,
+  editing: null,
+  edit: (editing) => set({ editing }),
   setOpen: (open) => {
     set({ open });
     // 面板每次打开都重新读一遍:别的窗口/会话可能改过。
