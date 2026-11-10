@@ -16,14 +16,44 @@ import { useDatasets } from "../../datasets/datasetsStore";
 import { isTimeField, type Dataset } from "../../datasets/domain";
 import { defaultMetricScope } from "../../metrics/queryPlan";
 import DateRangePicker from "../components/DateRangePicker";
-import { WIDGET_TYPES, type DashboardDocument, type DashboardDrillFilter, type DashboardFilter, type DashboardWidgetType } from "../domain";
+import type { DashboardDocument, DashboardDrillFilter, DashboardFilter, DashboardWidgetType } from "../domain";
 import type { DashboardFilterValues } from "../filtering";
 import { useFieldValues } from "../useFieldValues";
-import { TYPE_META } from "./Inspector";
+import { PRESET_GROUPS, type WidgetPreset } from "./catalog";
 import { FieldIcon } from "./Shelf";
 import { CommitInput, MenuItem, Pop, Seg, ValuePicker } from "../../../components/StudioKit";
 
 const SOH = String.fromCharCode(1);
+
+/* ── 添加组件 ─────────────────────────────────────────────────────── */
+
+/** 按用途分组的组件目录。底下一行跟着鼠标说「这个什么时候用」。 */
+function AddMenu({ anchor, onClose, onPick }: { anchor: HTMLElement; onClose: () => void; onPick: (preset: WidgetPreset) => void }) {
+  const [hover, setHover] = useState<WidgetPreset | null>(null);
+  return (
+    <Pop anchor={anchor} width={392} onClose={onClose}>
+      <div className="st-add-groups" onMouseLeave={() => setHover(null)}>
+        {PRESET_GROUPS.map((group) => (
+          <section key={group.title} className="st-add-group">
+            <div className="st-add-group-title">{group.title}</div>
+            <div className="st-add-grid">
+              {group.presets.map((preset) => {
+                const I = preset.icon;
+                return (
+                  <button type="button" key={preset.id} title={preset.hint}
+                    onMouseEnter={() => setHover(preset)} onFocus={() => setHover(preset)} onClick={() => onPick(preset)}>
+                    <I size={17} /><span>{preset.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+      <p className="st-foot-note">{hover ? <><b>{hover.label}</b> · {hover.hint}</> : "也可以直接从左边把字段拖到画布上。"}</p>
+    </Pop>
+  );
+}
 
 /* ── 顶栏 ─────────────────────────────────────────────────────────── */
 
@@ -40,7 +70,7 @@ export function TopBar(p: {
   onSelectDocument: (id: string) => void;
   onNewDocument: () => void;
   onDuplicateDocument: () => void;
-  onAddWidget: (type: DashboardWidgetType) => void;
+  onAddWidget: (type: DashboardWidgetType, preset?: WidgetPreset) => void;
   onPreview: () => void;
   onUndo: () => void;
   onSave: () => void;
@@ -97,22 +127,7 @@ export function TopBar(p: {
           <MenuItem icon={<Copy size={13} />} onClick={() => { setPages(null); p.onDuplicateDocument(); }}>复制一份当前看板</MenuItem>
         </Pop>
       )}
-      {add && (
-        <Pop anchor={add} width={300} onClose={() => setAdd(null)}>
-          <div className="st-add-grid">
-            {WIDGET_TYPES.map((type) => {
-              const M = TYPE_META[type];
-              const I = M.icon;
-              return (
-                <button type="button" key={type} onClick={() => { setAdd(null); p.onAddWidget(type); }}>
-                  <I size={18} /><span>{M.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="st-foot-note">也可以直接从左边把字段拖到画布上。</p>
-        </Pop>
-      )}
+      {add && <AddMenu anchor={add} onClose={() => setAdd(null)} onPick={(preset) => { setAdd(null); p.onAddWidget(preset.type, preset); }} />}
       {more && (
         <Pop anchor={more} width={240} onClose={() => setMore(null)}>
           <div className="st-menu-group">自动刷新</div>

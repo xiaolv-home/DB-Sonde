@@ -134,7 +134,7 @@ export default function DashboardCanvas({
 
   const actions = (widget: DashboardWidget) => !preview && (
     <>
-      {(widget.type === "line" || widget.type === "bar" || widget.type === "pie") && (
+      {(widget.type === "line" || widget.type === "bar" || widget.type === "pie" || widget.type === "funnel" || widget.type === "gauge") && (
         <button className="icon-btn" title="导出 PNG" onClick={(event) => { event.stopPropagation(); exportChartPng(widget.id); }}><Download size={12} /></button>
       )}
       <button className="icon-btn" title={t("dashboard.duplicateWidget")} onClick={(event) => { event.stopPropagation(); onDuplicate(widget.id); }}><Copy size={12} /></button>

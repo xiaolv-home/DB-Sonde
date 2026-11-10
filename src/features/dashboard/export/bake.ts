@@ -5,12 +5,13 @@ import { executeDataset } from "../query";
 import type { Cell } from "../../../types";
 import { dateFilterFieldsOf } from "../componentFilterFields";
 import { isTimeField } from "../../datasets/domain";
-import type {
-  DashboardDataset,
-  DashboardDocument,
-  DashboardMetricAggregation,
-  DashboardMetricDefinition,
-  DashboardWidget,
+import {
+  isStaticWidget,
+  type DashboardDataset,
+  type DashboardDocument,
+  type DashboardMetricAggregation,
+  type DashboardMetricDefinition,
+  type DashboardWidget,
 } from "../domain";
 import { datasetOf } from "../resolveDatasets";
 
@@ -144,7 +145,7 @@ export async function bakeDashboard(
 
   const widgets: BakedWidget[] = [];
   for (const widget of document.widgets) {
-    if (widget.type === "text" || widget.type === "container") {
+    if (isStaticWidget(widget.type)) {
       widgets.push({ widget, metrics: { primary: [], secondary: [] }, drillDimensions: [], data: {} });
       continue;
     }
@@ -165,7 +166,7 @@ export async function bakeDashboard(
 
     /* 下钻靠改写 groupBy 逐层重跑。两种模型现在都支持(数据集模型带着重编的原料),
        所以导出的页面里下钻也照样能用。 */
-    const drillDimensions = widget.type === "bar" || widget.type === "pie"
+    const drillDimensions = widget.type === "bar" || widget.type === "pie" || widget.type === "funnel"
       ? (widget.options.chart?.drillDimensions ?? [])
       : [];
     const data: BakedWidget["data"] = {};

@@ -158,7 +158,7 @@ export default function ChartWidget(props: Props) {
   const metricComposition = widget.type === "pie" && composable;
   const metricBars = widget.type === "bar" && composable;
   const activePieMetric = switching ? displayMetrics[0] : (displayMetrics.find((metric) => metric.key === activeMeasure) ?? displayMetrics[0]);
-  const rankingMetric = widget.type === "pie" ? activePieMetric : displayMetrics[0];
+  const rankingMetric = widget.type === "pie" || widget.type === "funnel" ? activePieMetric : displayMetrics[0];
   const rankedLabels = [...groupedRows.keys()].sort((a, b) => aggregate(groupedRows.get(b) ?? [], rankingMetric) - aggregate(groupedRows.get(a) ?? [], rankingMetric));
   const picked = widget.options.topN > 0 && (widget.type === "bar" || widget.type === "pie")
     ? rankedLabels.slice(0, widget.options.topN)
@@ -248,7 +248,12 @@ export default function ChartWidget(props: Props) {
             }
           : (custom ? { color: custom } : undefined),
         lineStyle: !isBar ? { width: co.lineWidth ?? 2.4, ...(custom ? { color: custom } : {}) } : undefined,
-        areaStyle: !isBar && single && co.lineArea !== false ? { opacity: 0.18, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
+        /* 面积:没设过时只有单条线带一层淡影(老样子);在「面积图」里显式打开时每条都填,
+           多条的颜色交给 ECharts 跟线走。 */
+        areaStyle: isBar ? undefined
+          : co.lineArea === true
+            ? (single ? { opacity: 0.32, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : { opacity: 0.28, ...(custom ? { color: custom } : {}) })
+            : single && co.lineArea !== false ? { opacity: 0.18, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
         tooltip: { valueFormatter: (value: number) => metricValue(metric, numberValue(value), yAxisIndex === 1 ? undefined : nf) },
       };
     });
@@ -348,7 +353,47 @@ export default function ChartWidget(props: Props) {
   }
   // 克制的动画:短时长 + 线性,不做"画线/长柱/转盘"那种夸张入场,更专业。
   const anim = { animation: !props.staticRender, animationDuration: 220, animationDurationUpdate: 220, animationEasing: "linear" as const, animationEasingUpdate: "linear" as const };
-  const option = widget.type === "pie"
+  /* 漏斗:默认按数值从大到小;转化步骤(浏览→加购→下单)要按分类原顺序排,在样式里切。
+     每层标上占第一层的百分比 —— 漏斗要看的就是这个。 */
+  const fo = widget.options.funnel ?? {};
+  const funnelNames = widget.type === "funnel"
+    ? (fo.order === "category" ? labels : rankedLabels).slice(0, widget.options.topN > 0 ? widget.options.topN : 20)
+    : [];
+  const funnelData = funnelNames.map((name, index) => ({
+    name,
+    value: aggregate(groupedRows.get(name) ?? [], activePieMetric),
+    itemStyle: { color: colorOf(name) || palette[index % palette.length] },
+  }));
+  const funnelHead = (fo.order === "category" ? funnelData[0]?.value : Math.max(0, ...funnelData.map((d) => d.value))) || 0;
+  const funnelRate = (v: number) => (funnelHead > 0 ? `${((v / funnelHead) * 100).toFixed(widget.options.percentDecimals ?? 1)}%` : "--");
+  const funnelOption = {
+    ...anim,
+    color: palette,
+    tooltip: {
+      trigger: "item",
+      formatter: (p: TipParam) => `${p.marker ?? ""} ${escapeHtml(String(p.name ?? ""))}: <b>${escapeHtml(metricValue(activePieMetric, numberValue(p.value), nf))}</b> <span style="opacity:.6">占第一层 ${funnelRate(numberValue(p.value))}</span>`,
+    },
+    series: [{
+      name: metricLabel(activePieMetric),
+      type: "funnel",
+      sort: fo.order === "category" ? "none" : "descending",
+      funnelAlign: fo.align ?? "center",
+      left: "4%", right: "4%", top: 6, bottom: 6, width: "92%",
+      minSize: "8%", maxSize: "100%", gap: 2,
+      label: {
+        show: true, position: "inside", color: "#fff", fontSize: 12, overflow: "truncate",
+        textShadowColor: "rgba(0,0,0,.35)", textShadowBlur: 3,
+        formatter: (p: { name: string; value: number }) => {
+          const v = scaledText(numberValue(p.value), activePieMetric.decimals, "", nf, grouping);
+          return fo.showRate === false ? `${p.name}  ${v}` : `${p.name}  ${v} · ${funnelRate(numberValue(p.value))}`;
+        },
+      },
+      labelLine: { show: false },
+      itemStyle: { borderColor: surface, borderWidth: 1 },
+      data: funnelData,
+    }],
+  };
+  const option = widget.type === "funnel" ? funnelOption : widget.type === "pie"
     ? {
         ...anim,
         color: palette,
@@ -416,6 +461,9 @@ export default function ChartWidget(props: Props) {
       }
     },
   } : undefined;
+  if (widget.type === "funnel" && !funnelData.length) {
+    return <div className="dash-widget-state">这个范围里没有数据。</div>;
+  }
   if (widget.type === "pie" && result.truncated) {
     return <div className="dash-widget-state">数据未完整返回，暂不能计算全部分组的占比。请缩小范围后重试。</div>;
   }

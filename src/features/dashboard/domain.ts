@@ -10,10 +10,15 @@ export const DEFAULT_DASHBOARD_PALETTE = ["#4d8dff", "#2ed6a1", "#ffb547", "#a98
 /* 组件类型的**唯一定义处**。AI 的 schema、画布的下拉、导入时的白名单都从这里取 ——
    以前这串字面量在 4 个文件里各写一遍,加一种类型漏掉任何一处的表现是
    「AI 生成了但渲染不出来」或者反过来,而且不会报错。 */
-export const WIDGET_TYPES = ["kpi", "line", "bar", "pie", "table", "text", "container"] as const;
+export const WIDGET_TYPES = ["kpi", "gauge", "line", "bar", "pie", "funnel", "table", "text", "image", "container"] as const;
 /** 能放进容器分页的类型 —— 容器不能套娃。 */
 export const LEAF_WIDGET_TYPES = WIDGET_TYPES.filter((t) => t !== "container");
 export type DashboardWidgetType = (typeof WIDGET_TYPES)[number];
+/** 只算一个总数、不分组的组件(指标卡、仪表盘)。带着维度去查会查回多行再被卡片二次聚合,
+ *  平均值就成了「平均数的平均数」—— 所以取数时一律不分组。 */
+export const isSummaryWidget = (type: DashboardWidgetType) => type === "kpi" || type === "gauge";
+/** 不取数的组件:文本、图片、分页容器。 */
+export const isStaticWidget = (type: DashboardWidgetType) => type === "text" || type === "image" || type === "container";
 export type DashboardSourceType = "sql" | "table" | "service";
 export type DashboardFilterKind = "select" | "text" | "in";
 export type DashboardDimensionSort = "asc" | "desc" | "group_asc" | "group_desc" | "custom";
@@ -243,6 +248,35 @@ export interface DashboardTextOptions {
   color?: string;
 }
 
+/** 仪表盘:一个数值对着满刻度 / 目标看完成度。 */
+export interface DashboardGaugeOptions {
+  /** arc=半圆仪表,ring=圆环进度。 */
+  shape?: "arc" | "ring";
+  /** 满刻度;不填时有目标用目标,没有就按数值往上取个整。 */
+  max?: number;
+  /** 目标值:在刻度上画一根线,并显示完成率。 */
+  target?: number;
+  color?: string;
+  /** 按完成率变色:<60% 红,<100% 黄,达标绿。 */
+  colorByProgress?: boolean;
+}
+
+/** 漏斗:按数值从大到小,或保持分类原顺序(转化步骤)。 */
+export interface DashboardFunnelOptions {
+  order?: "value" | "category";
+  /** 每层标签附带「占第一层 %」。 */
+  showRate?: boolean;
+  align?: "center" | "left";
+}
+
+/** 图片:src 是 data URL(导入时就压过,别存原图)。 */
+export interface DashboardImageOptions {
+  src?: string;
+  fit?: "contain" | "cover";
+  /** 图片名,只用来在设置里显示。 */
+  name?: string;
+}
+
 /** Tab 容器 —— tab 栏位置与显隐。 */
 export interface DashboardContainerOptions {
   tabPosition?: "top" | "left";
@@ -317,6 +351,9 @@ export interface DashboardWidget {
     chart?: DashboardChartOptions;
     kpi?: DashboardKpiOptions;
     text?: DashboardTextOptions;
+    gauge?: DashboardGaugeOptions;
+    funnel?: DashboardFunnelOptions;
+    image?: DashboardImageOptions;
     container?: DashboardContainerOptions;
     appearance?: DashboardAppearanceOptions;
   };
@@ -368,11 +405,14 @@ export interface DashboardRuntimeData {
 
 export const widgetDefaults: Record<DashboardWidgetType, { w: number; h: number }> = {
   kpi: { w: 4, h: 3 }, // 3 行:容得下 值 + 标签 + 同环比徽标(对齐 v1 较高的 KPI 卡)
+  gauge: { w: 4, h: 4 },
   line: { w: 6, h: 4 },
   bar: { w: 6, h: 4 },
   pie: { w: 4, h: 4 },
+  funnel: { w: 4, h: 4 },
   table: { w: 12, h: 4 },
   text: { w: 6, h: 2 },
+  image: { w: 4, h: 3 },
   container: { w: 12, h: 7 },
 };
 
@@ -396,11 +436,14 @@ export function createWidget(type: DashboardWidgetType, datasetId = "", title?: 
   const size = widgetDefaults[type];
   const names: Record<DashboardWidgetType, string> = {
     kpi: "KPI",
+    gauge: "Gauge",
     line: "Line chart",
     bar: "Bar chart",
     pie: "Pie chart",
+    funnel: "Funnel",
     table: "Table",
     text: "Text",
+    image: "Image",
     container: "Tab container",
   };
   return {
@@ -591,7 +634,7 @@ export function normalizeDashboard(value: unknown): DashboardDocument {
             ? raw.type as DashboardWidgetType
             : "text";
           const fallback = createWidget(type, typeof raw.datasetId === "string" ? raw.datasetId : "");
-          const dimensionLimit = type === "table" ? 4 : type === "kpi" ? 0 : 1;
+          const dimensionLimit = type === "table" ? 4 : isSummaryWidget(type) ? 0 : 1;
           const dimensions = (Array.isArray(raw.bindings?.dimensions)
             ? raw.bindings.dimensions.filter((name): name is string => typeof name === "string" && !!name)
             : [raw.bindings?.dimension].filter((name): name is string => typeof name === "string" && !!name)

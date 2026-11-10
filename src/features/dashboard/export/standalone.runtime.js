@@ -262,7 +262,7 @@
       cell[k].push(r);
     });
     var activePie = view.switching ? view.displayMetrics[0] : (find(view.displayMetrics, function (m) { return m.key === stateOf(w.id).active; }) || view.displayMetrics[0]);
-    var rankingMetric = type === "pie" ? activePie : view.displayMetrics[0];
+    var rankingMetric = type === "pie" || type === "funnel" ? activePie : view.displayMetrics[0];
 
     var labels;
     if (w.options.topN > 0 && (type === "bar" || type === "pie")) {
@@ -306,6 +306,35 @@
       // 返回的是**已转义的** HTML 片段,调用方直接拼,不要再 esc 一次。
       return displaySecondary.map(function (sm) { return esc(sm.name) + " " + esc(metricValue(sm, aggregate(scoped, sm))); }).join(" · ");
     };
+
+    if (type === "funnel") {
+      /* 漏斗:默认按数值从大到小,「按环节顺序」时跟分类轴排序一致;每层标占第一层的比例。 */
+      var fo = w.options.funnel || {};
+      var byValue = labelOrder.slice().sort(function (a, b) { return aggregate(grouped[b] || [], activePie) - aggregate(grouped[a] || [], activePie); });
+      var names = (fo.order === "category" ? labels : byValue).slice(0, w.options.topN > 0 ? w.options.topN : 20);
+      var fData = names.map(function (name, i) {
+        return { name: name, value: aggregate(grouped[name] || [], activePie), itemStyle: { color: colorOf(name) || palette[i % palette.length] } };
+      });
+      var head = fo.order === "category" ? (fData[0] ? fData[0].value : 0) : Math.max.apply(null, [0].concat(fData.map(function (d) { return d.value; })));
+      var pdF = w.options.percentDecimals == null ? 1 : w.options.percentDecimals;
+      var rate = function (v) { return head > 0 ? (v / head * 100).toFixed(pdF) + "%" : "--"; };
+      var nfF = w.options.numberFormat;
+      return {
+        animation: true, animationDuration: 220, animationEasing: "linear",
+        color: palette,
+        tooltip: { trigger: "item", formatter: function (p) { return (p.marker || "") + " " + esc(p.name) + ": <b>" + esc(metricValue(activePie, numberValue(p.value), nfF)) + "</b> <span style=\"opacity:.6\">占第一层 " + rate(numberValue(p.value)) + "</span>"; } },
+        series: [{
+          name: metricLabel(activePie), type: "funnel",
+          sort: fo.order === "category" ? "none" : "descending", funnelAlign: fo.align || "center",
+          left: "4%", right: "4%", top: 6, bottom: 6, width: "92%", minSize: "8%", maxSize: "100%", gap: 2,
+          label: { show: true, position: "inside", color: "#fff", fontSize: 12, overflow: "truncate", textShadowColor: "rgba(0,0,0,.35)", textShadowBlur: 3,
+            formatter: function (p) { var v = scaled(numberValue(p.value), activePie.decimals, "", nfF, grouping); return fo.showRate === false ? p.name + "  " + v : p.name + "  " + v + " · " + rate(numberValue(p.value)); } },
+          labelLine: { show: false },
+          itemStyle: { borderColor: surface, borderWidth: 1 },
+          data: fData,
+        }],
+      };
+    }
 
     if (type === "pie") {
       /* 非正数的分组剔掉 —— 饼图表达不了负数(退款、冲账),留着 ECharts 会画出
@@ -379,7 +408,11 @@
               ? Object.assign({ borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0] }, (custom || co.barColor) ? { color: custom || gradient(co.barColor, co.barEndColor || co.barColor, false) } : {})
               : (custom ? { color: custom } : undefined),
             lineStyle: !isBar ? Object.assign({ width: co.lineWidth || 2.4 }, custom ? { color: custom } : {}) : undefined,
-            areaStyle: (!isBar && isSingle && co.lineArea !== false) ? { opacity: 0.18, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
+            // 面积:跟在线一套 —— 没设过只给单条线淡影;「面积图」显式打开时每条都填
+            areaStyle: isBar ? undefined
+              : co.lineArea === true
+                ? (isSingle ? { opacity: 0.32, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : (custom ? { opacity: 0.28, color: custom } : { opacity: 0.28 }))
+                : (isSingle && co.lineArea !== false) ? { opacity: 0.18, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
             tooltip: { valueFormatter: function (v) { return metricValue(metric, numberValue(v), w.options.numberFormat); } },
           });
         });
@@ -471,7 +504,7 @@
     }
 
     var option = buildChartOption(bw, view);
-    if (bw.widget.type === "pie") {
+    if (bw.widget.type === "pie" || bw.widget.type === "funnel") {
       /* 一个正数都不剩就别画空饼了,说清是哪种情况 —— 跟在线一套说法。 */
       var slices = ((option.series || [])[0] || {}).data || [];
       if (!slices.length) {
@@ -840,6 +873,78 @@
   }
 
   // ---- 文本 ----
+  // ---- 图片 ----
+  function renderImage(bw, body) {
+    clearNode(body);
+    var io = bw.widget.options.image || {};
+    if (!io.src) { body.appendChild(stateBox("没有图片")); return; }
+    var img = document.createElement("img");
+    img.src = io.src; img.alt = io.name || bw.widget.title || "";
+    img.style.cssText = "width:100%;height:100%;display:block;object-fit:" + (io.fit || "contain");
+    body.appendChild(img);
+  }
+
+  // ---- 仪表盘 / 进度环(对齐 GaugeWidget) ----
+  function niceMax(v) {
+    if (!(v > 0)) return 100;
+    var p = Math.pow(10, Math.floor(Math.log10(v))), steps = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * p >= v * 1.1) return steps[i] * p;
+    return 10 * p;
+  }
+  function renderGauge(bw, body) {
+    clearNode(body);
+    var w = bw.widget, go = w.options.gauge || {};
+    var base = bw.data.base;
+    if (!base) { body.appendChild(stateBox("暂无数据")); return; }
+    var m = withCi(bw.metrics.primary, base)[0];
+    if (!m) { body.appendChild(stateBox("未选择指标")); return; }
+    var ring = go.shape === "ring";
+    var value = aggregate(base.rows, m);
+    var target = go.target > 0 ? go.target : null;
+    var max = go.max > 0 ? go.max : (target || niceMax(value));
+    var ratio = target ? value / target : value / max;
+    var color = go.colorByProgress ? (ratio < 0.6 ? "#ef5d6f" : ratio < 1 ? "#f2a93b" : "#2ebf8a") : (go.color || cssVar("--accent", "#4d8dff"));
+    var nf = w.options.numberFormat;
+    var pct = (ratio * 100).toFixed(w.options.percentDecimals == null ? 1 : w.options.percentDecimals) + "%";
+    var width = ring ? 12 : 14;
+    var common = { type: "gauge", min: 0, max: max, radius: ring ? "86%" : "96%", center: ring ? ["50%", "50%"] : ["50%", "62%"],
+      startAngle: ring ? 90 : 205, endAngle: ring ? -270 : -25, splitNumber: 1,
+      axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, anchor: { show: false }, detail: { show: false } };
+    var series = [Object.assign({}, common, {
+      progress: { show: true, width: width, roundCap: true, itemStyle: { color: color } },
+      axisLine: { roundCap: true, lineStyle: { width: width, color: [[1, cssVar("--surface-3", "rgba(127,127,127,.15)")]] } },
+      pointer: { show: false }, data: [{ value: Math.max(0, Math.min(value, max)) }],
+    })];
+    if (target && target < max && !ring) {
+      series.push(Object.assign({}, common, { axisLine: { show: false }, progress: { show: false }, silent: true,
+        pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: cssVar("--text-2", "#888") } },
+        data: [{ value: target }] }));
+    }
+    var wrap = el("div", null);
+    wrap.style.cssText = "position:relative;width:100%;height:100%;min-height:0";
+    var holder = el("div", "dash-x-chart");
+    holder.style.cssText = "position:absolute;inset:0";
+    wrap.appendChild(holder);
+    var center = el("div", null);
+    center.style.cssText = "position:absolute;left:50%;top:" + (ring ? "50%" : "62%") + ";transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center;pointer-events:none;max-width:" + (ring ? "62%" : "78%");
+    var strong = document.createElement("strong");
+    strong.textContent = scaled(value, m.decimals, m.unit || "", nf, false);
+    strong.style.cssText = "font-size:26px;font-weight:650;line-height:1.1;white-space:nowrap";
+    var label = document.createElement("span");
+    label.textContent = m.name;
+    label.style.cssText = "font-size:12px;opacity:.6";
+    center.appendChild(strong); center.appendChild(label);
+    var caption = target ? "目标 " + scaled(target, m.decimals, m.unit || "", nf, false) + " · 完成 " + pct
+      : go.max ? "满刻度 " + scaled(max, m.decimals, m.unit || "", nf, false) + " · " + pct : "";
+    if (caption) { var c = document.createElement("span"); c.textContent = caption; c.style.cssText = "font-size:11.5px;opacity:.75;white-space:nowrap"; center.appendChild(c); }
+    wrap.appendChild(center);
+    body.appendChild(wrap);
+    requestAnimationFrame(function () {
+      if (!holder.isConnected) return;
+      echarts.init(holder, null, { renderer: "canvas" }).setOption({ animation: true, animationDuration: 260, animationEasing: "linear", series: series });
+    });
+  }
+
   function renderText(bw, body) {
     clearNode(body);
     var tx = bw.widget.options.text || {};
@@ -1029,6 +1134,8 @@
       clearNode(body);
       try {
         if (w.type === "text") renderText(view, body);
+        else if (w.type === "image") renderImage(view, body);
+        else if (w.type === "gauge") renderGauge(view, body);
         else if (w.type === "kpi") renderKpi(view, body);
         else if (w.type === "table") renderTable(view, body);
         else renderChart(view, body);

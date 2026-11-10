@@ -5,14 +5,16 @@
  *   图形  按图表类型给各自的      坐标轴  范围 / 标题 / 网格 / 参考线
  *   表格  合并 / 合计 / 小计 / 密度 / 表头      外观  预设 / 颜色 / 圆角 / 阴影
  */
-import { Plus, X } from "lucide-react";
+import { ImagePlus, Plus, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import type { Dataset } from "../../datasets/domain";
 import { pieRadii } from "../pieGeometry";
 import {
   DEFAULT_DASHBOARD_PALETTE,
-  type DashboardAppearanceOptions, type DashboardChartOptions, type DashboardContainerOptions, type DashboardKpiOptions,
-  type DashboardTableOptions, type DashboardTextOptions, type DashboardWidget,
+  isStaticWidget,
+  type DashboardAppearanceOptions, type DashboardChartOptions, type DashboardContainerOptions, type DashboardFunnelOptions,
+  type DashboardGaugeOptions, type DashboardKpiOptions, type DashboardTableOptions, type DashboardTextOptions, type DashboardWidget,
 } from "../domain";
 import { dimsOf, fieldLabel } from "./smart";
 import { Color, CommitInput, Num, Row, Section, Seg, Sel, Toggle } from "../../../components/StudioKit";
@@ -48,8 +50,12 @@ export default function StylePanel({ widget, dataset, onChange }: {
   const setAxis = (c: Partial<typeof axis>) => chart({ axis: { ...axis, ...c } });
   const palette = co.palette ?? [...DEFAULT_DASHBOARD_PALETTE];
   const t = widget.type;
-  const isData = t === "kpi" || t === "line" || t === "bar" || t === "pie" || t === "table";
-  const isChart = t === "line" || t === "bar" || t === "pie";
+  const go = o.gauge ?? {};
+  const gauge = (c: Partial<DashboardGaugeOptions>) => set({ gauge: { ...go, ...c } });
+  const fo = o.funnel ?? {};
+  const funnel = (c: Partial<DashboardFunnelOptions>) => set({ funnel: { ...fo, ...c } });
+  const isData = !isStaticWidget(t);
+  const isChart = t === "line" || t === "bar" || t === "pie" || t === "funnel";
   const grouping = t === "table" ? to.grouping ?? false : co.grouping ?? false;
 
   return (
@@ -119,9 +125,22 @@ export default function StylePanel({ widget, dataset, onChange }: {
             <CommitInput value={nf.prefix ?? ""} placeholder="¥" onCommit={(v) => set({ numberFormat: { ...nf, prefix: v || undefined } })} />
             <CommitInput value={nf.suffix ?? ""} placeholder="自动" onCommit={(v) => set({ numberFormat: { ...nf, suffix: v || undefined } })} />
           </Row>
-          {t !== "kpi" && <Toggle checked={grouping} onChange={(v) => (t === "table" ? table({ grouping: v }) : chart({ grouping: v }))} label="千位分隔符" hint="12,345 而不是 12345" />}
+          {t !== "kpi" && t !== "gauge" && <Toggle checked={grouping} onChange={(v) => (t === "table" ? table({ grouping: v }) : chart({ grouping: v }))} label="千位分隔符" hint="12,345 而不是 12345" />}
         </Section>
       )}
+
+      {t === "gauge" && (
+        <Section id="gauge" title="仪表盘">
+          <Row label="形状"><Seg size="sm" value={go.shape ?? "arc"} onChange={(v) => gauge({ shape: v })} options={[{ value: "arc", label: "半圆仪表" }, { value: "ring", label: "圆环进度" }]} /></Row>
+          <Row label="目标" hint="画刻度线、算完成率"><Num value={go.target} placeholder="不设" min={0} onChange={(v) => gauge({ target: v })} /></Row>
+          <Row label="满刻度" hint="不填:有目标用目标"><Num value={go.max} placeholder="自动" min={0} onChange={(v) => gauge({ max: v })} /></Row>
+          <Row label="颜色"><Color value={go.color} fallback="#4d8dff" onChange={(v) => gauge({ color: v })} /></Row>
+          <Toggle checked={!!go.colorByProgress} onChange={(v) => gauge({ colorByProgress: v })} label="按完成率变色" hint="不到六成红、不到十成黄、达标绿" />
+          <Row label="完成率小数"><Seg size="sm" value={o.percentDecimals ?? 1} onChange={(v) => set({ percentDecimals: v })} options={[0, 1, 2].map((n) => ({ value: n, label: String(n) }))} /></Row>
+        </Section>
+      )}
+
+      {t === "image" && <ImageSection widget={widget} onChange={onChange} />}
 
       {t === "kpi" && (
         <Section id="kpi" title="指标卡">
@@ -178,8 +197,16 @@ export default function StylePanel({ widget, dataset, onChange }: {
             <Row label="图例位置"><Seg size="sm" value={co.pieLegendPosition ?? "bottom"} onChange={(v) => chart({ pieLegendPosition: v })} options={[{ value: "bottom", label: "下" }, { value: "left", label: "左" }, { value: "right", label: "右" }]} /></Row>
             <Row label="占比小数"><Seg size="sm" value={o.percentDecimals ?? 1} onChange={(v) => set({ percentDecimals: v })} options={[0, 1, 2].map((n) => ({ value: n, label: String(n) }))} /></Row>
           </>}
-          <Toggle checked={o.showLegend} onChange={(v) => set({ showLegend: v })} label="图例" />
-          <Toggle checked={!!co.showLabels} onChange={(v) => chart({ showLabels: v })} label="数据标签" />
+          {t === "funnel" && <>
+            <Row label="排序"><Seg size="sm" value={fo.order ?? "value"} onChange={(v) => funnel({ order: v })} options={[{ value: "value", label: "按数值", title: "从大到小" }, { value: "category", label: "按环节顺序", title: "跟横轴排序一致,适合转化步骤" }]} /></Row>
+            <Row label="对齐"><Seg size="sm" value={fo.align ?? "center"} onChange={(v) => funnel({ align: v })} options={[{ value: "center", label: "居中" }, { value: "left", label: "靠左" }]} /></Row>
+            <Toggle checked={fo.showRate !== false} onChange={(v) => funnel({ showRate: v })} label="标出占第一层的比例" />
+            <Row label="比例小数"><Seg size="sm" value={o.percentDecimals ?? 1} onChange={(v) => set({ percentDecimals: v })} options={[0, 1, 2].map((n) => ({ value: n, label: String(n) }))} /></Row>
+          </>}
+          {t !== "funnel" && <>
+            <Toggle checked={o.showLegend} onChange={(v) => set({ showLegend: v })} label="图例" />
+            <Toggle checked={!!co.showLabels} onChange={(v) => chart({ showLabels: v })} label="数据标签" />
+          </>}
           <div className="st-palette">
             <span>配色</span>
             {palette.map((c, i) => (
@@ -278,5 +305,79 @@ export default function StylePanel({ widget, dataset, onChange }: {
         </Row>
       </Section>
     </div>
+  );
+}
+
+/* ── 图片 ─────────────────────────────────────────────────────────── */
+
+/** 长边压到这么多像素再存:看板存在本地存储里,一张原图几 MB 会把整个看板拖慢。 */
+const IMAGE_EDGE = 1600;
+
+/** 抽样看有没有半透明像素(隔几个取一个,大图也只看几万个点)。 */
+function hasAlpha(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
+  const data = ctx.getImageData(0, 0, w, h).data;
+  const step = Math.max(1, Math.floor((w * h) / 40000)) * 4;
+  for (let i = 3; i < data.length; i += step) if (data[i] < 250) return true;
+  return false;
+}
+
+/** 读成 data URL,大图按比例缩小;SVG / GIF 原样,带透明的留 PNG,其余转 JPEG。 */
+function readImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("读不了这个文件"));
+    reader.onload = () => {
+      const url = String(reader.result);
+      if (file.type === "image/svg+xml" || file.type === "image/gif") return resolve(url);
+      const img = new window.Image();
+      img.onerror = () => reject(new Error("这个文件不是能显示的图片"));
+      img.onload = () => {
+        const k = Math.min(1, IMAGE_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+        if (k === 1 && file.size < 600_000) return resolve(url);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.naturalWidth * k);
+        canvas.height = Math.round(img.naturalHeight * k);
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        /* 只有真用到透明(Logo 抠图)才留 PNG;不透明的照片、截图存 PNG 动辄一两 MB,转 JPEG 小十倍。 */
+        resolve(hasAlpha(ctx, canvas.width, canvas.height) ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.86));
+      };
+      img.src = url;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function ImageSection({ widget, onChange }: { widget: DashboardWidget; onChange: (w: DashboardWidget) => void }) {
+  const io = widget.options.image ?? {};
+  const input = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState("");
+  const setImage = (c: Partial<NonNullable<DashboardWidget["options"]["image"]>>) =>
+    onChange({ ...widget, options: { ...widget.options, image: { ...io, ...c } } });
+  const pick = async (file?: File) => {
+    if (!file) return;
+    setError("");
+    try {
+      setImage({ src: await readImage(file), name: file.name });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <Section id="image" title="图片">
+      <div className="st-image-pick"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); void pick(e.dataTransfer.files[0]); }}>
+        {io.src ? <img src={io.src} alt="" /> : <ImagePlus size={20} />}
+        <div>
+          <button type="button" className="btn sm" onClick={() => input.current?.click()}>{io.src ? "换一张" : "选择图片"}</button>
+          {io.src && <button type="button" className="st-link" onClick={() => setImage({ src: undefined, name: undefined })}>移除</button>}
+          <small>{io.name ?? "也可以把图片拖到这里"}</small>
+        </div>
+        <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
+      </div>
+      {error && <small className="st-hint st-error">{error}</small>}
+      <Row label="填充"><Seg size="sm" value={io.fit ?? "contain"} onChange={(v) => setImage({ fit: v })} options={[{ value: "contain", label: "完整显示" }, { value: "cover", label: "铺满裁切" }]} /></Row>
+    </Section>
   );
 }

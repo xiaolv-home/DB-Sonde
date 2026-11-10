@@ -5,7 +5,9 @@ import { loadSrc } from './lib/load-src.mjs';
 
 const m = loadSrc('dashboard-smart', {
   'src/features/dashboard/studio/smart.ts': '*',
-  'src/features/dashboard/domain.ts': '{ createWidget }',
+  'src/features/dashboard/domain.ts': '{ createWidget, isSummaryWidget }',
+  'src/features/dashboard/studio/catalog.ts': '{ ALL_PRESETS, presetOf }',
+  'src/features/dashboard/resolveDatasets.ts': '{ widgetQueryOf }',
 });
 
 const dataset = {
@@ -78,5 +80,38 @@ assert.deepEqual(fromDim.bindings.measures, ['amount']);
 let cond = m.addToShelf(w('bar'), 'conditions', 'store', dataset);
 cond = m.addToShelf(cond, 'conditions', 'amount', dataset);
 assert.deepEqual(cond.bindings.conditions.map((c) => [c.field, c.op, c.agg]), [['store', 'in', undefined], ['amount', 'gt', 'sum']]);
+
+// 仪表盘 = 一个数值,不分组:点维度也只当计数放进数值;换过来时只留第一个数值
+let gauge = m.toggleField(w('gauge'), 'amount', dataset);
+gauge = m.toggleField(gauge, 'qty', dataset);
+assert.deepEqual(m.shelfItems(gauge, 'measures'), ['qty'], '仪表盘只放一个数值,后点的替换前一个');
+const fromBar = m.convertWidget(m.toggleField(m.toggleField(m.toggleField(w('bar'), 'store', dataset), 'amount', dataset), 'qty', dataset), 'gauge', dataset);
+assert.deepEqual(m.dimsOf(fromBar), [], '换成仪表盘丢掉维度');
+assert.deepEqual(fromBar.bindings.measures, ['amount']);
+// 取数时仪表盘不分组 —— 哪怕老文档里带着维度
+const legacy = { ...fromBar, bindings: { ...fromBar.bindings, dimensions: ['store'], dimension: 'store' } };
+assert.deepEqual(m.widgetQueryOf(legacy, dataset).dimensions, [], '仪表盘取数不该分组');
+assert.ok(m.isSummaryWidget('gauge') && !m.isSummaryWidget('funnel'));
+
+// 漏斗跟饼图一样:一个环节维度 + 一个数值
+const funnel = m.convertWidget(m.toggleField(m.toggleField(w('bar'), 'store', dataset), 'amount', dataset), 'funnel', dataset);
+assert.deepEqual(m.shelvesOf('funnel'), ['dimensions', 'measures', 'conditions']);
+assert.deepEqual(m.dimsOf(funnel), ['store']);
+assert.equal(m.shelfTitle('funnel', 'dimensions'), '环节');
+
+// 目录:每个预设落在合法类型上,套上后能认回自己(切换条点亮的就是刚点的那个)
+const ids = new Set();
+for (const p of m.ALL_PRESETS) {
+  assert.ok(!ids.has(p.id), `预设 id 重复:${p.id}`); ids.add(p.id);
+  const made = p.apply ? p.apply(w(p.type)) : w(p.type);
+  assert.equal(m.presetOf(made).id, p.id, `「${p.label}」套上后被认成了「${m.presetOf(made).label}」`);
+}
+// 从面积图切回折线图要把堆叠也关掉,不然折线还叠着
+const area = m.ALL_PRESETS.find((p) => p.id === 'area').apply(w('line'));
+const backToLine = m.ALL_PRESETS.find((p) => p.id === 'line').apply(area);
+assert.equal(m.presetOf(backToLine).id, 'line');
+assert.notEqual(backToLine.options.chart.stack, true, '切回折线图后不该还堆叠');
+// 老饼图没设过洞:默认有洞,算环形图
+assert.equal(m.presetOf(w('pie')).id, 'donut');
 
 console.log('dashboard smart: ok');

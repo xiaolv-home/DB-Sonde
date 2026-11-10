@@ -9,29 +9,22 @@
  * 原来数据在左、样式在右、筛选又在另一个页签里,改一个组件要来回跑三处。
  */
 import { useState } from "react";
-import { BarChart3, CalendarRange, Gauge, LineChart, Lightbulb, PanelTop, PieChart, Plus, Table2, Type, X } from "lucide-react";
+import { CalendarRange, Lightbulb, Plus, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import { useI18n } from "../../../hooks/useI18n";
 import { useDatasets } from "../../datasets/datasetsStore";
 import { isTimeField } from "../../datasets/domain";
 import { useFieldValues } from "../useFieldValues";
 import DateRangePicker from "../components/DateRangePicker";
-import type { DashboardKpiOptions, DashboardWidget, DashboardWidgetType } from "../domain";
+import { isStaticWidget, type DashboardKpiOptions, type DashboardWidget } from "../domain";
 import Shelf, { FieldIcon, type FieldValuesPort } from "./Shelf";
 import StylePanel from "./StylePanel";
-import { DATA_TYPES, convertWidget, fieldLabel, recommend, shelvesOf } from "./smart";
+import { convertWidget, fieldLabel, recommend, shelvesOf } from "./smart";
+import { ALL_PRESETS, TYPE_META, presetOf, type WidgetPreset } from "./catalog";
 import { CommitInput, MenuItem, Pop, Section, Seg, Toggle } from "../../../components/StudioKit";
 import type { WidgetCondition } from "../../datasets/widgetQuery";
 
-export const TYPE_META: Record<DashboardWidgetType, { icon: typeof Gauge; label: string }> = {
-  kpi: { icon: Gauge, label: "指标卡" },
-  line: { icon: LineChart, label: "折线图" },
-  bar: { icon: BarChart3, label: "柱状图" },
-  pie: { icon: PieChart, label: "饼图" },
-  table: { icon: Table2, label: "表格" },
-  text: { icon: Type, label: "文本" },
-  container: { icon: PanelTop, label: "分页容器" },
-};
+export { TYPE_META };
 
 type Tab = "data" | "style" | "interact";
 
@@ -87,7 +80,18 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
   const patch = (change: Partial<DashboardWidget>) => onChange({ ...widget, ...change });
   const recs = isData ? recommend(widget, dataset).filter((r) => r.type !== widget.type).slice(0, 2) : [];
   const best = isData ? recommend(widget, dataset)[0] : undefined;
-  const Icon = TYPE_META[widget.type].icon;
+  const current = presetOf(widget);
+  const Icon = current?.icon ?? TYPE_META[widget.type].icon;
+  /* 切换条:取数的组件在所有取数的预设之间换(字段跟过去);文本只在「标题 / 文本」之间换;
+     图片和容器只有一种,不显示。 */
+  const choices = isData
+    ? ALL_PRESETS.filter((p) => !isStaticWidget(p.type))
+    : ALL_PRESETS.filter((p) => p.type === widget.type);
+  const switchTo = (preset: WidgetPreset) => {
+    const converted = convertWidget(widget, preset.type, dataset);
+    onChange(preset.apply ? preset.apply(converted) : converted);
+  };
+  const recPreset = (type: string) => ALL_PRESETS.find((p) => p.type === type);
 
   return (
     <aside className="st-inspector">
@@ -96,15 +100,16 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
         <CommitInput className="st-insp-title" value={widget.title} ariaLabel="组件标题" onCommit={(title) => patch({ title })} />
         <button type="button" className="icon-btn" title="删除组件 (⌫)" onClick={() => onDelete(widget.id)}><X size={14} /></button>
       </div>
-      {isData && (
-        <div className="st-types" role="radiogroup" aria-label="图表类型">
-          {DATA_TYPES.map((type) => {
-            const M = TYPE_META[type];
-            const I = M.icon;
+      {choices.length > 1 && (
+        <div className="st-types" role="radiogroup" aria-label="组件类型">
+          {choices.map((preset) => {
+            const I = preset.icon;
+            const on = preset.id === current?.id;
+            const rec = !!best && best.type !== widget.type && recPreset(best.type)?.id === preset.id;
             return (
-              <button type="button" key={type} role="radio" aria-checked={type === widget.type} className={`${type === widget.type ? "on" : ""} ${best?.type === type && type !== widget.type ? "rec" : ""}`}
-                title={M.label} onClick={() => onChange(convertWidget(widget, type, dataset))}>
-                <I size={15} /><span>{M.label}</span>
+              <button type="button" key={preset.id} role="radio" aria-checked={on} className={`${on ? "on" : ""} ${rec ? "rec" : ""}`}
+                title={`${preset.label} · ${preset.hint}`} onClick={() => switchTo(preset)}>
+                <I size={15} /><span>{preset.label}</span>
               </button>
             );
           })}
@@ -115,7 +120,7 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
           <Lightbulb size={13} />
           <span>这些字段更适合</span>
           {recs.map((r) => (
-            <button type="button" key={r.type} title={r.reason} onClick={() => onChange(convertWidget(widget, r.type, dataset))}>{TYPE_META[r.type].label}</button>
+            <button type="button" key={r.type} title={r.reason} onClick={() => switchTo(recPreset(r.type)!)}>{recPreset(r.type)!.label}</button>
           ))}
         </div>
       )}
@@ -175,7 +180,7 @@ function DataTab({ widget, dataset, values, scope, onChange }: {
         </div>
       )}
 
-      {(widget.type === "bar" || widget.type === "pie" || widget.type === "line" || widget.type === "table") && (
+      {(widget.type === "bar" || widget.type === "pie" || widget.type === "funnel" || widget.type === "line" || widget.type === "table") && (
         <div className="st-block">
           <div className="st-block-head">显示多少</div>
           <Seg size="sm" value={topN} onChange={(v) => onChange({ ...widget, options: { ...widget.options, topN: v } })}
@@ -205,7 +210,7 @@ function InteractTab({ widget, dataset, onChange }: {
     const next = on ? [...filterFields, name] : filterFields.filter((f) => f !== name);
     onChange({ ...widget, filterFields: next, filtersEnabled: next.length > 0 });
   };
-  const isChart = widget.type === "line" || widget.type === "bar" || widget.type === "pie";
+  const isChart = widget.type === "line" || widget.type === "bar" || widget.type === "pie" || widget.type === "funnel";
   const isKpi = widget.type === "kpi";
   const mode = isKpi ? (ko.displayMode ?? "all") : (co.displayMode ?? "all");
   const groups = (isKpi ? ko.metricGroups : co.metricGroups) ?? [];
@@ -251,11 +256,11 @@ function InteractTab({ widget, dataset, onChange }: {
         </Section>
       )}
 
-      <Section id="compare" title="同比 / 环比" aside={(isKpi ? ko.showComparison : co.showComparison) ? "开" : "关"}>
+      {widget.type !== "gauge" && <Section id="compare" title="同比 / 环比" aside={(isKpi ? ko.showComparison : co.showComparison) ? "开" : "关"}>
         <Toggle checked={isKpi ? !!ko.showComparison : !!co.showComparison}
           onChange={(v) => (isKpi ? patchKpi({ showComparison: v }) : patchChart({ showComparison: v }))}
           label="显示涨跌" hint="对比上一个同长度周期和去年同期" />
-      </Section>
+      </Section>}
 
       {measures.length > 1 && (
         <Section id="switch" title="指标切换" aside={mode === "all" ? "全部显示" : mode === "switch" ? "单选切换" : "分组切换"}>

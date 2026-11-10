@@ -88,11 +88,14 @@ const SPAN: Record<Width, number> = { quarter: 3, third: 4, half: 6, full: 12 };
 /** 组件类型 → 默认高度(网格行)。KPI 矮,明细表高。 */
 const HEIGHT: Record<LayoutItem["type"], number> = {
   kpi: 3,
+  gauge: 4,
   line: 4,
   bar: 4,
   pie: 4,
+  funnel: 4,
   table: 6,
   text: 2,
+  image: 3,
   container: 8,
 };
 
@@ -116,9 +119,9 @@ export interface PlacedItem extends LayoutItem {
 /** band 没给时按类型兜底 —— 只在这条回退路径上用,不回写给模型。 */
 export function bandOf(item: LayoutItem): Band {
   if (item.band) return item.band;
-  if (item.type === "kpi") return "kpi";
+  if (item.type === "kpi" || item.type === "gauge") return "kpi";
   if (item.type === "line") return "trend";
-  if (item.type === "pie") return "structure";
+  if (item.type === "pie" || item.type === "funnel") return "structure";
   if (item.type === "bar") return "ranking";
   return "detail";
 }

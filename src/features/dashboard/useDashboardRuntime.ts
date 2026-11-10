@@ -191,7 +191,7 @@ export function useDrillRuntime(
 ): RuntimeMap {
   const [map, setMap] = useState<RuntimeMap>({});
   const targets = document
-    ? document.widgets.filter((w) => (w.type === "bar" || w.type === "pie") && (w.options.chart?.drillDimensions?.length ?? 0) > 0)
+    ? document.widgets.filter((w) => (w.type === "bar" || w.type === "pie" || w.type === "funnel") && (w.options.chart?.drillDimensions?.length ?? 0) > 0)
     : [];
   const signature = JSON.stringify({
     datasets: querySignatureOf(document?.datasets),

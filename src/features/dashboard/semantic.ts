@@ -1,7 +1,7 @@
 import type { Metric } from "../metrics/metricsStore";
 import { compileMetric, metricDateWhere, metricTimeColumn } from "../metrics/metricSql";
 import { defaultMetricScope, planTemplates, planIsRatio, type QueryScope } from "../metrics/queryPlan";
-import type { DashboardDataset, DashboardDocument, DashboardMetricAggregation, DashboardMetricDefinition, DashboardWidget } from "./domain";
+import { isSummaryWidget, type DashboardDataset, type DashboardDocument, type DashboardMetricAggregation, type DashboardMetricDefinition, type DashboardWidget } from "./domain";
 import type { DbKind } from "../../types";
 import { sqlLiteral } from "../../lib/sql";
 
@@ -17,7 +17,7 @@ export function semanticDataset(widget: DashboardWidget, metrics: Metric[], scop
     ? widget.bindings.dimensions
     : [widget.bindings.dimension].filter((d): d is string => !!d);
   const groups =
-    widget.type === "kpi"
+    isSummaryWidget(widget.type)
       ? []
       : [...new Set([...analysisDims, widget.bindings.seriesDimension].filter((d): d is string => !!d))];
   const first = selected[0];

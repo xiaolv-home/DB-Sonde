@@ -263,3 +263,17 @@
 /* 透视表的列分组分界线:一组列紧挨着下一组,不画线就看不出哪儿到头,
    一眼扫过去分不清这个「总GMV」是哪天的。 */
 .dash-dt .group-start { border-left: 2px solid var(--text-3); }
+
+/* ── 仪表盘 / 进度环 ─────────────────────────────────────────────── */
+.dash-gauge { position: relative; height: 100%; min-height: 0; container-type: size; }
+.dash-gauge-center { position: absolute; left: 50%; top: 62%; transform: translate(-50%, -50%); max-width: 78%; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; pointer-events: none; }
+.dash-gauge.ring .dash-gauge-center { top: 50%; max-width: 70%; }
+.dash-gauge.ring .dash-gauge-center strong { font-size: clamp(14px, 11.5cqmin, 34px); }
+.dash-gauge-center strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: clamp(16px, 15cqmin, 40px); font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dash-gauge-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 12px; }
+.dash-gauge-caption { color: var(--text-2); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ── 图片 ────────────────────────────────────────────────────────── */
+.dash-image { height: 100%; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.dash-image img { width: 100%; height: 100%; display: block; user-select: none; }
+.dash-image-empty { flex-direction: column; gap: 6px; }

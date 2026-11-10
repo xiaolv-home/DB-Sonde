@@ -370,11 +370,14 @@ const zhCN = {
   "dashboard.sql.single": "看板数据集只能包含一条语句，请移除分号",
   "dashboard.sql.forbidden": "SQL 包含可能修改数据库的关键字",
   "dashboard.widget.kpi": "指标卡",
+  "dashboard.widget.gauge": "仪表盘",
   "dashboard.widget.line": "折线图",
   "dashboard.widget.bar": "条形图",
   "dashboard.widget.pie": "饼图",
+  "dashboard.widget.funnel": "漏斗图",
   "dashboard.widget.table": "明细表",
   "dashboard.widget.text": "文本",
+  "dashboard.widget.image": "图片",
   "dashboard.widget.container": "Tab 容器",
 } as const;
 
@@ -751,11 +754,14 @@ const en: Record<keyof typeof zhCN, string> = {
   "dashboard.sql.single": "Dashboard datasets allow one statement; remove the semicolon",
   "dashboard.sql.forbidden": "SQL contains a keyword that may modify the database",
   "dashboard.widget.kpi": "KPI",
+  "dashboard.widget.gauge": "Gauge",
   "dashboard.widget.line": "Line chart",
   "dashboard.widget.bar": "Bar chart",
   "dashboard.widget.pie": "Pie chart",
+  "dashboard.widget.funnel": "Funnel",
   "dashboard.widget.table": "Table",
   "dashboard.widget.text": "Text",
+  "dashboard.widget.image": "Image",
   "dashboard.widget.container": "Tab container",
 };
 

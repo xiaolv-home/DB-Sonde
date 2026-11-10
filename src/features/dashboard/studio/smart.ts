@@ -11,20 +11,22 @@
 
 import { isTimeField, type Dataset, type DatasetField } from "../../datasets/domain";
 import type { AggKind, TimeGrain, WidgetCondition } from "../../datasets/widgetQuery";
-import { LEAF_WIDGET_TYPES, createWidget, type DashboardWidget, type DashboardWidgetType } from "../domain";
+import { LEAF_WIDGET_TYPES, createWidget, isStaticWidget, isSummaryWidget, type DashboardWidget, type DashboardWidgetType } from "../domain";
 
 /** 每种组件的字段区。顺序就是界面上从上到下的顺序。 */
 export type ShelfId = "rows" | "columns" | "dimensions" | "series" | "measures" | "conditions";
 
-/** 取数的组件类型(不含文本和容器),顺序就是类型切换条上的顺序。 */
-export const DATA_TYPES: DashboardWidgetType[] = LEAF_WIDGET_TYPES.filter((t) => t !== "text");
+/** 取数的组件类型(不含文本、图片和容器)。 */
+export const DATA_TYPES: DashboardWidgetType[] = LEAF_WIDGET_TYPES.filter((t) => !isStaticWidget(t));
 
 export function shelvesOf(type: DashboardWidgetType): ShelfId[] {
   switch (type) {
-    case "kpi": return ["measures", "conditions"];
+    case "kpi":
+    case "gauge": return ["measures", "conditions"];
     case "line":
     case "bar": return ["dimensions", "measures", "series", "conditions"];
-    case "pie": return ["dimensions", "measures", "conditions"];
+    case "pie":
+    case "funnel": return ["dimensions", "measures", "conditions"];
     case "table": return ["rows", "columns", "measures", "conditions"];
     default: return [];
   }
@@ -34,9 +36,9 @@ export function shelfTitle(type: DashboardWidgetType, shelf: ShelfId): string {
   switch (shelf) {
     case "rows": return "行";
     case "columns": return "列";
-    case "dimensions": return type === "pie" ? "分类" : type === "bar" ? "分类轴" : "横轴";
+    case "dimensions": return type === "pie" ? "分类" : type === "funnel" ? "环节" : type === "bar" ? "分类轴" : "横轴";
     case "series": return "拆分系列";
-    case "measures": return type === "kpi" ? "指标" : type === "table" ? "数值" : "数值";
+    case "measures": return type === "kpi" ? "指标" : "数值";
     case "conditions": return "条件";
   }
 }
@@ -44,9 +46,9 @@ export function shelfTitle(type: DashboardWidgetType, shelf: ShelfId): string {
 export function shelfLimit(type: DashboardWidgetType, shelf: ShelfId): number {
   if (shelf === "conditions") return 20;
   if (shelf === "series") return 1;
-  if (shelf === "dimensions") return type === "pie" ? 1 : 1;
+  if (shelf === "dimensions") return 1;
   if (shelf === "rows" || shelf === "columns") return 4;
-  if (shelf === "measures") return type === "table" ? 12 : type === "pie" ? 1 : 6;
+  if (shelf === "measures") return type === "table" ? 12 : type === "pie" || type === "funnel" || type === "gauge" ? 1 : 6;
   return 0;
 }
 
@@ -162,7 +164,7 @@ export function targetShelf(widget: DashboardWidget, field: DatasetField): Shelf
   const shelves = shelvesOf(widget.type);
   if (!shelves.length) return undefined;
   if (field.role === "measure") return "measures";
-  if (widget.type === "kpi") return "measures";
+  if (isSummaryWidget(widget.type)) return "measures";
   if (widget.type === "table") return "rows";
   const dims = dimsOf(widget);
   if (dims.length < shelfLimit(widget.type, "dimensions") || dims.includes(field.name)) return "dimensions";
@@ -248,10 +250,12 @@ export function convertWidget(widget: DashboardWidget, type: DashboardWidgetType
   const placements: Record<string, "row" | "column"> = {};
   switch (type) {
     case "kpi":
+    case "gauge":
       next = withDims(next, []);
-      next.bindings = { ...next.bindings, seriesDimension: undefined, measures: measures.slice(0, 6) };
+      next.bindings = { ...next.bindings, seriesDimension: undefined, measures: measures.slice(0, type === "gauge" ? 1 : 6) };
       break;
     case "pie":
+    case "funnel":
       next = withDims(next, allDims.slice(0, 1));
       next.bindings = { ...next.bindings, seriesDimension: undefined, measures: measures.slice(0, 1) };
       break;
@@ -281,6 +285,7 @@ export function recommend(widget: DashboardWidget, dataset?: Dataset): Recommend
   const out: Recommendation[] = [];
   if (!measures.length && !dims.length) return out;
   if (dims.length === 0) out.push({ type: "kpi", reason: "只有数值,适合做成大数字" });
+  if (dims.length === 0 && measures.length === 1) out.push({ type: "gauge", reason: "一个数值,看离目标还差多少" });
   if (dims.some(isTime)) out.push({ type: "line", reason: "有时间,看趋势" });
   if (dims.length >= 1 && measures.length >= 1) out.push({ type: "bar", reason: "按分类比大小" });
   if (dims.length === 1 && measures.length === 1 && !dims.some(isTime)) out.push({ type: "pie", reason: "看占比" });

@@ -4,6 +4,8 @@ import { useI18n } from "../../../hooks/useI18n";
 import type { DashboardDrillFilter, DashboardMetricDefinition, DashboardRuntimeData, DashboardWidget } from "../domain";
 import { resolveMetricIds, resolveWidgetMetrics } from "../metrics";
 import TextWidget from "../widgets/TextWidget";
+import ImageWidget from "../widgets/ImageWidget";
+import GaugeWidget from "../widgets/GaugeWidget";
 import KpiWidget from "../widgets/KpiWidget";
 import TableWidget from "../widgets/TableWidget";
 import ChartWidget from "../widgets/ChartWidget";
@@ -65,6 +67,7 @@ export default function WidgetRenderer({ staticRender, widget, runtime, metrics,
 
   // 文本组件不取数,先行返回。
   if (widget.type === "text") return <TextWidget widget={widget} />;
+  if (widget.type === "image") return <ImageWidget widget={widget} />;
 
   const loadingLayer = <div className="dash-widget-loading" role="status" aria-live="polite"><Loader2 size={19} className="spin" /><span>{t("dashboard.loadingData")}</span><i /><i /><i /></div>;
   const withLoading = (content: ReactNode) => <div className="dash-widget-runtime">{content}{runtime?.loading ? loadingLayer : null}</div>;
@@ -102,6 +105,10 @@ export default function WidgetRenderer({ staticRender, widget, runtime, metrics,
         onActiveMeasure={setActiveMeasure}
       />,
     );
+  }
+
+  if (widget.type === "gauge") {
+    return withLoading(<GaugeWidget widget={widget} rows={result.rows} metric={resolvedMetrics[0]} staticRender={staticRender} />);
   }
 
   if (widget.type === "table") {

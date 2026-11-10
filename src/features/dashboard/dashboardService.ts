@@ -49,6 +49,8 @@ export interface AddWidgetInput {
   /** 容器子组件:父容器与所在 tab。 */
   parentId?: string;
   tabId?: string;
+  /** 预设样式(面积图、条形图、环形图…见 studio/catalog):只改样式,不动尺寸和位置。 */
+  style?: (widget: DashboardWidget) => DashboardWidget;
 }
 
 /** 新建一个绑定好默认指标、已避让放置的组件。 */
@@ -62,6 +64,7 @@ export function addWidget(doc: DashboardDocument, input: AddWidgetInput): Create
      糟 —— 图上会出现一份对不上的数,而且没人会想到去改它。检查器里选完就有数。 */
   widget.datasetId = input.datasetId ?? "";
   widget.bindings = { measures: [], metricIds: [], secondaryMetricIds: [] };
+  if (input.style) widget = input.style(widget);
 
   if (input.parentId) {
     widget.parentId = input.parentId;

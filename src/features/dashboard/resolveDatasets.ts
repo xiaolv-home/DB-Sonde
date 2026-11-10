@@ -7,7 +7,7 @@
  * 每个组件编译出一份 —— 两个组件可以引用同一个数据集却选不同的维度,那是两句不同
  * 的 SQL。编译结果的 id 用组件 id,运行时按组件找自己的那份。
  */
-import type { DashboardWidget, DashboardDataset } from "./domain";
+import { isSummaryWidget, type DashboardWidget, type DashboardDataset } from "./domain";
 import { isTimeField, type Dataset } from "../datasets/domain";
 import { buildWidgetSql, type AggKind } from "../datasets/widgetQuery";
 import type { DbKind } from "../../types";
@@ -41,7 +41,7 @@ export function widgetQueryOf(widget: DashboardWidget, dataset?: Dataset, scope?
   /* 指标卡不分组。带着维度的话查回来是多行,而卡片会把多行再聚合一次 —— 求和还凑合,
      求平均就成了「平均数的平均数」,数字是错的,而且错得看不出来。绑定界面对指标卡
      本来就不给选维度,可 AI 生成的组件和老文档里可能带着。 */
-  const dimensions = widget.type === "kpi"
+  const dimensions = isSummaryWidget(widget.type)
     ? []
     : [...new Set([...analysis, ...(series ? [series] : [])])].filter(keep);
   // 组件锁了自己的日期范围就用它的,否则跟着看板顶上的数据日期。
@@ -62,7 +62,7 @@ export function widgetQueryOf(widget: DashboardWidget, dataset?: Dataset, scope?
     ...(dateField && start && end ? { dateRange: { field: dateField, start, end } } : {}),
     /* 分了系列就别让 SQL 去 LIMIT:那是按行截断,Top 5 会变成"总共只剩 5 行",
        几条线各被砍掉一截。分系列时的 Top N 是"前 N 个分类",渲染层按分类排完再切。 */
-    topN: series || widget.type === "kpi" ? 0 : widget.options.topN,
+    topN: series || isSummaryWidget(widget.type) ? 0 : widget.options.topN,
     orderBy: orderByOf(widget, dimensions, dataset),
   };
 }

@@ -29,16 +29,16 @@ const MIN_SUFFIX = "?inline-min";
 /** 离线页面实际用到的 ECharts 部件。改之前先看上面那段说明。 */
 const ECHARTS_ENTRY = `
 import * as echarts from "echarts/core";
-import { LineChart, BarChart, PieChart } from "echarts/charts";
+import { LineChart, BarChart, PieChart, GaugeChart, FunnelChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
+echarts.use([LineChart, BarChart, PieChart, GaugeChart, FunnelChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
 window.echarts = echarts;
 `;
 
 /** 供守卫检查用:清单里都有谁。 */
 export const echartsParts = {
-  charts: ["LineChart", "BarChart", "PieChart"],
+  charts: ["LineChart", "BarChart", "PieChart", "GaugeChart", "FunnelChart"],
   components: ["GridComponent", "LegendComponent", "TooltipComponent", "DataZoomComponent"],
   renderers: ["CanvasRenderer"],
 };

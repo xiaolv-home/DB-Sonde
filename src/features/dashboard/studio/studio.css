@@ -19,8 +19,11 @@
 .st-save-state { color: var(--text-3); font-size: 12.5px; white-space: nowrap; margin-right: 4px; }
 .st-save-state.dirty { color: var(--amber); }
 .st-add { margin-left: 4px; }
-.st-add-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 6px; }
-.st-add-grid button { height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); font-size: 12.5px; }
+.st-add-groups { max-height: min(560px, 70vh); overflow: auto; padding: 4px 6px 6px; }
+.st-add-group + .st-add-group { margin-top: 2px; }
+.st-add-group-title { padding: 6px 6px 2px; color: var(--text-3); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; }
+.st-add-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+.st-add-grid button { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); font-size: 12.5px; }
 .st-add-grid button:hover { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--text); }
 .st-add-grid button svg { color: var(--accent); }
 
@@ -79,8 +82,8 @@ body.st-field-dragging .dash-widget { outline: 1px dashed color-mix(in srgb, var
 .st-insp-title { min-width: 0; flex: 1; height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; outline: none; user-select: text; }
 .st-insp-title:hover { border-color: var(--border); }
 .st-insp-title:focus { border-color: var(--accent); background: var(--surface); }
-.st-types { flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; padding: 8px 10px 4px; }
-.st-types button { position: relative; height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); font: inherit; font-size: 11px; }
+.st-types { flex: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; padding: 8px 10px 4px; }
+.st-types button { position: relative; height: 44px; min-width: 0; white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); font: inherit; font-size: 11px; }
 .st-types button:hover { background: var(--surface-2); color: var(--text); }
 .st-types button.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
 .st-types button.rec::after { content: ""; position: absolute; top: 5px; right: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
@@ -184,3 +187,10 @@ body.st-field-dragging .dash-widget { outline: 1px dashed color-mix(in srgb, var
 .st-preset.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .st-tablist-edit { display: flex; flex-direction: column; gap: 4px; }
 .st-tab-edit { display: flex; gap: 4px; }
+.st-add-groups + .st-foot-note b { color: var(--text); font-weight: 600; }
+.st-image-pick { display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 6px; border: 1px dashed var(--border-2); border-radius: var(--radius-sm); color: var(--text-3); }
+.st-image-pick > img { width: 56px; height: 56px; flex: none; object-fit: contain; border-radius: 4px; background: var(--surface-2); }
+.st-image-pick > svg { width: 56px; flex: none; }
+.st-image-pick > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.st-image-pick small { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.st-error { color: var(--danger, #ef5d6f); }
