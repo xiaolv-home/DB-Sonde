@@ -7,6 +7,9 @@ import type { DashboardDocument, DashboardWidgetType } from "../../dashboard/dom
 import { fail, registerTool, type ToolDef } from "./registry";
 import { S } from "../jsonSchema";
 import { STYLE_PROPERTIES } from "../styleSchema";
+import { componentGuide } from "../designContracts";
+import { WIDGET_SPECS, bindingProblem } from "../../dashboard/widgetSpecs";
+import { AGG_LABELS, CONDITION_OPS, type AggKind, type WidgetCondition } from "../../datasets/widgetQuery";
 
 /**
  * 看板工具 —— Agent 唯一能改看板的通道。
@@ -67,7 +70,8 @@ export const createDashboardTool: ToolDef = registerTool({
 
 export const addComponentTool: ToolDef = registerTool({
   name: "add_component",
-  description: "往看板里加一个组件并绑定数据。会自动避让放置。两种取数方式二选一:datasetId(来自 list_datasets,维度/度量用该数据集的字段),或 metricIds(来自 validate_metrics,指标分析用)。",
+  // 组件介绍从看板的组件说明书生成:看板加了组件,这里自动就有
+  description: "往看板里加一个组件并绑定数据。会自动避让放置。两种取数方式二选一:datasetId(来自 list_datasets,维度/度量用该数据集的字段),或 metricIds(来自 validate_metrics,指标分析用)。用哪种组件由你决定。\n组件:\n" + componentGuide(),
   readOnly: false,
   schema: S.obj(
     {
@@ -79,7 +83,13 @@ export const addComponentTool: ToolDef = registerTool({
       metricIds: S.arr(S.str(), "改用中心指标取数时绑定的指标,KPI 可多个"),
       measures: S.arr(S.str(), "要汇总的度量字段,必须是该数据集里 role=measure 的字段"),
       aggregations: S.obj({}, [], "度量字段 → 汇总方式(sum/avg/count/count_distinct/min/max),不填按 sum"),
-      dimensions: S.arr(S.str(), "分析维度,必须是该数据集里 role=dimension 的字段。KPI 不要带维度"),
+      dimensions: S.arr(S.str(), "分析维度,必须是该数据集里 role=dimension 的字段"),
+      conditions: S.arr(S.obj({
+        field: S.str("数据集里的字段名"),
+        op: S.enumOf(Object.keys(CONDITION_OPS), Object.entries(CONDITION_OPS).map(([k, v]) => `${k}=${v.label}`).join(" ")),
+        values: S.arr(S.str(), "取值;为空/不为空不用填,介于填两个"),
+        agg: S.enumOf(Object.keys(AGG_LABELS), "填了就按汇总后的结果筛(HAVING),不填按每一行筛"),
+      }, ["field", "op", "values"]), "组件自己的条件,只看符合条件的数据(只对 datasetId 取数的组件有效)", 20),
       content: S.str("type=text 时的正文"),
       secondaryMetricIds: S.arr(S.str()), seriesDimension: S.str(), parentId: S.str(), tabId: S.str(),
       visible: S.bool(), filtersEnabled: S.bool(), filterFields: S.arr(S.str(), "组件筛选字段:数据集里的维度字段名。'date' 是保留名,渲染成日期区间"),
@@ -91,6 +101,7 @@ export const addComponentTool: ToolDef = registerTool({
     dashboardId: string; type: DashboardWidgetType; title: string; subtitle?: string;
     datasetId?: string; measures?: string[]; aggregations?: Record<string, string>; metricIds?: string[]; dimensions?: string[];
     content?: string; secondaryMetricIds?: string[]; seriesDimension?: string;
+    conditions?: Array<{ field: string; op: string; values: string[]; agg?: AggKind }>;
     parentId?: string; tabId?: string; visible?: boolean; filtersEnabled?: boolean; filterFields?: import("../../dashboard/domain").DashboardComponentFilterField[]; tabs?: { id: string; label: string }[];
   }) => {
     const doc = need(input.dashboardId);
@@ -123,6 +134,17 @@ export const addComponentTool: ToolDef = registerTool({
         else if (field.role !== "dimension") fail("WRONG_FIELD_ROLE", `${name} 是度量,不能当筛选项。`);
       }
     }
+    for (const c of input.conditions ?? []) {
+      if (!dataset) fail("UNSUPPORTED", "conditions 只对 datasetId 取数的组件有效。");
+      else if (!dataset.fields.some((f) => f.name === c.field)) fail("MISSING_FIELD", `数据集「${dataset.name}」里没有字段 ${c.field},不能当条件。`);
+    }
+    // 画不画得出来:散点要两个数值、热力要纵轴…… 规则在组件说明书里,这里不另写
+    const shape = bindingProblem(input.type, {
+      metrics: (input.metricIds?.length ?? 0) || (input.measures?.length ?? 0),
+      dimensions: input.dimensions?.length ?? 0,
+      series: !!input.seriesDimension,
+    });
+    if (shape && (input.metricIds?.length || input.measures?.length || input.dimensions?.length)) fail("INVALID_ARGS", shape);
     const all = useMetrics.getState().metrics;
     const ids = input.metricIds ?? [];
     for (const id of [...ids, ...(input.secondaryMetricIds ?? [])]) {
@@ -153,8 +175,9 @@ export const addComponentTool: ToolDef = registerTool({
         aggregations: input.aggregations as Record<string, import("../../datasets/widgetQuery").AggKind> | undefined,
         secondaryMetricIds: input.secondaryMetricIds ?? [],
         seriesDimension: input.seriesDimension,
-        dimensions: input.type === "kpi" ? [] : (input.dimensions ?? []),
-        dimension: input.type === "kpi" ? undefined : input.dimensions?.[0],
+        dimensions: WIDGET_SPECS[input.type].dimensions[1] === 0 ? [] : (input.dimensions ?? []),
+        dimension: WIDGET_SPECS[input.type].dimensions[1] === 0 ? undefined : input.dimensions?.[0],
+        ...(input.conditions?.length ? { conditions: input.conditions as WidgetCondition[] } : {}),
       },
     });
     drafts.set(patched.id, patched);
@@ -183,12 +206,15 @@ export const styleComponentTool: ToolDef = registerTool({
     if (!current) fail("NOT_FOUND", `看板里没有 widgetId=${input.widgetId} 的组件。`);
     const { dashboardId, widgetId, footnote, ...rest } = input;
     const options: Record<string, unknown> = {};
-    const MERGED = ["chart", "kpi", "appearance", "text", "table", "container", "metrics"] as const;
+    // 子对象和现有配置合并:看板的每个样式组(含新组件的)都是对象,只有这些不是
+    // 数字、开关,以及本来就整块替换的(单卡范围、数字格式)不合并
+    const SCALAR = new Set(["decimals", "percentDecimals", "showLegend", "smooth", "topN", "lockedScope", "numberFormat"]);
     for (const key of Object.keys(STYLE_PROPERTIES)) {
       if (rest[key] === undefined) continue;
       // 子对象要和现有配置合并而不是整个替换
-      options[key] = (MERGED as readonly string[]).includes(key)
-        ? { ...(current!.options[key as (typeof MERGED)[number]] ?? {}), ...(rest[key] as object) }
+      const existing = (current!.options as Record<string, unknown>)[key];
+      options[key] = !SCALAR.has(key) && rest[key] && typeof rest[key] === "object" && !Array.isArray(rest[key])
+        ? { ...(existing && typeof existing === "object" ? existing : {}), ...(rest[key] as object) }
         : rest[key];
     }
     // The renderer reads these switches at the options root, not inside chart.

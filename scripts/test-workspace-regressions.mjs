@@ -165,7 +165,8 @@ try {
   const item = (patch = {}) => ({ type: 'bar', title: '测试', metricIds: ['sales'], dimensions: ['region'], band: 'ranking', reason: '测试', ...patch });
   const presentation = refineAnalysisLayout({ title: '测试', items: [item({ type: 'kpi', dimensions: [] }), item({ dimensions: [] }), item(), item({ type: 'pie', metricIds: ['rate'] }), item({ type: 'text', metricIds: [], dimensions: [], content: '结论' })] }, [{ metricId: 'sales', name: '销售额', rollup: 'sum' }, { metricId: 'rate', name: '差评率', rollup: 'avg' }]);
   assert(presentation.items.some(i => i.type === 'bar' && !i.dimensions.length), 'Let the critic judge the purpose of comparisons instead of silently removing them');
-  assert(!presentation.items.some(i => i.type === 'pie' && i.metricIds.includes('rate')), 'Rates are not additive shares');
+  // 用哪种图是设计 AI 的决定(它在提示词里看得到每个指标怎么汇总),后处理不再替它把饼图换成柱状
+  assert(presentation.items.some(i => i.type === 'pie' && i.metricIds.includes('rate')), "The designer's chart choice is kept");
   const authoredDesign = { title: '业务概览', preset: 'slate', palette: ['#406C9E', '#4C9F8B'], items: [
     item({ type: 'kpi', dimensions: [], x: 0, y: 0, w: 4, h: 2, kpi: { valueSize: 44, labelPosition: 'above', contentAlign: 'center', showComparison: false }, appearance: { background: '#182837', borderColor: '#497586', shadow: true, titleColor: '#ACD7E2' } }),
     item({ type: 'line', dimensions: ['day'], x: 4, y: 0, w: 8, h: 4, chart: { lineArea: true, showLabels: false } }),
@@ -187,7 +188,7 @@ try {
   assert.equal(authoredSaved.widgets.find(w => w.type === 'kpi').options.kpi.valueSize, 44);
   assert.equal(authoredSaved.widgets.find(w => w.type === 'kpi').options.kpi.showComparison, false);
   const reviewContext = { validatedMetricIds: ['sales', 'rate'], ratioMetricIds: ['rate'], categoryCounts: { 0: 30 }, pointCounts: {}, timeDimensions: ['month'] };
-  assert(reviewLayout(packLayout([item({ type: 'pie', metricIds: ['rate'] })]), reviewContext).some(f => f.code === 'NON_ADDITIVE_PIE'));
+  assert(!reviewLayout(packLayout([item({ type: 'pie', metricIds: ['rate'] })]), reviewContext).some(f => f.fix?.type), 'Review does not change chart types');
   const textItems = [item({ type: 'text', metricIds: [], dimensions: [], content: '结论一' }), item({ type: 'text', metricIds: [], dimensions: [], content: '结论二' })];
   const textFindings = reviewLayout(packLayout(textItems), reviewContext);
   const fixedTexts = applyFixes(textItems, textFindings, next => reviewLayout(packLayout(next), reviewContext));

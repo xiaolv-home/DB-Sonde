@@ -34,7 +34,6 @@ export function observedCounts(item: LayoutItem, plan?: ObservedPlan): { categor
 
 /** Rebuild index-based context after every edit; dropped cards must not shift another card's facts. */
 export function reviewContext(items: LayoutItem[], state: AgentState, plans: ObservedPlan[]): ReviewContext {
-  const categoryCounts: Record<number, number> = {};
   const pointCounts: Record<number, number> = {};
   const magnitudes: Record<number, number> = {};
   const smallest: Record<number, number> = {};
@@ -42,7 +41,6 @@ export function reviewContext(items: LayoutItem[], state: AgentState, plans: Obs
     const plan = planForItem(item, plans);
     if (!plan?.result) return;
     const counts = observedCounts(item, plan);
-    categoryCounts[index] = counts.categories;
     pointCounts[index] = counts.points;
     if (item.type !== "kpi") return;
     /* 一张 KPI 卡可以放好几个指标,量级可能差着几个数量级 —— 销售额 5682 万和笔均金额
@@ -75,10 +73,7 @@ export function reviewContext(items: LayoutItem[], state: AgentState, plans: Obs
     smallest[index] = minOf(sizes)!;
   });
   return {
-    categoryCounts, pointCounts, magnitudes, smallest,
+    pointCounts, magnitudes, smallest,
     validatedMetricIds: (state.validatedMetrics ?? []).map(metric => metric.metricId),
-    // 去重计数也不能画饼:各块相加不等于整体(同一个对象会被数好几遍)
-    ratioMetricIds: (state.validatedMetrics ?? []).filter(metric => metric.rollup === "avg" || metric.rollup === "count_distinct").map(metric => metric.metricId),
-    timeDimensions: ["day", "week", "month", "year"],
   };
 }

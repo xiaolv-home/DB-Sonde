@@ -1,5 +1,6 @@
 import { repairGeneratedDashboard } from "./generatedAppearance";
 import { nanoid } from "nanoid";
+import { WIDGET_SPECS, supportsSeries } from "./widgetSpecs";
 import type { QueryResult } from "../../types";
 import { maxOf } from "../../lib/numbers";
 
@@ -673,7 +674,8 @@ export function normalizeDashboard(value: unknown): DashboardDocument {
             ? raw.type as DashboardWidgetType
             : "text";
           const fallback = createWidget(type, typeof raw.datasetId === "string" ? raw.datasetId : "");
-          const dimensionLimit = type === "table" ? 4 : type === "treemap" ? 2 : isSummaryWidget(type) ? 0 : 1;
+          // 每种组件留几个维度、留不留拆分系列,看说明书 —— 别在这儿另写一份
+          const dimensionLimit = WIDGET_SPECS[type].dimensions[1];
           const dimensions = (Array.isArray(raw.bindings?.dimensions)
             ? raw.bindings.dimensions.filter((name): name is string => typeof name === "string" && !!name)
             : [raw.bindings?.dimension].filter((name): name is string => typeof name === "string" && !!name)
@@ -699,7 +701,7 @@ export function normalizeDashboard(value: unknown): DashboardDocument {
               dimension: dimensions[0],
               dimensions,
               // 图例维度:折线拆成多条线,柱状拆成多组柱 —— 两种都能设,别只给折线留。
-              seriesDimension: (type === "line" || type === "bar") && typeof raw.bindings?.seriesDimension === "string"
+              seriesDimension: supportsSeries(type) && typeof raw.bindings?.seriesDimension === "string"
                 ? raw.bindings.seriesDimension
                 : undefined,
               measures: Array.isArray(raw.bindings?.measures) ? raw.bindings.measures.filter((name): name is string => typeof name === "string") : [],

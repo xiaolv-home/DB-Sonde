@@ -1,4 +1,4 @@
-import { BANDS as BAND_SET, chartTypeIssue, layoutHeight, type Band, type LayoutItem, type PlacedItem } from "./layout";
+import { BANDS as BAND_SET, layoutHeight, type Band, type LayoutItem, type PlacedItem } from "./layout";
 
 /**
  * 看板验收 —— **先跑代码规则,剩下的才交给模型**。
@@ -23,19 +23,14 @@ export interface ReviewFinding {
 }
 
 export interface ReviewContext {
-  /** 每个组件的分组维度取值数,用来判断饼图切不切得动。 */
-  categoryCounts: Record<number, number>;
   /** 每个组件的数据点数,用来判断数据标签会不会糊。 */
   pointCounts: Record<number, number>;
   /** 通过验证的指标 id —— 绑了别的就是严重错误。 */
   validatedMetricIds: string[];
-  /** 比率型指标 id,小数位超过 2 位没意义。 */
-  ratioMetricIds: string[];
   /** 每个组件上**最大**的指标量级(绝对值)。换不换算要看真实数字,不能一刀切。 */
   magnitudes?: Record<number, number>;
   /** 同一张卡上**最小**的指标量级 —— 一张卡放好几个指标时,定死一档会让小的那个读不出来。 */
   smallest?: Record<number, number>;
-  timeDimensions: string[];
 }
 
 // Distinct scopes, series and pivot settings can answer different questions.
@@ -46,7 +41,6 @@ const key = (item: LayoutItem) => JSON.stringify({ type: item.type, metricIds: i
 /** 十条确定性规则。返回空数组 = 代码层面没问题。 */
 export function reviewLayout(placed: PlacedItem[], context: ReviewContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const hasTime = (item: LayoutItem) => item.dimensions.some((d) => context.timeDimensions.includes(d));
 
   placed.forEach((item) => {
     const index = item.sourceIndex;
@@ -60,21 +54,9 @@ export function reviewLayout(placed: PlacedItem[], context: ReviewContext): Revi
       });
     }
 
-    if (item.type === "pie" && item.metricIds.some((id) => context.ratioMetricIds.includes(id))) {
-      findings.push({ layer: "chart", severity: "must_fix", index, code: "NON_ADDITIVE_PIE",
-        reason: "各组的比率或均值不能相加为整体，需用条形图比较。",
-        fix: { type: "bar", band: "ranking", topN: item.topN ?? 0, chart: { ...item.chart, barOrientation: "horizontal" } } });
-    }
-
-    // R1 / R2 / 折线用在非时间维度 —— 会误导人,不是审美问题
-    const typeIssue = chartTypeIssue(item, { categoryCount: context.categoryCounts[index], hasTimeDimension: hasTime(item) });
-    if (typeIssue) {
-      findings.push({
-        layer: "chart", severity: "must_fix", index, code: "WRONG_CHART_TYPE",
-        reason: typeIssue.reason,
-        fix: { type: typeIssue.suggest, ...(typeIssue.suggest === "bar" ? { topN: item.topN ?? 0 } : {}) },
-      });
-    }
+    /* 以前这里有两条「必须改」:比率指标不能画饼图、时间维度不能用饼图 / 非时间不能用折线,
+       并且直接把类型换掉。用哪种图交给设计 AI 自己判断(它看得到每个指标是怎么汇总的),
+       这里只管画不画得出来。 */
 
     // 全部排名是有效表达，不强制截取前 N。
 

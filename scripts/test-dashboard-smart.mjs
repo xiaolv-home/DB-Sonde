@@ -5,7 +5,8 @@ import { loadSrc } from './lib/load-src.mjs';
 
 const m = loadSrc('dashboard-smart', {
   'src/features/dashboard/studio/smart.ts': '*',
-  'src/features/dashboard/domain.ts': '{ createWidget, isSummaryWidget, WIDGET_TYPES }',
+  'src/features/dashboard/domain.ts': '{ createWidget, isSummaryWidget, normalizeDashboard, WIDGET_TYPES }',
+  'src/features/dashboard/widgetSpecs.ts': '{ WIDGET_SPECS, bindingProblem }',
   'src/features/dashboard/studio/catalog.ts': '{ ALL_KINDS, TYPE_META }',
   'src/features/dashboard/resolveDatasets.ts': '{ widgetQueryOf }',
 });
@@ -122,5 +123,23 @@ assert.deepEqual(m.dimsOf(m.convertWidget(barTwo, 'radar', dataset)), ['store'])
 // 排行榜默认前 10、雷达默认前 5
 assert.equal(w('ranking').options.topN, 10);
 assert.equal(w('radar').options.topN, 5);
+
+// 组件说明书:每种组件都登记了;存盘按它留维度和拆分系列(热力图的纵轴存一次不能丢)
+for (const type of m.WIDGET_TYPES) assert(m.WIDGET_SPECS[type]?.label, `${type} 没登记说明书`);
+const saved = m.normalizeDashboard({ schemaVersion: 3, id: 'd', title: 't', widgets: [
+  { id: 'h', type: 'heatmap', datasetId: 'ds', bindings: { dimensions: ['store'], seriesDimension: 'region', measures: ['amount'], metricIds: [], secondaryMetricIds: [] }, options: {} },
+  { id: 's', type: 'scatter', datasetId: 'ds', bindings: { dimensions: ['store'], seriesDimension: 'region', measures: ['amount', 'qty'], metricIds: [], secondaryMetricIds: [] }, options: {} },
+  { id: 'g', type: 'gauge', datasetId: 'ds', bindings: { dimensions: ['store'], seriesDimension: 'region', measures: ['amount'], metricIds: [], secondaryMetricIds: [] }, options: {} },
+] });
+assert.equal(saved.widgets[0].bindings.seriesDimension, 'region', '热力图的纵轴存一次就丢了');
+assert.equal(saved.widgets[1].bindings.seriesDimension, 'region');
+assert.equal(saved.widgets[2].bindings.seriesDimension, undefined, '仪表盘没有拆分系列');
+assert.deepEqual(saved.widgets[2].bindings.dimensions, [], '仪表盘不分维度');
+// 画不画得出来
+assert.match(m.bindingProblem('scatter', { metrics: 1, dimensions: 1, series: false }), /散点图至少要 2 个指标/);
+assert.match(m.bindingProblem('heatmap', { metrics: 1, dimensions: 1, series: false }), /seriesDimension/);
+assert.match(m.bindingProblem('pie', { metrics: 2, dimensions: 1, series: false }), /只能放 1 个指标/);
+assert.equal(m.bindingProblem('pie', { metrics: 3, dimensions: 0, series: false }), undefined, '不分维度时几个指标各占一块');
+assert.equal(m.bindingProblem('line', { metrics: 2, dimensions: 1, series: true }), undefined);
 
 console.log('dashboard smart: ok');

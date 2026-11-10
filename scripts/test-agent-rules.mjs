@@ -222,9 +222,11 @@ const rvCtx = { categoryCounts: { 0: 40, 1: 40, 2: 40, 3: 1, 4: 6, 5: 6, 6: 30 }
   validatedMetricIds: ["m1"], ratioMetricIds: [], timeDimensions: ["day", "week", "month", "year"] };
 const found = reviewLayout(packLayout(badPlan), rvCtx);
 const codes = found.map((f) => f.code);
-for (const expected of ["WRONG_CHART_TYPE", "KPI_WITH_DIMENSION", "DUPLICATE_WIDGET", "UNVALIDATED_METRIC"]) {
+for (const expected of ["KPI_WITH_DIMENSION", "DUPLICATE_WIDGET", "UNVALIDATED_METRIC"]) {
   assert(codes.includes(expected), `应该抓到 ${expected},实际:${codes.join("、")}`);
 }
+// 用哪种图是设计 AI 的决定:折线用在门店上、饼图切 40 块,验收不再替它改类型
+assert(!codes.includes("WRONG_CHART_TYPE") && !found.some((f) => f.fix?.type), "验收不该改组件类型:" + codes.join("、"));
 // finding 的 index 必须指回原数组,否则打补丁会改错组件
 const kpiFinding = found.find((f) => f.code === "KPI_WITH_DIMENSION");
 assert.equal(badPlan[kpiFinding.index].title, "销售额KPI", "index 必须指原数组下标,不是排版后的");
@@ -232,8 +234,7 @@ const fakeFinding = found.find((f) => f.code === "UNVALIDATED_METRIC");
 assert.equal(badPlan[fakeFinding.index].title, "假指标表");
 assert.equal(reviewVerdict(found).verdict, "needs_revision");
 
-// 迭代打补丁要收敛:修完会产生新重复(三张图都被改成 bar 后彼此相同),代码里收掉,
-// 不值得为它烧一轮 LLM 重设计
+// 迭代打补丁要收敛,不值得为它烧一轮 LLM 重设计
 const recheck = (items) => reviewLayout(packLayout(items), rvCtx);
 const repaired = applyFixes(badPlan, found, recheck);
 assert.equal(reviewVerdict(recheck(repaired.items)).verdict, "pass", "自动修完应该能过:" + JSON.stringify(repaired.remaining));
@@ -241,6 +242,7 @@ assert(repaired.items.length < badPlan.length, "重复和空组件要被删掉")
 assert(repaired.items.every((i) => i.metricIds.length > 0), "没绑指标的空组件要删,留着比没有更糟");
 assert(repaired.items.every((i) => !(i.type === "kpi" && i.dimensions.length)), "KPI 不该带维度");
 assert(repaired.applied.includes("DROP_EMPTY"));
+assert.equal(repaired.items.find((i) => i.title === "网点对比")?.type, "line", "设计 AI 选的图要原样留着");
 
 // 干净的版面不该被乱改
 const cleanFindings = reviewLayout(packLayout(goodPlan), { categoryCounts: { 4: 5, 5: 20 }, pointCounts: {},

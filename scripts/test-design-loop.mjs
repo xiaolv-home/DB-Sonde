@@ -44,7 +44,10 @@ try {
   assert(!m.reviewLayout(m.resolveLayout([table,{...table,x:6,table:{dimensionPlacements:{region:'column'}}}]),context).some(f=>f.code==='DUPLICATE_WIDGET'), 'Different pivot views must not be discarded');
   assert(m.reviewLayout(m.resolveLayout([table,{...table,x:6}]),context).some(f=>f.code==='DUPLICATE_WIDGET'), 'Identical views remain detectable');
   const nested=m.refineAnalysisLayout({...state.layout,items:[{...state.layout.items[1],tabs:[{title:'时间',items:[{...item,type:'pie',dimensions:['month']}]}]}]},state.validatedMetrics.map(m=>({...m,supportedDimensions:['region','month']})));
-  assert.equal(nested.items[0].tabs[0].items[0].type,'line','Semantic chart checks apply inside tabs');
+  assert.equal(nested.items[0].tabs[0].items[0].type,'pie',"The designer's chart choice is kept inside tabs too");
+  // 画不画得出来照样要拦:散点要两个指标、热力要纵轴 —— 规则来自组件说明书
+  assert(m.validateDesignBindings({...state.layout,items:[{...item,type:'scatter',dimensions:['region']}]},state).some(s=>s.includes('散点图至少要 2 个指标')));
+  assert(m.validateDesignBindings({...state.layout,items:[{...item,type:'heatmap',dimensions:['region']}]},state).some(s=>s.includes('seriesDimension')));
   const config=m.analysisModelConfig({...m.useAi.getState().config,provider:'cloud',cloud:{baseUrl:'https://api.deepseek.com',apiKey:'fixture-only',model:'deepseek-chat'}});
   assert.equal(config.cloud.model,'deepseek-flash');assert.equal(config.designVision.model,'deepseek-flash');
   assert.equal(m.analysisModelConfig(config,{provider:'cloud',model:'deepseek-v4-flash'}).cloud.model,'deepseek-flash');

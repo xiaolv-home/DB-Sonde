@@ -1,10 +1,10 @@
 import { repairGeneratedStyle } from "../dashboard/generatedAppearance";
-import { chartTypeIssue, repairLayout, type LayoutItem, type LayoutPlan } from "./layout";
+import { repairLayout, type LayoutItem, type LayoutPlan } from "./layout";
 
 export const ANALYSIS_PALETTE = ["#5797DD", "#55B5A6", "#9B8ED3", "#D7AE67", "#CB8198", "#8C99A8"];
 export interface PresentationMetric { metricId: string; name: string; unit?: string; rollup: string; supportedDimensions?: string[] }
 
-/** Keep the designer's selection and composition. Repair only readability and semantic errors. */
+/** Keep the designer's selection and composition. Repair only layout errors and fill style defaults. */
 export function refineAnalysisLayout(layout: LayoutPlan, metrics: PresentationMetric[]): LayoutPlan {
   const byId = new Map(metrics.map((m) => [m.metricId, m]));
   const normalized = layout.items.map((item) => {
@@ -13,10 +13,9 @@ export function refineAnalysisLayout(layout: LayoutPlan, metrics: PresentationMe
     return { ...item, dimensions };
   });
   const items = normalized.map((original): LayoutItem => {
-    const selected = original.metricIds.map(id => byId.get(id));
-    const additive = selected.length > 0 && selected.every(m => ["sum", "count"].includes(m?.rollup ?? "")) && (selected.length === 1 || (!original.dimensions.length && selected[0]?.unit !== undefined && selected.every(m => m?.unit === selected[0]?.unit)));
-    const typeIssue = chartTypeIssue(original, { hasTimeDimension: original.dimensions.some((d) => ["day", "week", "month", "year"].includes(d)) });
-    const item = typeIssue ? { ...original, type: typeIssue.suggest } : original.type === "pie" && !additive ? { ...original, type: "bar" as const, band: "ranking" as const } : original;
+    /* 用什么图是设计 AI 的决定,这里不再替它换(以前会把饼图换成柱状、折线换成柱状)。
+       这一步只补默认样式、修排版硬错。 */
+    const item = original;
     return repairGeneratedStyle({ ...item,
       tabs: item.tabs?.map((tab) => ({ ...tab, items: refineAnalysisLayout({ ...layout, items: tab.items }, metrics).items })),
       appearance: { radius: 10, titleSize: 14, ...item.appearance,
@@ -26,7 +25,6 @@ export function refineAnalysisLayout(layout: LayoutPlan, metrics: PresentationMe
         palette: item.chart?.palette ?? layout.palette ?? ANALYSIS_PALETTE,
         lineArea: item.chart?.lineArea ?? false,
         ...(item.type === "pie" ? { pieHole: item.chart?.pieHole ?? 42, pieOuterRadius: item.chart?.pieOuterRadius ?? 75, pieIncludeOthers: true, pieShowLabels: item.chart?.pieShowLabels ?? true } : {}),
-        ...(original.type === "pie" && item.type === "bar" ? { barOrientation: "horizontal" as const } : {}),
       },
       topN: item.topN ?? 0,
     });

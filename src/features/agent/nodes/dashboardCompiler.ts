@@ -1,5 +1,6 @@
 import { observedPlans, planForItem, observedCounts } from "./observations";
 import { STYLE_PROPERTIES } from "../styleSchema";
+import { WIDGET_SPECS } from "../../dashboard/widgetSpecs";
 import { resolveLayout } from "../layout";
 import type { AgentState } from "../state";
 import type { NodeFn } from "../graph";
@@ -41,11 +42,11 @@ export function createDashboardCompiler({ callTool, getPlan, discardDraft, descr
             dashboardId, type: item.type, title: item.title,
             ...(item.subtitle ? { subtitle: item.subtitle } : {}),
             ...(item.content !== undefined ? { content: item.content } : {}),
-            metricIds: item.type === "text" || item.type === "container" ? [] : item.metricIds,
+            metricIds: WIDGET_SPECS[item.type].metrics[1] === 0 ? [] : item.metricIds,
             secondaryMetricIds: item.secondaryMetricIds, seriesDimension: item.seriesDimension,
             parentId, tabId, visible: item.visible, filtersEnabled: item.filtersEnabled, filterFields: item.filterFields,
             ...(item.tabs ? { tabs: item.tabs.map((tab, i) => ({ id: `tab-${i}`, label: tab.title })) } : {}),
-            dimensions: item.type === "kpi" || item.type === "text" ? [] : item.dimensions,
+            dimensions: WIDGET_SPECS[item.type].dimensions[1] === 0 ? [] : item.dimensions,
           }, state.workflowId);
           const widgetId = added.data!.widgetId;
           reasons[widgetId] = item.reason;

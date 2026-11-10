@@ -9,6 +9,7 @@ import {
   LayoutGrid, LineChart, ListOrdered, PanelTop, PieChart, Table2, Type,
 } from "lucide-react";
 import type { DashboardWidgetType } from "../domain";
+import { WIDGET_SPECS } from "../widgetSpecs";
 
 type Icon = typeof Gauge;
 
@@ -22,49 +23,55 @@ export interface WidgetKind {
   short?: string;
 }
 
-export const KIND_GROUPS: { title: string; kinds: WidgetKind[] }[] = [
+const GROUPS: { title: string; kinds: Omit<WidgetKind, "label">[] }[] = [
   {
     title: "数字",
     kinds: [
-      { type: "kpi", label: "指标卡", icon: Hash, hint: "一个或几个大数字,可带同环比" },
-      { type: "gauge", label: "仪表盘", icon: Gauge, hint: "一个数值对着目标看完成度(半圆或圆环)" },
+      { type: "kpi", icon: Hash, hint: "一个或几个大数字,可带同环比" },
+      { type: "gauge", icon: Gauge, hint: "一个数值对着目标看完成度(半圆或圆环)" },
     ],
   },
   {
     title: "趋势与比较",
     kinds: [
-      { type: "line", label: "折线图", icon: LineChart, hint: "按时间看走势,样式里可开面积、堆叠" },
-      { type: "bar", label: "柱状图", icon: BarChart3, hint: "按分类比大小,样式里可横放、堆叠" },
-      { type: "ranking", label: "排行榜", icon: ListOrdered, hint: "名次 + 进度条,门店 / 商品排名" },
-      { type: "waterfall", label: "瀑布图", icon: ChartColumnDecreasing, hint: "一步步加减到结果:收入 → 成本 → 利润" },
+      { type: "line", icon: LineChart, hint: "按时间看走势,样式里可开面积、堆叠" },
+      { type: "bar", icon: BarChart3, hint: "按分类比大小,样式里可横放、堆叠" },
+      { type: "ranking", icon: ListOrdered, hint: "名次 + 进度条,门店 / 商品排名" },
+      { type: "waterfall", icon: ChartColumnDecreasing, hint: "一步步加减到结果:收入 → 成本 → 利润" },
     ],
   },
   {
     title: "构成",
     kinds: [
-      { type: "pie", label: "饼图", icon: PieChart, hint: "各部分占整体多少,样式里可挖成环形" },
-      { type: "treemap", label: "矩形树图", short: "矩形树", icon: LayoutGrid, hint: "面积即占比,分类多也看得清,可两层下钻" },
-      { type: "funnel", label: "漏斗图", icon: Funnel, hint: "一层层往下看转化" },
+      { type: "pie", icon: PieChart, hint: "各部分占整体多少,样式里可挖成环形" },
+      { type: "treemap", short: "矩形树", icon: LayoutGrid, hint: "面积即占比,分类多也看得清,可两层下钻" },
+      { type: "funnel", icon: Funnel, hint: "一层层往下看转化" },
     ],
   },
   {
     title: "关系与分布",
     kinds: [
-      { type: "scatter", label: "散点图", icon: ChartScatter, hint: "两个数值的关系,第三个当气泡大小,可分四象限" },
-      { type: "radar", label: "雷达图", icon: Hexagon, hint: "几个对象在多项指标上的强弱轮廓" },
-      { type: "heatmap", label: "热力图", icon: Grid3x3, hint: "两个维度交叉,颜色深浅看高低(星期 × 时段)" },
+      { type: "scatter", icon: ChartScatter, hint: "两个数值的关系,第三个当气泡大小,可分四象限" },
+      { type: "radar", icon: Hexagon, hint: "几个对象在多项指标上的强弱轮廓" },
+      { type: "heatmap", icon: Grid3x3, hint: "两个维度交叉,颜色深浅看高低(星期 × 时段)" },
     ],
   },
   {
     title: "明细与版面",
     kinds: [
-      { type: "table", label: "表格", icon: Table2, hint: "明细、透视、合计都在这里" },
-      { type: "text", label: "文本", icon: Type, hint: "标题、口径说明、结论,样式里一键切标题" },
-      { type: "image", label: "图片", icon: Image, hint: "Logo、示意图、截图" },
-      { type: "container", label: "分页容器", icon: PanelTop, hint: "几页内容叠在一格,点页签切换" },
+      { type: "table", icon: Table2, hint: "明细、透视、合计都在这里" },
+      { type: "text", icon: Type, hint: "标题、口径说明、结论,样式里一键切标题" },
+      { type: "image", icon: Image, hint: "Logo、示意图、截图" },
+      { type: "container", icon: PanelTop, hint: "几页内容叠在一格,点页签切换" },
     ],
   },
 ];
+
+/** 名字从组件说明书(widgetSpecs)来 —— 看板和分析里的 AI 叫同一个名字。 */
+export const KIND_GROUPS: { title: string; kinds: WidgetKind[] }[] = GROUPS.map((g) => ({
+  ...g,
+  kinds: g.kinds.map((k) => ({ ...k, label: WIDGET_SPECS[k.type].label })),
+}));
 
 export const ALL_KINDS = KIND_GROUPS.flatMap((g) => g.kinds);
 

@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 const dir = mkdtempSync(join(tmpdir(), 'sonde-design-units-'));
 try {
   const output = join(dir, 'tests.cjs');
-  buildSync({ stdin: { contents: `export {validate} from './src/features/agent/jsonSchema'; export {bandOf} from './src/features/agent/layout'; export * from './src/features/agent/designUnits'; export * from './src/features/agent/designContracts'; export * from './src/features/agent/nodes/layoutDesigner'; export * from './src/features/agent/nodes/dashboardCompiler'; export {scaledText} from './src/features/dashboard/widgets/metricUtils';`, loader: 'ts', resolveDir: resolve('.') }, outfile: output, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent' });
+  buildSync({ stdin: { contents: `export {validate} from './src/features/agent/jsonSchema'; export {bandOf} from './src/features/agent/layout'; export * from './src/features/agent/designUnits'; export * from './src/features/agent/designContracts'; export * from './src/features/agent/nodes/layoutDesigner'; export * from './src/features/agent/nodes/dashboardCompiler'; export {scaledText} from './src/features/dashboard/widgets/metricUtils'; export {WIDGET_TYPES} from './src/features/dashboard/domain'; export {WIDGET_SPECS} from './src/features/dashboard/widgetSpecs';`, loader: 'ts', resolveDir: resolve('.') }, outfile: output, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent' });
   const m = createRequire(import.meta.url)(output);
   const definitions = [ ['v1:total_gmv', '元'], ['v1:total_order_cnt', '单'], ['v1:offline_gmv', '元'], ['v1:online_gmv', '元'] ].map(([metricId, unit]) => ({ metricId, name: metricId, unit, rollup: 'sum', supportedDimensions: ['region'], caliber: 'SUM', dateScoped: true, sourceTables: ['sales'] }));
   const card = (metricIds, metrics, extra = {}) => ({ type: 'kpi', band: 'kpi', title: '整体核心指标', metricIds, metrics, dimensions: [], reason: 'Summary', ...extra });
@@ -60,23 +60,14 @@ try {
   const styles = calls.filter(call => call.name === 'style_component');
   assert(styles.every(call => call.input.numberFormat.scale === 'wan'));
   assert.equal(styles[0].input.metrics[ids[0]].unit, '元');
-  /* 「场景 → 能力」这张表里引用的字段必须真实存在。它是手写的,而字段清单是
-     从 STYLE_PROPERTIES 自动生成的 —— 两边会走散:改了字段名、挪了嵌套层级,
-     表里还指着旧路径,模型照着去填就会被 schema 拒掉,而没人知道为什么。 */
+  /* 给设计 AI 的组件介绍从看板的组件说明书生成:看板有几种组件,它就看到几种,
+     名字和看板上一致。以前那份「遇到 X 用 Y」的手写清单是替它做决定,已删。 */
   {
     const guide = m.designCapabilityGuide();
-    const missing = [];
-    for (const { when, fields } of m.CAPABILITY_TRIGGERS) {
-      for (const f of fields) {
-        // 字段清单里每行形如 `chart.drillDimensions: 描述`;顶层字段(scale/tabs)
-        // 不在 STYLE_PROPERTIES 里,查 schema 本身。
-        const inGuide = guide.split('\n').some((line) => line.startsWith(`${f}:`));
-        const inSchema = JSON.stringify(m.LAYOUT_SCHEMA).includes(`"${f.split('.').pop()}"`);
-        if (!inGuide && !inSchema) missing.push(`${f}(出自「${when}」)`);
-      }
+    for (const type of m.WIDGET_TYPES) {
+      assert(guide.includes(`- ${type}「${m.WIDGET_SPECS[type].label}」`), `组件 ${type} 没出现在给 AI 的介绍里`);
     }
-    assert.deepEqual(missing, [], `CAPABILITY_TRIGGERS 指向了不存在的字段:${missing.join('; ')}`);
-    assert(m.CAPABILITY_TRIGGERS.length >= 8, '场景提示太少就起不到作用');
+    assert(!/遇到这些情况/.test(guide), '介绍只讲有什么,不讲什么时候该用什么');
   }
 
   /* band 不再是必填的五选一。

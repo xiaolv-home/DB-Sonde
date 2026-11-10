@@ -1,33 +1,37 @@
 import { STYLE_PROPERTIES } from './styleSchema';
+import { WIDGET_TYPES } from '../dashboard/domain';
+import { WIDGET_SPECS, bindingProblem } from '../dashboard/widgetSpecs';
 import type { JsonSchema } from './jsonSchema';
 import type { LayoutItem, LayoutPlan } from './layout';
 import type { AgentState } from './state';
 
 
 /**
- * 场景 → 能力。**这是「什么时候用」,不是「有什么」** —— 后者由下面的字段清单
- * 自动生成,已经有 138 行了。
+ * 给设计 AI 的「产品里有什么」。**全部从看板自己的定义生成**:
+ *   组件 —— dashboard/widgetSpecs.ts 的说明书(画出来是什么、要什么数据)
+ *   样式 —— styleSchema.ts 的字段清单(编译期保证跟看板的样式类型一致)
+ * 看板加了组件或样式,这里不用改,AI 下一次就能看到。
  *
- * 为什么要这层:字段清单是一本字典。`chart.drillDimensions` 和 `chart.grouping`
- * (千位分隔符)在里面长得一模一样,都是一行描述。模型看得见下钻,但没有任何理由
- * 去够它 —— 于是产品加了功能,生成的看板还是老几样。
- *
- * 每条的 fields 必须是真实存在的字段路径,有守卫盯着(见 test-ai-boundaries),
- * 改了字段名而忘了改这里会直接报错。
+ * 只讲「有什么」,不讲「什么时候该用什么」—— 用哪个、怎么摆,是 AI 自己的判断。
+ * (以前这里有一份「遇到 X 用 Y」的清单,被用户否了:那是替它做决定。)
  */
-export const CAPABILITY_TRIGGERS: { when: string; fields: string[] }[] = [
-  { when: "维度之间有层级(大区→门店、品类→商品),想让人点进去看下一层", fields: ["chart.drillDimensions"] },
-  { when: "希望点一张图能筛掉整块看板,而不只是本卡下钻", fields: ["chart.linkage"] },
-  { when: "同一批数据有几种读法(按渠道 / 按地区 / 按时间),塞一页太挤", fields: ["tabs"] },
-  { when: "两个指标量纲差很远(金额和比率),但要放一起看趋势", fields: ["secondaryMetricIds", "chart.secondarySeriesType"] },
-  { when: "一张卡上的指标量级差 1 万倍以上(2000 万 vs 48 家)", fields: ["scale"] },
-  { when: "要按两个维度交叉核对(地区 × 渠道)", fields: ["table.layout"] },
-  { when: "表很宽,左边的维度列要一直看得见", fields: ["table.freezeDimensions"] },
-  { when: "读者需要自己换个范围看,而不是你替他定死", fields: ["filtersEnabled", "filterFields"] },
-  { when: "同一张图里既要看绝对值又要看占比", fields: ["displayMode"] },
-  { when: "几个指标是一组、想让读者切换而不是并排铺开", fields: ["metricGroups", "metricSwitchDefault"] },
-  { when: "结论本身就是内容,不该让读者从图里自己拼", fields: ["content", "appearance.hideTitle"] },
-];
+export function componentGuide(): string {
+  return WIDGET_TYPES.map((type) => {
+    const spec = WIDGET_SPECS[type];
+    const range = ([lo, hi]: [number, number]) => (lo === hi ? `${lo}` : `${lo}–${hi}`);
+    const data = spec.userContent
+      ? spec.userContent
+      : spec.metrics[1] === 0 && spec.dimensions[1] === 0
+        ? "不绑数据"
+        : [
+          `指标 ${range(spec.metrics)} 个${spec.metricRole ? `(${spec.metricRole})` : ""}`,
+          `维度 ${range(spec.dimensions)} 个${spec.dimensionRole ? `(${spec.dimensionRole})` : ""}`,
+          spec.series ? `seriesDimension:${spec.series}${spec.seriesRequired ? "(必填)" : ""}` : "",
+          spec.secondary ? "可放 secondaryMetricIds 做右轴" : "",
+        ].filter(Boolean).join(";");
+    return `- ${type}「${spec.label}」:${spec.shows}。${data}${spec.optionKey && !spec.userContent ? `。专属样式在 ${spec.optionKey}` : ""}`;
+  }).join("\n");
+}
 
 /** Descriptions and accepted fields share the tool contract; no second hand-written whitelist. */
 export function designCapabilityGuide() {
@@ -35,19 +39,18 @@ export function designCapabilityGuide() {
     const line = `${path}: ${schema.description ?? schema.type}${schema.enum ? ` [${schema.enum.join(' / ')}]` : ''}${schema.minimum != null ? ` 最小 ${schema.minimum}` : ''}${schema.maximum != null ? ` 最大 ${schema.maximum}` : ''}`;
     return [line, ...Object.entries(schema.properties ?? {}).flatMap(([key, child]) => walk(child, `${path}.${key}`)), ...(schema.items ? walk(schema.items, `${path}[]`) : [])];
   };
-  const triggers = CAPABILITY_TRIGGERS.map((t) => `- ${t.when} → ${t.fields.join(" / ")}`).join("\n");
-  return `以下是产品现有能力，不是要求每张看板都用。按表达目的选择；不认识的字段会指出具体错误。
+  return `以下是产品现有的组件和能力。用哪些、怎么组合、怎么摆,由你根据问题和数据决定;不认识的字段会报出具体错误。
 
-**遇到这些情况时，下面这些能力是为它准备的**（不是清单，是提示；没遇到就别硬用）：
-${triggers}
+**组件**(type 取值;括号里是它要的数据,数量不对就画不出来):
+${componentGuide()}
 
-布局：12栏，x/y/w/h控制位置和大小；文本可做大标题、分区、注释；container.tabs可做不同阅读层次的分页，不能套娃。
-内容：metricIds为主指标，secondaryMetricIds为右轴/副指标，seriesDimension为分类系列。所有引用来自已验证目录。
-交互：filtersEnabled/filterFields控制单卡筛选器，chart.drillDimensions控制下钻；visible决定可见性。不能因此改变既定业务范围。
-数字：metrics 的键必须是当前卡片绑定的完整指标 id；metrics.unit 省略即可继承目录真实单位。显示万元、亿元、万单用 numberFormat.scale=wan/yi，unit 保持元、单等真实单位；同一卡片的缩放对所有指标生效，不能混用万元和亿元。decimals和numberFormat只改变显示。不同单位放双轴或分卡，不能通过改后缀伪装口径。
-表格：table控制普通/透视、行列维度、合计、小计、排序、冻结列、列宽、密度和表头；非可加指标的合计须由数据层正确计算。
-指标卡：kpi控制数字、标签、对比与切换；图表：chart控制线/柱/饼细节；appearance/text控制视觉层次。
-兼容字段明确写了“兼容”的不代表新增视觉能力。配置未设置时使用产品默认值，不需要把所有字段填一遍。
+布局:12 栏,x/y/w/h 控制位置和大小;container 的 tabs 放子组件,不能套娃。
+内容:metricIds 为主指标,secondaryMetricIds 为右轴副指标,seriesDimension 为拆分系列。所有引用来自已验证目录。
+交互:filtersEnabled/filterFields 是单卡筛选器,chart.drillDimensions 是点击下钻,chart.linkage 是点击联动整板;visible 决定可见性。这些不能改变既定的数据范围。
+数字:metrics 的键必须是当前卡片绑定的完整指标 id;metrics.unit 省略即继承目录真实单位。万/亿显示用 numberFormat.scale,unit 保持真实单位;同一卡片的缩放对所有指标生效。decimals 和 numberFormat 只改显示,不能通过改后缀伪装口径。
+配置不写就用产品默认值,不用把字段填一遍。
+
+**样式字段**:
 ${Object.entries(STYLE_PROPERTIES).flatMap(([key, schema]) => walk(schema, key)).join('\n')}`;
 }
 
@@ -89,6 +92,10 @@ export function validateDesignBindings(layout: LayoutPlan, state: AgentState): s
         if (!allowed || values.some((v) => !allowed.includes(v))) errors.push(`${label}锁定筛选必须是已核对取值的子集：${field}`);
       }
     }
+    // 组件要的数据个数(散点要两个指标、热力要纵轴…)—— 画不画得出来,不是选得好不好
+    const shape = bindingProblem(item.type, { metrics: item.metricIds.length, dimensions: item.dimensions.length, series: !!item.seriesDimension });
+    if (shape) errors.push(`${label}${shape}`);
+    if (item.secondaryMetricIds?.length && !WIDGET_SPECS[item.type].secondary) errors.push(`${label}${WIDGET_SPECS[item.type].label}没有右轴,secondaryMetricIds 放不上去`);
     if (item.chart?.drillDimensions?.includes(item.dimensions[0])) errors.push(`${label}下钻链是「再往下钻到哪几层」,不该再写一遍当前的分组维度`);
     const tableDims = [...Object.keys(item.table?.dimensionPlacements ?? {}), ...Object.keys(item.table?.dimensionSorts ?? {}), ...Object.keys(item.table?.dimensionCustomOrders ?? {}), ...(item.table?.subtotalDimension ? [item.table.subtotalDimension] : [])];
     if (tableDims.some((dim) => !item.dimensions.includes(dim))) errors.push(`${label}表格设置引用了未绑定维度`);

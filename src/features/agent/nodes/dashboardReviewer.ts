@@ -58,7 +58,8 @@ export function createDashboardReviewer({ callStructured, getPlan }: { callStruc
       name: "judgement",
       schema: JUDGEMENT_SCHEMA,
       system: `你是看板验收员。下面这个看板的**技术问题已经由程序检查过并修好了**
-(图表类型是否误导、饼图分类是否过多、KPI 是否带维度、是否重复、是否越界、数字换算)。
+(组件要的数据个数够不够、KPI 是否带维度、是否重复、是否越界、数字换算)。
+用哪种组件是设计师的决定,不归你管。
 
 **不要再说这些。** 你只看程序判不了的:
 
@@ -66,12 +67,10 @@ export function createDashboardReviewer({ callStructured, getPlan }: { callStruc
    比如「8月各网点销售额排名」。副标题该写口径的就写口径。
 2. 有没有**内容上**重复表达同一件事 —— 类型指标维度不完全相同、程序抓不到,
    但看着就是在说同一句话的两张图。
-3. 层级对不对:核心数字在 kpi,随时间变化在 trend,占比在 structure,
-   排名在 ranking,逐条明细在 detail。贴错了就指出来。
-4. 针对用户的问题,**该有的有没有**。缺了关键的一块要说。
+3. 针对用户的问题,**该有的有没有**。缺了关键的一块要说。
 
 规矩:
-- 能直接改的就填 fix(只能改标题/副标题/层级,或者标记 drop 删掉多余的组件)。
+- 能直接改的就填 fix(只能改标题/副标题,或者标记 drop 删掉多余的组件)。
   **不要试图改指标绑定** —— 指标是经过验证的,你动不了。
 - 没问题就 verdict=pass、findings 空数组。别为了显得有用硬挑毛病。
 - 最多 5 条。

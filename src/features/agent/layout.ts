@@ -168,25 +168,6 @@ export function layoutHeight(placed: PlacedItem[]): number {
   return placed.reduce((max, item) => Math.max(max, item.y + item.h), 0);
 }
 
-/**
- * 图表类型的硬性适配 —— 这些不是审美问题,是会误导人的。
- * 返回 null 表示没问题,否则返回该换成什么 + 原因。
- */
-export function chartTypeIssue(
-  item: LayoutItem,
-  facts: { categoryCount?: number; hasTimeDimension: boolean },
-): { suggest: LayoutItem["type"]; reason: string } | null {
-  if (item.type === "pie") {
-    if (facts.hasTimeDimension) {
-      return { suggest: "line", reason: "按时间看趋势不能用饼图 —— 饼图表达的是同一时刻的构成比例,没有先后顺序。" };
-    }
-
-  }
-  if (item.type === "line" && !facts.hasTimeDimension) {
-    return { suggest: "bar", reason: "折线的斜率表示随时间变化,维度不是时间时会让人误读成有趋势。" };
-  }
-  return null;
-}
 
 // ── 放开排版 ────────────────────────────────────────────────────
 
