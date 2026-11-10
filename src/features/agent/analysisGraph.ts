@@ -12,7 +12,7 @@ export interface AnalysisNodes {
   visualReviewer: NodeFn;
   commitDesign: NodeFn;
   questionPlanner: NodeFn;
-  evidenceExplorer: NodeFn;
+  drillInvestigator: NodeFn;
 }
 
 /** Shared read-only analysis pipeline. Manual mode starts with supplied parameters. */
@@ -47,13 +47,15 @@ export function buildAnalysisGraph(nodes: AnalysisNodes, question = false, runti
       }],
     }))
     .setEntry(question ? "QuestionPlanner" : "QueryPlanner");
-  if (question) graph.addNode("QuestionPlanner", nodes.questionPlanner).addEdge("QuestionPlanner", "QueryPlanner")
-    .addNode("EvidenceExplorer", nodes.evidenceExplorer).addEdge("EvidenceExplorer", "AnalysisAgent");
+  if (question) graph.addNode("QuestionPlanner", nodes.questionPlanner).addEdge("QuestionPlanner", "QueryPlanner");
+  /* 从大到小的下钻调查:整体看完找异常,一层层钻到根因,再写结论。两种模式都走 ——
+     参数是人锁的还是 AI 理解出来的,调查方式都一样。 */
+  graph.addNode("DrillInvestigator", nodes.drillInvestigator).addEdge("DrillInvestigator", "AnalysisAgent");
 
   graph.addEdge("QueryPlanner", "DataExecutor");
   graph.addEdge("DataExecutor", "DataValidator");
   graph.addConditionalEdge("DataValidator", (state) =>
-    state.validation?.status === "fail" ? "GiveUp" : question ? "EvidenceExplorer" : "AnalysisAgent");
+    state.validation?.status === "fail" ? "GiveUp" : "DrillInvestigator");
   graph.addEdge("GiveUp", END);
   graph.addEdge("AnalysisAgent", "ConclusionReviewer");
   graph.addConditionalEdge("ConclusionReviewer", (state) => state.conclusionReview?.verdict === "pass"
@@ -68,7 +70,7 @@ export function buildAnalysisGraph(nodes: AnalysisNodes, question = false, runti
   graph.addConditionalEdge("VisualReviewer", (state) => {
     const latest = state.designRounds?.[state.designRounds.length - 1];
     if (latest?.status === "pass" || latest?.status === "unavailable" || (state.retry.LayoutDesigner ?? 0) >= 2) return "DashboardExecutor";
-    if (latest?.scores && latest.scores.insight < 12 && (state.retry.AnalysisAgent ?? 0) < 2) return question ? "EvidenceExplorer" : "AnalysisAgent";
+    if (latest?.scores && latest.scores.insight < 12 && (state.retry.AnalysisAgent ?? 0) < 2) return "DrillInvestigator";
     return "LayoutDesigner";
   });
   graph.addEdge("DashboardExecutor", END);

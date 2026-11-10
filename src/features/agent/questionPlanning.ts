@@ -22,10 +22,10 @@ export interface QuestionPlan {
   coverage: { area: string; metricIds: string[]; disposition: "selected" | "deferred" | "irrelevant"; reason: string; }[];
 }
 const SCHEMA = S.obj({
-  metricIds: S.arr(S.str(), "首批取数的实际指标 id；其余相关指标可在调查阶段分批补查", 8),
+  metricIds: S.arr(S.str(), "第一层看的核心指标 id;更细的在下钻时再加", 8),
   dimensions: S.arr(S.str(), "需要的分组，含适用的时间粒度。不要把指标当维度", 3),
   period: S.obj({ kind: S.enumOf(["explicit", "last_n_months", "last_n_days", "this_month", "this_year", "last_year"]), start: S.str(), end: S.str(), count: S.int("最近几个完整月或天", 1, 366) }, ["kind", "start", "end", "count"]),
-  comparisons: S.arr(S.enumOf(["mom", "yoy"]), "有助于回答问题的对比", 2),
+  comparisons: S.arr(S.enumOf(["mom", "yoy"]), "对比基准,至少一个(默认 mom)—— 没有对比就判断不了异常", 2),
   filters: S.arr(S.obj({ field: S.str(), values: S.arr(S.str(), "用户提到的分组取值，稍后核对真实清单", 30) }, ["field", "values"]), "不得漏掉用户明确指定的范围", 8),
   coverage: S.arr(S.obj({ area: S.str("从真实目录归纳的业务主题"), metricIds: S.arr(S.str(), "涉及的真实指标 id", 20), disposition: S.enumOf(["selected", "deferred", "irrelevant"]), reason: S.str("为什么选入、后续调查或与本题无关") }, ["area", "metricIds", "disposition", "reason"]), "先审视目录的相关业务面，再决定首批指标；不是固定业务清单", 20),
   angle: S.str("本次要回答的具体问题与分析路径"),
@@ -110,8 +110,10 @@ export function createQuestionPlanner({ readCatalog, callStructured, dimensionVa
 明确的日期、指标、地区、人员范围必须遵守；有些要求不支持或关键含义有歧义时 questions 写出具体问题，不要静默忽略。
 没有说日期且没有可继承的上下文，默认最近 3 个完整自然月（last_n_months, count=3），在 assumptions 中说明。
 中文“6-8月”表示完整的三个月，不是6月8日；没说年份时结合今天采用最近已结束的对应区间并说明年份。日期运算交给程序。
-先审视真实目录的 category、名称与口径，判断本题涉及哪些业务面。宽泛的经营问题不能只挑熟悉的几个指标就视为全面；coverage 说明相关主题的取舍。不要套固定行业指标组合，不相关主题无需为了凑全而查询。
-metricIds 只是首批查询预算，不是整次分析只能考虑8个指标；相关但首批未查的主题标为 deferred，后续分批调查。
+这是一次「从大到小」调查的第一层:先看全局,找出哪块异常,后面会一层层往下钻(按周/日、按更细的分组),直到找到原因。
+所以这一层选能直接回答问题的核心指标(比如经营情况先看 GMV、单量、客单价这类),按用户关心的分组拆开(「各渠道」就按渠道),
+并且一定要有对比基准(默认环比;问题涉及同期、季节性就加同比)—— 没有对比就看不出谁异常。不用在这一步把所有指标、所有维度都查上。
+coverage 记录相关的业务主题:这一层就看的标 selected,留给后面下钻时再看的标 deferred。
 用户指定“六大/6个”等分组数量时，不能默认当作全部分组，更不能擅自猜哪几个或排除哪些；无可验证的名单/上下文时提出具体歧义。
 选择能回答问题的维度，不是每个维度都选。问题关心谁、哪里就选择对应的业务维度。要比较变化才加入时间粒度。
 分析范围已经明确时不要问“要哪些指标、用什么图、前几名”。这些是你的工作。除非用户明确要求，图表不要固定前5名。
@@ -143,7 +145,8 @@ ${feedback ? `上次计划无法执行，请修正；若无法确定则提出具
         const dateRange = questionRange(plan.period, state.today);
         const params: LockedParams = {
           metricIds: [...new Set(plan.metricIds)], dimensions: [...new Set(plan.dimensions)], dateRange,
-          comparisons: [...new Set(plan.comparisons)], filters: structuredClone(plan.filters), focus: state.userRequest, wantsDashboard: state.requirement?.wantsDashboard ?? true
+          // 没有对比期就判断不了哪块异常 —— 模型漏了就补环比
+          comparisons: plan.comparisons.length ? [...new Set(plan.comparisons)] : ["mom"], filters: structuredClone(plan.filters), focus: state.userRequest, wantsDashboard: state.requirement?.wantsDashboard ?? true
         };
         // Semantic compiler validates connection, database, dimensions, filters and calendar before any query.
         const { dataset } = prepareQueryPlan(params, all);

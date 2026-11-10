@@ -39,7 +39,7 @@ export default function AnalysisResults({ state, running, stopping, draft, onFol
   useEffect(() => { resultRef.current?.scrollTo({ top: 0 }); }, [state?.workflowId]);
   const modelChanged = !!state && JSON.stringify(state.modelChoice) !== JSON.stringify(draft.modelChoice);
   const changed = modelChanged || state?.locked !== false && !!state?.lockedParams && key(state.lockedParams) !== key({ metricIds: draft.metricIds, dimensions: [draft.grain, ...draft.dimensions], dateRange: { start: draft.start, end: draft.end }, comparisons: [...(draft.mom ? ["mom" as const] : []), ...(draft.yoy ? ["yoy" as const] : [])], filters: Object.entries(draft.filterValues).filter(([, values]) => values.length).map(([field, values]) => ({ field, values })), focus: draft.focus, wantsDashboard: draft.wantsDashboard });
-  const steps = [...(state?.locked === false ? ["QuestionPlanner"] : []), "QueryPlanner", "DataExecutor", "DataValidator", ...(state?.locked === false ? ["EvidenceExplorer"] : []), "AnalysisAgent", "ConclusionReviewer", ...((state?.requirement?.wantsDashboard ?? draft.wantsDashboard) ? ["LayoutDesigner", "DashboardReviewer", "DashboardPreview", "VisualReviewer", "DashboardExecutor"] : [])];
+  const steps = [...(state?.locked === false ? ["QuestionPlanner"] : []), "QueryPlanner", "DataExecutor", "DataValidator", "DrillInvestigator", "AnalysisAgent", "ConclusionReviewer", ...((state?.requirement?.wantsDashboard ?? draft.wantsDashboard) ? ["LayoutDesigner", "DashboardReviewer", "DashboardPreview", "VisualReviewer", "DashboardExecutor"] : [])];
   const status = stopping ? "正在停止" : running ? "正在分析" : state?.status === "needs_input" ? "需要补充一点信息" : state?.status === "failed" ? "分析未完成" : state?.status === "cancelled" ? "已停止" : "分析完成";
   const datasetCount = Object.values(state?.datasets ?? {}).reduce((n, d) => n + d.rowCount, 0);
   return <main ref={resultRef} className="an-result" aria-label="分析结果">
@@ -66,6 +66,7 @@ export default function AnalysisResults({ state, running, stopping, draft, onFol
       {state?.status === "failed" && state?.conclusionReview?.verdict === "revise" && (state.analysisSummary || state.insights?.length) &&
         <div className="an-notice" role="status"><b>下面这份结论没有通过证据复核</b><p>保留它是为了让你看到已经查到什么、依据是什么，不代表它已经可信；复核指出的问题见上方红框。</p></div>}
       {state?.analysisSummary && <section className="an-summary"><span className="an-eyebrow">本次发现</span><p>{state.analysisSummary}</p></section>}
+      {!!state?.drillSteps?.length && <DrillPath state={state} />}
       {!!state?.insights?.length && <section className="an-findings" aria-label="分析结论">
         <div className="an-section-title"><h3>关键结论</h3><span>{state.insights.length} 条发现 · 可查看依据</span></div>
         {state.insights.map((insight, index) => <article className={`an-finding ${insight.severity}`} key={index}>
@@ -112,4 +113,26 @@ function EvidenceTable({ columns, rows }: { columns?: string[]; rows: unknown[][
   if (!rows.length) return <p className="an-dim">没有可展示的样例行</p>;
   const labels = columns ?? rows[0].map((_, i) => `数据 ${i + 1}`);
   return <div className="an-table-scroll"><table><thead><tr>{labels.map((label, i) => <th key={i}>{label}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr key={i}>{row.map((value, j) => <td key={j}>{value == null ? "—" : typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : String(value)}</td>)}</tr>)}</tbody></table></div>;
+}
+
+/** 下钻调查的路径:从整体一层层往下,每一步看了什么、说明了什么。 */
+function DrillPath({ state }: { state: AgentState }) {
+  const steps = state.drillSteps ?? [];
+  const depth = (id?: string): number => { const step = steps.find((s) => s.id === id); return step ? 1 + depth(step.parentId) : 0; };
+  return <section className="an-drill" aria-label="调查路径">
+    <div className="an-section-title"><h3>调查路径</h3><span>从整体往下钻了 {steps.filter((s) => !s.failed).length} 步</span></div>
+    {state.rootCause && <div className="an-drill-root"><b>找到的原因</b><p>{state.rootCause}</p></div>}
+    <ol className="an-drill-steps">
+      <li className="an-drill-step" style={{ paddingLeft: 0 }}><span className="an-drill-id">整体</span><div><b>{state.scope?.label ?? "整体"}</b>{state.lockedParams?.dimensions?.length ? <small> · 按{state.lockedParams.dimensions.map(dimensionLabel).join("、")}</small> : null}</div></li>
+      {steps.map((step) => <li key={step.id} className={`an-drill-step ${step.failed ? "failed" : ""}`} style={{ paddingLeft: depth(step.id) * 18 }}>
+        <span className="an-drill-id">{step.id}</span>
+        <div>
+          <b>{step.label}</b>{step.breakdown && <small> · 按{dimensionLabel(step.breakdown)}拆</small>}{step.compare && <small> · 对比{step.compare === "yoy" ? "去年同期" : "上期"}</small>}
+          <p className="an-drill-q">{step.question}</p>
+          {step.reading && <p className="an-drill-reading">{step.reading}</p>}
+          {step.failed && <p className="an-drill-failed">没取到:{step.failed}</p>}
+        </div>
+      </li>)}
+    </ol>
+  </section>;
 }

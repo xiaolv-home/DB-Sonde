@@ -3,7 +3,8 @@ import { S } from "../jsonSchema";
 import { STYLE_PROPERTIES } from "../styleSchema";
 import { BANDS, WIDTHS, type LayoutPlan } from "../layout";
 import { WIDGET_TYPES, LEAF_WIDGET_TYPES } from "../../dashboard/domain";
-import { designCapabilityGuide, validateDesignBindings } from "../designContracts";
+import { designCapabilityGuide, expandViews, validateDesignBindings } from "../designContracts";
+import { styleEachComponent } from "./componentStylist";
 import { refineAnalysisLayout } from "../presentation";
 import type { AgentState } from "../state";
 import type { NodeFn } from "../graph";
@@ -29,6 +30,7 @@ export const LAYOUT_SCHEMA = S.obj(
         {
           band: S.enumOf(BANDS, "可选,**不用每块都填**。它只改两件事:填 ranking 时柱形默认横向、并按指标降序排(叫排名就得真排过)。不决定位置,也不是要你凑齐五种角色"),
           type: S.enumOf([...WIDGET_TYPES], "组件类型;text 是纯文字块,用来写小标题、口径注释、结论"),
+          view: S.str("可选:引用一个数据视角 id(下钻步骤 S1、S2…)。填了就自动带上那一步的指标、分组和缩小后的范围,metricIds/dimensions 可以给空数组"),
           title: S.str("组件标题,说人话"),
           subtitle: S.str("标题下的口径小字,可选"),
           footnote: S.str("卡片底部小字:数据截至、注意事项,可选"),
@@ -84,7 +86,18 @@ export function createLayoutDesigner({ callStructured, getPlan }: { callStructur
         }), rowCount: plan.result.rows.length, columns: plan.result.columns.map((c) => c.name),
         ...(includeSamples ? { sampleRows: plan.result.rows.slice(0, 3) } : {})
       }];
-    });
+    }).concat((state.drillSteps ?? []).flatMap((step) => {
+      const plan = step.planId && !step.failed ? getPlan(step.planId) : undefined;
+      if (!plan?.result) return [];
+      const index = step.breakdown ? plan.result.columns.findIndex((c) => c.name === step.breakdown) : -1;
+      const values = index < 0 ? [] : [...new Set(plan.result.rows.map((row) => String(row[index] ?? "")))];
+      // 下钻视角:组件写 view: "S2" 就能直接用这一步的数据
+      return [{
+        view: step.id, from: step.parentId ?? "overview", question: step.question, reading: step.reading, scope: step.label,
+        metricIds: plan.metricIds, dimensions: step.breakdown ? [{ id: step.breakdown, count: values.length, ...(includeSamples ? { sample: values.slice(0, 8) } : {}) }] : [],
+        rowCount: plan.result.rows.length, comparedWith: step.compare ?? "无",
+      }] as never[];
+    }));
   }
 
   const layoutDesigner: NodeFn = async (state, context) => {
@@ -104,6 +117,9 @@ export function createLayoutDesigner({ callStructured, getPlan }: { callStructur
 ${designCapabilityGuide()}
 
 **目标**:做一块让人看完就明白答案的看板 —— 回答用户的问题,把结论讲清楚,好读、好看。
+这次分析是从大到小一层层钻下去的,看板就沿着这条路讲:整体变了多少 → 变化集中在哪 → 往下钻看到了什么 → 根因。
+下钻的每一步都是一个数据视角(view: S1/S2…),组件引用它就自动带上那一步的指标、分组和缩小后的范围。
+这一步专注于讲什么、用什么组件、怎么排;每个组件的细节样式随后会单独逐个打磨。
 
 **你说了算**:用哪些组件、用几个、怎么组合、怎么排、配色、字号、注释、要不要分页。产品有什么都列在上面,
 没有固定模板,也没有「某种情况必须用某种图」的规定。程序只修三种硬错:超出网格、两块压在一起、行与行之间留大洞。
@@ -118,6 +134,7 @@ ${metrics.map((m) => `  ${m.metricId} = ${m.name}(${m.unit})；业务方向=${m.
 已验证的数据视角（planId、指标、维度、实际点数和样例）：
 ${JSON.stringify(designDataViews(state, context?.modelConfig?.includeSampleRows === true))}
 分析报告：${state.report ?? state.analysisSummary ?? ""}
+调查给出的根因：${state.rootCause ?? "(无)"}
 证据缺口：${JSON.stringify(state.evidenceGaps ?? [])}
 
 已经算出来的结论(用图展示、写进 text 块,或两者都有,你定):
@@ -130,13 +147,15 @@ theme 字段写一句话:这版为什么这么设计。用户会看到。
     }, context?.modelConfig);
     context?.signal?.throwIfAborted();
     if (!result.ok) throw new Error(`设计版面失败:${result.errors?.join(";")}`);
-    const layout = normalizeDesignUnits(result.data!, metrics);
+    const layout = expandViews(normalizeDesignUnits(result.data!, metrics), state);
     const usage = [...state.usage, { node: "LayoutDesigner", ms: result.ms, promptTokens: result.promptTokens, completionTokens: result.completionTokens }];
     const bindingErrors = validateDesignBindings(layout, state);
     if (bindingErrors.length) return { layout, usage, designBindingErrors: bindingErrors, designFeedback: `修正这些字段或数据边界错误：${bindingErrors.join("；")}` };
+    // 排好版之后,每个组件单独打磨一遍
+    const styled = await styleEachComponent({ callStructured, getPlan }, layout, state, context?.modelConfig, context?.signal);
     return {
-      layout: refineAnalysisLayout(layout, metrics), designBindingErrors: [],
-      usage,
+      layout: refineAnalysisLayout(styled.layout, metrics), designBindingErrors: [],
+      usage: [...usage, ...styled.usage],
     };
   };
 

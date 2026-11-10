@@ -9,7 +9,7 @@ try {
  const outfile=join(dir,'test.cjs');
  // Replace only the ECharts host: exercise the real series and formatter construction.
  const {build}=await import('esbuild');
- await build({stdin:{contents:`import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';import ChartWidget from './src/features/dashboard/widgets/ChartWidget';export {normalizeDashboard,createDashboard,createWidget} from './src/features/dashboard/domain';export {repairGeneratedStyle} from './src/features/dashboard/generatedAppearance';export {pendingCoverage} from './src/features/agent/evidenceLoop';export * from './src/features/dashboard/cardReadability';export {refineAnalysisLayout} from './src/features/agent/presentation';export function render(props){renderToStaticMarkup(React.createElement(ChartWidget,props));return globalThis.__qualityOption;}export function renderHtml(props){return renderToStaticMarkup(React.createElement(ChartWidget,props));}`,resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'cjs',logLevel:'silent',plugins:[{name:'capture-option',setup(b){b.onLoad({filter:/echarts-for-react\/lib\/index.js$/},()=>({contents:"import React from 'react'; export default function ChartHost(p){globalThis.__qualityOption=p.option; return React.createElement('div');}",loader:'js'}));}}]});
+ await build({stdin:{contents:`import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';import ChartWidget from './src/features/dashboard/widgets/ChartWidget';export {normalizeDashboard,createDashboard,createWidget} from './src/features/dashboard/domain';export {repairGeneratedStyle} from './src/features/dashboard/generatedAppearance';export * from './src/features/dashboard/cardReadability';export {refineAnalysisLayout} from './src/features/agent/presentation';export function render(props){renderToStaticMarkup(React.createElement(ChartWidget,props));return globalThis.__qualityOption;}export function renderHtml(props){return renderToStaticMarkup(React.createElement(ChartWidget,props));}`,resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'cjs',logLevel:'silent',plugins:[{name:'capture-option',setup(b){b.onLoad({filter:/echarts-for-react\/lib\/index.js$/},()=>({contents:"import React from 'react'; export default function ChartHost(p){globalThis.__qualityOption=p.option; return React.createElement('div');}",loader:'js'}));}}]});
  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}}});
  globalThis.getComputedStyle=()=>({getPropertyValue:()=> '#8796a8'});
  const m=createRequire(import.meta.url)(outfile);
@@ -87,11 +87,6 @@ try {
 
  // topN 照样生效:要前一个渠道就只给前一个
  assert.deepEqual(m.render({...totals,widget:{...totals.widget,type:'bar',options:{...totals.widget.options,topN:1}}}).xAxis.data,['线上 (元)']);
- const plan=[{area:'客户资产',metricIds:['stored'],disposition:'deferred',reason:'后续调查'}];
- assert.equal(m.pendingCoverage(plan,[],[],[]).length,1);
- assert.equal(m.pendingCoverage(plan,[],[{area:'客户资产',action:'unavailable',reason:'没有数据'}],[]).length,1,'Unqueried is not unavailable');
- assert.equal(m.pendingCoverage(plan,['stored'],[],[]).length,0);
- assert.equal(m.pendingCoverage(plan,[],[{area:'客户资产',action:'unavailable',reason:'查询失败'}],['stored']).length,0);
  const layout=m.refineAnalysisLayout({title:'构成',items:[{type:'pie',title:'渠道',metricIds:['dining','delivery'],dimensions:[],band:'structure',reason:'互斥渠道构成'}]},[{metricId:'dining',name:'线下',unit:'元',rollup:'sum'},{metricId:'delivery',name:'线上',unit:'元',rollup:'sum'}]);assert.equal(layout.items[0].type,'pie');
 
  /* ── tooltip 不许执行脚本 ────────────────────────────────────────────────

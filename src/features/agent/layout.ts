@@ -19,6 +19,8 @@ export interface LayoutItem extends Omit<Partial<DashboardWidget["options"]>, "c
    *  (真机上出过「副标题写着按销售额降序、柱子却按名称顺排」的事故)。
    *  没给就按组件类型兜底推断,只用于模型没给坐标时的排版回退。 */
   band?: Band;
+  /** 引用一个数据视角(下钻步骤 S1/S2…):没给的指标、分组、范围按那一步补上。 */
+  view?: string;
   secondaryMetricIds?: string[];
   seriesDimension?: string;
   filtersEnabled?: boolean;

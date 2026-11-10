@@ -1,5 +1,5 @@
 import { S } from "../jsonSchema";
-import { computeFacts } from "../factCalculator";
+import { allFacts } from "../drillFacts";
 import type { Insight } from "../state";
 import type { NodeFn } from "../graph";
 import type { PlanReader, DimensionLabel } from "../planReader";
@@ -31,7 +31,7 @@ export function createAnalysisNode({ callStructured, getPlan, dimensionLabel }: 
     context?.signal?.throwIfAborted();
     /* 关键:趋势、同环比、TopN、贡献度全由代码算好,模型只负责**挑重点和讲人话**。
        让它自己从数据里"看出"结论,等于让它心算几千行 —— 那正是幻觉的来源。 */
-    const facts = computeFacts(state, getPlan, dimensionLabel);
+    const facts = allFacts(state, getPlan, dimensionLabel);
     if (facts.length === 0) {
       return { insights: [], report: "数据取回来了,但没有算出值得一提的结论(可能是维度太少或区间太短)。" };
     }
@@ -49,10 +49,15 @@ export function createAnalysisNode({ callStructured, getPlan, dimensionLabel }: 
 - **只能引用事实清单里的数字**,一个字都不许自己算、自己编。
 - 区分事实、相关关系与因果。允许提出明确标记为“待验证”的解释和验证建议，但不能把猜测当成已证实原因。
 - 每条 finding 必须填 factId,指明它基于哪条事实。
-- 按问题需要决定结论条数和展开程度，不套固定的总量、趋势、前几名模板。
+- 按调查路径从大到小写:先说整体变了多少、跟什么比;再说变化集中在哪一块(占总变化几成);
+  再说往下钻看到了什么(哪几周 / 哪几天 / 哪几家);最后说根因 —— 数据证实了的和推测、待验证的分开写。
+  没有异常就直说,不为了显得深入编故事。条数和篇幅按问题需要定。
 
 分析目标:${state.requirement?.goal ?? state.userRequest}
 本次分析路径:${state.analysisAngle ?? "根据问题选择最有解释力的事实"}
+下钻调查路径(从整体往下,每一步的事实 id 以步骤号开头,如 S2-1):
+${(state.drillSteps ?? []).filter((d) => !d.failed).map((d) => `  ${d.id}${d.parentId ? `(接 ${d.parentId})` : ""} ${d.label}${d.breakdown ? ` 按${d.breakdown}` : ""}:${d.question}${d.reading ? ` → ${d.reading}` : ""}`).join("\n") || "  (没有下钻)"}
+调查给出的根因判断:${state.rootCause ?? "(无)"}
 前一轮结论:${state.previousSummary ?? "无"}
 如果是追问，围绕新问题补充证据和比较，不重复整段旧结论；如果数据和发现没有变化，直接说明，不为变化而编造。
 数据范围:${state.scope?.label}

@@ -173,3 +173,19 @@
 .an-progress li { min-width:48px; }
 
 .an-asked { margin:-6px 0 22px; color:var(--text-3); font-size:12px; line-height:1.6; }
+
+/* 调查路径:从整体往下钻的每一步 */
+.an-drill { margin: 4px 0 22px; }
+.an-drill-root { margin: 10px 0 12px; padding: 12px 14px; border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--accent-soft); }
+.an-drill-root b { font-size: 13px; color: var(--accent); }
+.an-drill-root p { margin: 6px 0 0; font-size: 14px; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+.an-drill-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.an-drill-step { display: flex; gap: 10px; align-items: flex-start; padding-top: 7px; padding-bottom: 7px; border-bottom: 1px solid var(--grid-line); }
+.an-drill-step > div { min-width: 0; flex: 1; }
+.an-drill-step b { font-size: 13px; font-weight: 600; color: var(--text); }
+.an-drill-step small { color: var(--text-3); font-size: 12px; }
+.an-drill-id { flex: none; min-width: 34px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); font-family: var(--mono); font-size: 11.5px; text-align: center; }
+.an-drill-q { margin: 3px 0 0; color: var(--text-2); font-size: 12.5px; }
+.an-drill-reading { margin: 4px 0 0; color: var(--text); font-size: 13px; line-height: 1.7; }
+.an-drill-failed { margin: 4px 0 0; color: var(--amber); font-size: 12px; }
+.an-drill-step.failed b { color: var(--text-3); }

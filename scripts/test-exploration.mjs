@@ -10,7 +10,7 @@ const response = data => ({ ok: true, data, ms: 1, promptTokens: 2, completionTo
 const ok = data => ({ ok: true, data, audit: { tool: 'fixture', ms: 1 } });
 try {
   const outfile = join(dir, 'tests.cjs');
-  const build = buildSync({ stdin: { contents: ['questionPlanning', 'evidenceExploration', 'queryPlanModel', 'analysisCatalog'].map(name => `export * from './src/features/agent/${name}';`).join('\n'), resolveDir: resolve('.'), loader: 'ts' }, outfile,
+  const build = buildSync({ stdin: { contents: ['questionPlanning', 'evidenceExploration', 'drillInvestigator', 'queryPlanModel', 'analysisCatalog'].map(name => `export * from './src/features/agent/${name}';`).join('\n'), resolveDir: resolve('.'), loader: 'ts' }, outfile,
     bundle: true, platform: 'node', format: 'cjs', metafile: true, logLevel: 'silent' });
   assert(!Object.keys(build.metafile.inputs).some(file => /Store\.ts|\/registry.ts|model\/structured|@tauri|react|zustand/.test(file)));
   const m = createRequire(import.meta.url)(outfile);
@@ -84,43 +84,46 @@ try {
     const run = node(state, { signal: controller.signal }); await start.promise; controller.abort(); wait.resolve(target === 'model' ? response(questionPlan) : ['East']);
     await assert.rejects(run, error => error.name === 'AbortError'); assert.equal(requests, 1, 'cancellation must not become clarification or start a model repair');
   }
-  const observed = metricIds => ({ metricIds, shape: { dimensions: [], metrics: metricIds.map(id => ({ field: id, name: id, unit: '$', rollup: 'sum' })) }, result: { columns: metricIds.map(name => ({ name })), rows: [metricIds.map(() => 10)], elapsedMs: 1 } });
+  const observed = (metricIds, dims = []) => ({ metricIds, shape: { dimensions: dims, metrics: metricIds.map(id => ({ field: id, name: id, unit: '$', rollup: 'sum' })) }, result: { columns: [...dims, ...metricIds].map(name => ({ name })), rows: [[...dims.map(() => 'East'), ...metricIds.map(() => 10)]], elapsedMs: 1 } });
   const plans = new Map([['primary', observed(['sales'])]]);
-  const coverage = [{ area: 'Inventory', disposition: 'deferred', metricIds: ['stock'], reason: 'Relevant' }];
-  const queryDecision = { decision: 'query', reasoning: 'Need inventory', question: '', gaps: [], queries: [{ metricIds: ['stock'], dimensions: [], reason: 'Inspect inventory' }], coverageDecisions: [{ area: 'Inventory', action: 'query', reason: 'Relevant' }] };
-  const ready = { ...queryDecision, decision: 'ready', queries: [], coverageDecisions: [] };
-  let round = 0; const tools = [];
-  const exploration = m.createEvidenceExplorer({ readCatalog: () => catalog, getPlan: id => plans.get(id),
-    callStructured: async () => response(round++ ? ready : queryDecision), callTool: async (name, data, workflowId) => {
+  // 下钻:从整体往下一层,缩小到 region=East(核对过的范围内),按月拆,配环比
+  const drill = (patch = {}) => ({ readings: [], thinking: 'Find where it changed', decision: 'drill', rootCause: '', gaps: [],
+    drills: [{ from: 'overview', question: 'Inventory by month', metricIds: ['stock'], focus: [{ field: 'region', values: ['East'] }], breakdown: 'month', compare: 'mom', ...patch }] });
+  const done = { readings: [{ stepId: 'S1', reading: 'Stock fell in August' }], thinking: 'Enough', decision: 'done', drills: [], rootCause: 'Stock fell', gaps: [] };
+  let round = 0, built = 0; const tools = [];
+  const investigator = m.createDrillInvestigator({ readCatalog: () => catalog, getPlan: id => plans.get(id),
+    callStructured: async () => response(round++ ? done : drill()), callTool: async (name, data, workflowId) => {
       tools.push({ name, data, workflowId });
-      if (name === 'build_query_plan') { plans.set('extra', observed(['stock'])); return ok({ planId: 'extra' }); }
+      if (name === 'build_query_plan') { const id = `p${++built}`; plans.set(id, observed(['stock'], ['month'])); return ok({ planId: id }); }
       if (name === 'execute_query_plan') return ok({ rowCount: 1 });
       return ok({ issues: [{ level: 'warn', code: 'GAP', message: 'One gap' }] });
     } });
-  const initial = { ...state, coveragePlan: coverage }, before = structuredClone(initial);
-  const evidence = await exploration(initial);
-  assert.equal(evidence.supportingPlans[0].planId, 'extra'); assert.equal(evidence.validation.status, 'warn');
-  assert(evidence.validatedMetrics.some(metric => metric.metricId === 'stock'));
-  assert.deepEqual(tools[0].data.dateRange, dateRange); assert.deepEqual(tools[0].data.filters, [{ field: 'region', values: ['East'] }]);
-  assert(tools.every(tool => tool.workflowId === state.workflowId)); assert.deepEqual(initial, before);
-  // Bad query arguments don't establish that a metric is unavailable.
-  let attempt = 0;
-  const invalid = m.createEvidenceExplorer({ readCatalog: () => catalog, getPlan: id => plans.get(id),
-    callStructured: async () => response(attempt++ ? { ...ready, coverageDecisions: [{ area: 'Inventory', action: 'unavailable', reason: 'Could not query' }] } : queryDecision),
-    callTool: async () => ({ ok: false, error: { message: 'Unsupported dimension' } }) });
-  const unfinished = await invalid(initial);
-  assert.equal(attempt, 4); assert(unfinished.evidenceGaps.some(gap => gap.includes('Inventory')));
-  let forbiddenTools = 0;
-  const foreign = m.createEvidenceExplorer({ readCatalog: () => catalog, getPlan: id => plans.get(id),
-    callStructured: async () => response({ ...queryDecision, queries: [{ ...queryDecision.queries[0], metricIds: ['foreign'] }] }), callTool: async () => { forbiddenTools++; return ok({}); } });
-  await foreign(initial); assert.equal(forbiddenTools, 0);
-  await assert.rejects(foreign({ ...initial, connId: 'B' }), /连接不一致/);
+  const before = structuredClone(state);
+  const evidence = await investigator(state);
+  assert.equal(evidence.drillSteps.length, 1); assert.equal(evidence.drillSteps[0].planId, 'p1'); assert.equal(evidence.drillSteps[0].comparePlanId, 'p2', 'Every drill step gets its baseline');
+  assert.equal(evidence.drillSteps[0].reading, 'Stock fell in August'); assert.equal(evidence.rootCause, 'Stock fell');
+  assert.equal(evidence.validation.status, 'warn'); assert(evidence.validatedMetrics.some(metric => metric.metricId === 'stock'));
+  const builds = tools.filter(t => t.name === 'build_query_plan');
+  assert.deepEqual(builds[0].data.dateRange, dateRange); assert.deepEqual(builds[0].data.filters, [{ field: 'region', values: ['East'] }]);
+  assert.deepEqual(builds[1].data.dateRange, { start: '2026-07-01', end: '2026-07-31' }, 'The baseline is the previous whole month');
+  assert(tools.every(tool => tool.workflowId === state.workflowId)); assert.deepEqual(state, before);
+  // 范围只能越钻越小:超出核对过的取值、目录外的指标、日期越界 —— 都不取数
+  for (const bad of [{ focus: [{ field: 'region', values: ['West'] }] }, { metricIds: ['foreign'] }, { dateRange: { start: '2026-07-01', end: '2026-08-31' } }, { breakdown: 'missing' }]) {
+    let calls = 0, asked = 0;
+    const node = m.createDrillInvestigator({ readCatalog: () => catalog, getPlan: id => plans.get(id),
+      callStructured: async () => response(asked++ ? done : drill(bad)), callTool: async () => { calls++; return ok({}); } });
+    const out = await node(state);
+    assert.equal(calls, 0, `must not query out of scope: ${JSON.stringify(bad)}`);
+    assert(out.investigation.some(line => line.startsWith('没钻')), JSON.stringify(out.investigation));
+  }
+  await assert.rejects(investigator({ ...state, connId: 'B' }), /连接不一致/);
   for (const target of ['model', 'build_query_plan', 'execute_query_plan', 'validate_dataset']) {
     const wait = later(), start = later(), controller = new AbortController(), trace = [];
-    const node = m.createEvidenceExplorer({ readCatalog: () => catalog, getPlan: id => plans.get(id),
-      callStructured: async () => { if (target === 'model') { start.resolve(); return wait.promise; } return response(queryDecision); },
-      callTool: async name => { trace.push(name); if (name === target) { start.resolve(); return wait.promise; } return ok(name === 'build_query_plan' ? { planId: 'extra' } : { rowCount: 1 }); } });
-    const run = node(initial, { signal: controller.signal }); await start.promise; controller.abort(); wait.resolve(target === 'model' ? response(ready) : ok({ planId: 'late', rowCount: 1, issues: [] }));
+    const node = m.createDrillInvestigator({ readCatalog: () => catalog, getPlan: id => plans.get(id),
+      callStructured: async () => { if (target === 'model') { start.resolve(); return wait.promise; } return response(drill()); },
+      callTool: async name => { trace.push(name); if (name === target) { start.resolve(); return wait.promise; } return ok(name === 'build_query_plan' ? { planId: 'p9' } : { rowCount: 1, issues: [] }); } });
+    plans.set('p9', observed(['stock'], ['month']));
+    const run = node(state, { signal: controller.signal }); await start.promise; controller.abort(); wait.resolve(target === 'model' ? response(done) : ok({ planId: 'late', rowCount: 1, issues: [] }));
     await assert.rejects(run, error => error.name === 'AbortError');
     if (target !== 'model') assert.equal(trace.at(-1), target, 'no tool after cancellation');
   }
@@ -152,5 +155,5 @@ try {
   const reviewer = m.createConclusionReviewer({ readCatalog: () => catalog, getPlan: id => plans.get(id), callStructured: async () => { start.resolve(); return wait.promise; } });
   const reviewing = reviewer({ ...state, report: '10 total' }, { signal: stop.signal }); await start.promise; stop.abort(); wait.resolve(response({ verdict: 'pass', issues: [] }));
   await assert.rejects(reviewing, error => error.name === 'AbortError');
-  console.log('Exploration checks passed: independent catalogs, pure plan validation, resolved scope, model configuration, cancellation at all awaits, coverage honesty, data warnings and connection boundaries, catalog-owned connection, no repeated clarification.');
+  console.log('Exploration checks passed: independent catalogs, pure plan validation, resolved scope, model configuration, cancellation at all awaits, top-down drill scope, baselines, data warnings and connection boundaries, catalog-owned connection, no repeated clarification.');
 } finally { rmSync(dir, { recursive: true, force: true }); }

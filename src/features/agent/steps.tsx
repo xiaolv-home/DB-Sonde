@@ -17,7 +17,7 @@ export const NODE_LABELS: Record<string, string> = {
   QueryPlanner: "生成查询",
   DataExecutor: "取数",
   DataValidator: "数据体检",
-  EvidenceExplorer: "深入验证",
+  DrillInvestigator: "逐层下钻找原因",
   AnalysisAgent: "形成结论",
   ConclusionReviewer: "证据复核",
   LayoutDesigner: "设计版面",

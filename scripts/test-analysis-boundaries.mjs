@@ -159,7 +159,7 @@ try {
   assert.equal(new Set(ids).size, 100);
 
   // Real routing, injected nodes: quality gates retain their behavior without network/model dependencies.
-  const nodes = Object.fromEntries(['lockedPlanner','dataExecutor','dataValidator','analysisAgent','conclusionReviewer','layoutDesigner','dashboardReviewer','dashboardPreview','visualReviewer','commitDesign','questionPlanner','evidenceExplorer'].map(name => [name, () => ({})]));
+  const nodes = Object.fromEntries(['lockedPlanner','dataExecutor','dataValidator','analysisAgent','conclusionReviewer','layoutDesigner','dashboardReviewer','dashboardPreview','visualReviewer','commitDesign','questionPlanner','drillInvestigator'].map(name => [name, () => ({})]));
   nodes.dataValidator = () => ({ validation: { status: 'pass', issues: [], summary: '' } });
   nodes.analysisAgent = () => ({ report: 'fixture report' });
   nodes.conclusionReviewer = () => ({ conclusionReview: { verdict: 'pass', issues: [] } });
@@ -170,12 +170,12 @@ try {
   const service = m.createAnalysisWorkflow({ nodes, createState: m.createState, modelConfig: () => config,
     validatedMetrics: () => [], prepare: connection => prepared.push(connection), clearDesignSession: id => cleanups.push(id) });
   const noBoard = await service.runQuestionAnalysis('question', { connId: 'a', wantsDashboard: false });
-  assert.equal(noBoard.status, 'done'); assert(!noBoard.trace.includes('LayoutDesigner')); assert(noBoard.trace.includes('EvidenceExplorer'));
+  assert.equal(noBoard.status, 'done'); assert(!noBoard.trace.includes('LayoutDesigner')); assert(noBoard.trace.includes('DrillInvestigator'));
   const board = await service.runQuestionAnalysis('question', { connId: 'a', wantsDashboard: true });
   assert.equal(board.dashboardId, 'fixture-board'); assert.equal(cleanups.length, 0);
   const params = { metricIds: [], dimensions: ['month'], dateRange: { start: '2026-08-01', end: '2026-08-31' }, comparisons: [], filters: [], focus: '', wantsDashboard: false };
   const manual = await service.runLockedAnalysis(params, { connId: 'a' });
-  assert.equal(manual.status, 'done'); assert(!manual.trace.includes('QuestionPlanner')); assert(!manual.trace.includes('EvidenceExplorer'));
+  assert.equal(manual.status, 'done'); assert(!manual.trace.includes('QuestionPlanner')); assert(manual.trace.includes('DrillInvestigator'), 'Locked parameters are investigated top-down too');
   const cross = await service.runQuestionAnalysis('question', { connId: 'b', wantsDashboard: false, previous: noBoard });
   assert.deepEqual(cross.conversation, []);
   const unknown = await service.runQuestionAnalysis('question', { wantsDashboard: false, previous: { ...noBoard, connId: undefined } });

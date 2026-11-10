@@ -325,7 +325,7 @@ try {
   globalThis.fetch = async (url, options) => {
     const body = JSON.parse(options.body); questionCalls.push(body);
     const name = body.response_format?.json_schema?.name;
-    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(name === 'question_plan' ? planned : name === 'evidence_decision' ? (qualityScenario && investigationRound++ === 0 ? { coverageDecisions: [], decision: 'query', reasoning: '补查笔均金额，以免只看总量', question: '', gaps: ['还需要核对笔均金额'], queries: [{ metricIds: ['ratio'], dimensions: ['region'], reason: '核对各区域笔均金额' }] } : { coverageDecisions: [], decision: 'ready', reasoning: '证据充分', question: '', gaps: [], queries: [] }) : name === 'conclusion_review' ? (forceReject || qualityScenario && reviewRound++ === 0 ? { verdict: 'revise', issues: ['说明比率口径，删除无依据的因果'] } : { verdict: 'pass', issues: [] }) : { summary: '根据本次问题重新分析', findings: [{ headline: '销售额合计 60 元', factId: 'F1', severity: 'info' }] }) } }] }), { status: 200 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(name === 'question_plan' ? planned : name === 'drill_decision' ? (qualityScenario && investigationRound++ === 0 ? { readings: [], thinking: '销售增加了,往下看笔均金额是否也变了', decision: 'drill', drills: [{ from: 'overview', question: '核对各区域笔均金额', metricIds: ['ratio'], focus: [{ field: 'region', values: ['A'] }], breakdown: 'region', compare: 'none' }], rootCause: '', gaps: ['还需要核对笔均金额'] } : { readings: [{ stepId: 'S1', reading: '笔均金额 19 元' }], thinking: '证据充分', decision: 'done', drills: [], rootCause: '销售增加主要来自单量', gaps: [] }) : name === 'conclusion_review' ? (forceReject || qualityScenario && reviewRound++ === 0 ? { verdict: 'revise', issues: ['说明比率口径，删除无依据的因果'] } : { verdict: 'pass', issues: [] }) : { summary: '根据本次问题重新分析', findings: [{ headline: '销售额合计 60 元', factId: 'F1', severity: 'info' }] }) } }] }), { status: 200 });
   };
   const salesField = buildQueryPlan({ metricIds: ['sales'], dimensions: [], dateRange: range }).metrics[0].field;
   api.runReadOnlyQuery = async (_conn, _db, sql) => {
@@ -400,7 +400,9 @@ try {
     const investigated = await runQuestionAnalysis('只看A区域，销售增加是否笔均金额也变了', { connId: 'fixture', today: '2026-09-14', wantsDashboard: false, modelConfig: questionConfig });
     assert.equal(investigated.status, 'done', JSON.stringify(investigated.errors));
     assert(investigated.validatedMetrics.some(m => m.metricId === 'ratio'), 'The model can obtain new relevant evidence');
-    assert(investigated.investigation.some(text => text.includes('完成补查')));
+    assert(investigated.investigation.some(text => text.includes('下钻 S1')), JSON.stringify(investigated.investigation));
+    assert.equal(investigated.drillSteps[0].reading, '笔均金额 19 元', 'The investigator reads each step before concluding');
+    assert.equal(investigated.rootCause, '销售增加主要来自单量');
     assert.equal(investigated.trace.filter(n => n === 'AnalysisAgent').length, 2, 'A failed independent review returns to the writer');
     assert.equal(investigated.conclusionReview.verdict, 'pass');
     assert(dataCalls.slice(qualityReads).filter(sql => !sql.includes('SELECT DISTINCT')).every(sql => sql.includes("'A'")), 'Supplementary evidence inherits the verified filter');

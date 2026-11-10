@@ -19,7 +19,8 @@ import { createLayoutDesigner } from './nodes/layoutDesigner';
 import { createDashboardReviewer } from './nodes/dashboardReviewer';
 import { createDashboardCompiler } from './nodes/dashboardCompiler';
 import { createQuestionPlanner } from './questionPlanning';
-import { createEvidenceExplorer, createConclusionReviewer } from './evidenceExploration';
+import { createConclusionReviewer } from './evidenceExploration';
+import { createDrillInvestigator } from './drillInvestigator';
 import { createPreviewNode, visualReviewer, createCommitDesign, clearDesignSession } from './designLoop';
 import { createAnalysisWorkflow } from './analysisWorkflow';
 import type { ToolCaller } from './nodes/ports';
@@ -78,7 +79,7 @@ export function createAnalysisSession(signal?: AbortSignal, connId?: string) {
     layoutDesigner: guard(createLayoutDesigner({ callStructured, getPlan }).layoutDesigner),
     dashboardReviewer: createDashboardReviewer({ callStructured, getPlan }),
     questionPlanner: createQuestionPlanner({ readCatalog, callStructured, dimensionValues }),
-    evidenceExplorer: createEvidenceExplorer(ports), conclusionReviewer: createConclusionReviewer(ports),
+    drillInvestigator: createDrillInvestigator(ports), conclusionReviewer: createConclusionReviewer(ports),
     dashboardPreview: createPreviewNode(async (doc, state, abort) => {
       assertCatalog();
       const { renderDashboardPreview } = await import('./renderPreview');

@@ -1,5 +1,5 @@
 import { dashboardPreview, visualReviewer, commitDesign } from "./designLoop";
-import { evidenceExplorer, conclusionReviewer } from "./evidenceLoop";
+import { drillInvestigator, conclusionReviewer } from "./evidenceLoop";
 import { questionPlanner } from "./questionPlanner";
 import { record } from "./audit";
 import { dataExecutor, dataValidator, analysisAgent, layoutDesigner, dashboardReviewer, lockedPlanner } from "./nodes";
@@ -14,7 +14,7 @@ export { explainFailure } from "./analysisWorkflow";
 
 const nodes = {
   dataExecutor, dataValidator, analysisAgent, layoutDesigner, dashboardReviewer, lockedPlanner,
-  dashboardPreview, visualReviewer, commitDesign, evidenceExplorer, conclusionReviewer, questionPlanner
+  dashboardPreview, visualReviewer, commitDesign, drillInvestigator, conclusionReviewer, questionPlanner
 };
 export async function runLockedAnalysis(params: LockedParams, options: RunAnalysisOptions = {}) {
   const session = createAnalysisSession(options.signal, options.connId);

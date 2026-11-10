@@ -17,22 +17,22 @@ export interface Fact {
   computedBy: string;
 }
 
-const num = (cell: Cell): number | null => {
+export const num = (cell: Cell): number | null => {
   if (cell == null || (typeof cell !== "number" && typeof cell !== "string") || (typeof cell === "string" && !cell.trim())) return null;
   const value = Number(cell);
   return Number.isFinite(value) ? value : null;
 };
 
-const fmtNum = (value: number, unit: string): string => {
+export const fmtNum = (value: number, unit: string): string => {
   const abs = Math.abs(value);
   if (abs >= 1e8) return `${(value / 1e8).toFixed(2)}亿${unit}`;
   if (abs >= 1e4) return `${(value / 1e4).toFixed(1)}万${unit}`;
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${unit}`;
 };
 
-const pct = (value: number): string => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+export const pct = (value: number): string => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 
-interface Column {
+export interface Column {
   field: string;
   name: string;
   unit: string;
@@ -40,7 +40,7 @@ interface Column {
   index: number;
 }
 
-function columnsOf(result: QueryResult, metrics: { field: string; name: string; unit: string; rollup: string; }[]): Column[] {
+export function columnsOf(result: QueryResult, metrics: { field: string; name: string; unit: string; rollup: string; }[]): Column[] {
   return metrics
     .map((m) => ({ ...m, index: result.columns.findIndex((c) => c.name === m.field) }))
     .filter((m) => m.index >= 0);
@@ -58,7 +58,7 @@ function columnsOf(result: QueryResult, metrics: { field: string; name: string; 
  */
 type GroupTotal = { value: number; reason?: undefined } | { value: null; reason: "no_data" | "not_additive" };
 
-function total(rows: Cell[][], column: Column): GroupTotal {
+export function total(rows: Cell[][], column: Column): GroupTotal {
   const values = rows.map((r) => num(r[column.index])).filter((v): v is number => v !== null);
   if (!values.length) return { value: null, reason: "no_data" };
   /* COUNT(DISTINCT) 跟比率/均值一样不能跨组合并 —— 而且更狠:同一家店出现在两个组里
@@ -77,7 +77,7 @@ function usesExactTotal(column: Column, exact?: QueryResult): boolean {
   return !!exact && column.rollup !== "sum" && column.rollup !== "count";
 }
 
-function overall(result: QueryResult, column: Column, exact?: QueryResult): number | null {
+export function overall(result: QueryResult, column: Column, exact?: QueryResult): number | null {
   /* 声明成求和的指标,总量就是各组之和,不能用不分组那次查询的结果。
      「有效天数」不分组查出来是日历天数(31),各店天数加起来是网点有效天数(310);
      要是总量写 31、下面的排名加起来是 310,同一份报告自相矛盾。

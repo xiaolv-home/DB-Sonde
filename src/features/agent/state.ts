@@ -83,6 +83,32 @@ export interface Insight {
   severity: "info" | "warn" | "critical";
 }
 
+/**
+ * 下钻调查的一步:在某个范围里按一个维度拆开、配一个对比期。
+ * 范围只能比上一层更小(多一个筛选、日期更窄),不能越出用户核对过的范围。
+ */
+export interface DrillStep {
+  id: string;
+  parentId?: string;
+  /** 为什么钻到这里 —— 用户会看到。 */
+  question: string;
+  metricIds: string[];
+  /** 在用户核对过的范围之上,这一步额外缩小的筛选(含上层带下来的)。 */
+  focus: { field: string; values: string[] }[];
+  dateRange: DateRange;
+  breakdown?: string;
+  compare?: "mom" | "yoy";
+  compareRange?: DateRange;
+  planId?: string;
+  comparePlanId?: string;
+  /** 人话范围:「外卖 · 2026年10月」。 */
+  label: string;
+  /** 模型读完这一步的数据后的判断。 */
+  reading?: string;
+  /** 没取到数 / 没通过检查的原因。 */
+  failed?: string;
+}
+
 export interface AgentState {
   // ── 身份与控制 ─────────────────────────────
   workflowId: string;
@@ -100,6 +126,10 @@ export interface AgentState {
   designPreview?: { imageCount: number; width: number; height: number; complete: boolean; issues: string[]; text: string };
   designRounds?: { round: number; score?: number; scores?: Record<string, number>; status: "pass" | "revise" | "unavailable"; observations: string[]; issues: string[]; model: string }[];
   investigation?: string[];
+  /** 下钻调查的路径(从整体到根因)。 */
+  drillSteps?: DrillStep[];
+  /** 调查收尾时模型给出的根因判断(事实 / 待验证分开写)。 */
+  rootCause?: string;
   evidenceGaps?: string[];
   coveragePlan?: { area: string; metricIds: string[]; disposition: "selected" | "deferred" | "irrelevant"; reason: string }[];
   conclusionReview?: { verdict: "pass" | "revise"; issues: string[] };

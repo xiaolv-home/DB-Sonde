@@ -5,7 +5,8 @@ import type { ReviewContext } from "../review";
 import { maxOf, minOf } from "../../../lib/numbers";
 
 export function observedPlans(state: AgentState, readPlan: PlanReader): ObservedPlan[] {
-  return [...(state.plans ?? []), ...(state.supportingPlans ?? [])]
+  const drills = (state.drillSteps ?? []).flatMap((s) => (s.planId && !s.failed ? [{ planId: s.planId }] : []));
+  return [...(state.plans ?? []), ...(state.supportingPlans ?? []), ...drills]
     .flatMap(ref => { const plan = readPlan(ref.planId); return plan?.result ? [plan] : []; });
 }
 

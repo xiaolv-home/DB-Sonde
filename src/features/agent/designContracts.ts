@@ -54,6 +54,37 @@ ${componentGuide()}
 ${Object.entries(STYLE_PROPERTIES).flatMap(([key, schema]) => walk(schema, key)).join('\n')}`;
 }
 
+/**
+ * 把组件上的 view(下钻步骤 id)展开成真实绑定:没写的指标、分组按那一步补,
+ * 范围(那一步缩小的筛选和日期)写进 lockedScope。模型自己写了的不覆盖。
+ */
+export function expandViews(layout: LayoutPlan, state: AgentState): LayoutPlan {
+  const steps = new Map((state.drillSteps ?? []).filter((s) => !s.failed && s.planId).map((s) => [s.id, s]));
+  const expand = (item: LayoutItem): LayoutItem => {
+    const step = item.view ? steps.get(item.view) : undefined;
+    const tabs = item.tabs?.map((tab) => ({ ...tab, items: tab.items.map(expand) }));
+    if (!step) return tabs ? { ...item, tabs } : item;
+    const scope = state.scope?.dateRange;
+    const narrowerDate = !!scope && (step.dateRange.start !== scope.start || step.dateRange.end !== scope.end);
+    const filters = Object.fromEntries(step.focus.map((f) => [f.field, f.values]));
+    const lock = item.lockedScope ?? {};
+    return {
+      ...item,
+      ...(tabs ? { tabs } : {}),
+      metricIds: item.metricIds.length || WIDGET_SPECS[item.type].metrics[1] === 0 ? item.metricIds : step.metricIds.slice(0, WIDGET_SPECS[item.type].metrics[1]),
+      dimensions: item.dimensions.length || WIDGET_SPECS[item.type].dimensions[1] === 0 || !step.breakdown ? item.dimensions : [step.breakdown],
+      ...(step.focus.length || narrowerDate ? {
+        lockedScope: {
+          ...(narrowerDate ? { start: step.dateRange.start, end: step.dateRange.end } : {}),
+          ...lock,
+          ...(step.focus.length || lock.filters ? { filters: { ...filters, ...(lock.filters ?? {}) } } : {}),
+        },
+      } : {}),
+    };
+  };
+  return { ...layout, items: layout.items.map(expand) };
+}
+
 export function allLayoutItems(layout: LayoutPlan): LayoutItem[] {
   return layout.items.flatMap((item) => [item, ...(item.tabs ?? []).flatMap((tab) => tab.items)]);
 }
@@ -88,8 +119,10 @@ export function validateDesignBindings(layout: LayoutPlan, state: AgentState): s
     if (lock && state.scope) {
       if (lock.start && lock.start < state.scope.dateRange.start || lock.end && lock.end > state.scope.dateRange.end || lock.start && lock.end && lock.start > lock.end) errors.push(`${label}单卡日期超出已核对范围`);
       for (const [field, values] of Object.entries(lock.filters ?? {})) {
+        // 只能缩小:核对过的字段取其子集;别的字段(下钻时缩小到的那块)可以加,但指标得能按它筛
         const allowed = state.scope.filters.find((f) => f.field === field)?.values;
-        if (!allowed || values.some((v) => !allowed.includes(v))) errors.push(`${label}锁定筛选必须是已核对取值的子集：${field}`);
+        if (allowed && values.some((v) => !allowed.includes(v))) errors.push(`${label}锁定筛选必须是已核对取值的子集：${field}`);
+        if (!allowed && ids.some((id) => !known.get(id)?.supportedDimensions.includes(field))) errors.push(`${label}指标不能按 ${field} 筛`);
       }
     }
     // 组件要的数据个数(散点要两个指标、热力要纵轴…)—— 画不画得出来,不是选得好不好
