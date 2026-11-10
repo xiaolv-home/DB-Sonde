@@ -6,6 +6,9 @@ import { resolveMetricIds, resolveWidgetMetrics } from "../metrics";
 import TextWidget from "../widgets/TextWidget";
 import ImageWidget from "../widgets/ImageWidget";
 import GaugeWidget from "../widgets/GaugeWidget";
+import MoreChartWidget from "../widgets/MoreChartWidget";
+import RankingWidget from "../widgets/RankingWidget";
+import { MORE_ECHART_TYPES, type MoreEchartType } from "../moreCharts";
 import KpiWidget from "../widgets/KpiWidget";
 import TableWidget from "../widgets/TableWidget";
 import ChartWidget from "../widgets/ChartWidget";
@@ -109,6 +112,13 @@ export default function WidgetRenderer({ staticRender, widget, runtime, metrics,
 
   if (widget.type === "gauge") {
     return withLoading(<GaugeWidget widget={widget} rows={result.rows} metric={resolvedMetrics[0]} staticRender={staticRender} />);
+  }
+
+  if (widget.type === "ranking") {
+    return withLoading(<RankingWidget widget={widget} result={result} metrics={resolvedMetrics} />);
+  }
+  if ((MORE_ECHART_TYPES as readonly string[]).includes(widget.type)) {
+    return withLoading(<MoreChartWidget widget={widget as DashboardWidget & { type: MoreEchartType }} result={result} metrics={resolvedMetrics} staticRender={staticRender} />);
   }
 
   if (widget.type === "table") {

@@ -56,6 +56,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
   const funnel = (c: Partial<DashboardFunnelOptions>) => set({ funnel: { ...fo, ...c } });
   const isData = !isStaticWidget(t);
   const isChart = t === "line" || t === "bar" || t === "pie" || t === "funnel";
+  const sc = o.scatter ?? {}, ra = o.radar ?? {}, hm = o.heatmap ?? {}, wf = o.waterfall ?? {}, rk = o.ranking ?? {};
   const grouping = t === "table" ? to.grouping ?? false : co.grouping ?? false;
 
   return (
@@ -142,6 +143,59 @@ export default function StylePanel({ widget, dataset, onChange }: {
 
       {t === "image" && <ImageSection widget={widget} onChange={onChange} />}
 
+      {t === "scatter" && (
+        <Section id="scatter" title="散点">
+          <Toggle checked={!!sc.quadrant} onChange={(v) => set({ scatter: { ...sc, quadrant: v } })} label="平均线分四象限" hint="右上角 = 两项都高于平均" />
+          <Toggle checked={!!sc.showNames} onChange={(v) => set({ scatter: { ...sc, showNames: v } })} label="点旁边标名字" hint="点多时会挤,悬停也能看" />
+          <Toggle checked={o.showLegend} onChange={(v) => set({ showLegend: v })} label="图例" />
+          <PaletteRow palette={palette} custom={!!co.palette} onChange={(p) => chart({ palette: p })} />
+        </Section>
+      )}
+
+      {t === "radar" && (
+        <Section id="radar" title="雷达">
+          <Row label="形状"><Seg size="sm" value={ra.shape ?? "polygon"} onChange={(v) => set({ radar: { ...ra, shape: v } })} options={[{ value: "polygon", label: "多边形" }, { value: "circle", label: "圆形" }]} /></Row>
+          <Toggle checked={ra.fill !== false} onChange={(v) => set({ radar: { ...ra, fill: v } })} label="填色" />
+          <Toggle checked={o.showLegend} onChange={(v) => set({ showLegend: v })} label="图例" />
+          <PaletteRow palette={palette} custom={!!co.palette} onChange={(p) => chart({ palette: p })} />
+        </Section>
+      )}
+
+      {t === "heatmap" && (
+        <Section id="heatmap" title="热力">
+          <Toggle checked={!!hm.showValues} onChange={(v) => set({ heatmap: { ...hm, showValues: v } })} label="格子里写数值" />
+          <Row label="主色"><Color value={hm.color} fallback={palette[0]} onChange={(v) => set({ heatmap: { ...hm, color: v } })} /></Row>
+        </Section>
+      )}
+
+      {t === "treemap" && (
+        <Section id="treemap" title="矩形树">
+          <Row label="占比小数"><Seg size="sm" value={o.percentDecimals ?? 1} onChange={(v) => set({ percentDecimals: v })} options={[0, 1, 2].map((n) => ({ value: n, label: String(n) }))} /></Row>
+          <PaletteRow palette={palette} custom={!!co.palette} onChange={(p) => chart({ palette: p })} />
+        </Section>
+      )}
+
+      {t === "waterfall" && (
+        <Section id="waterfall" title="瀑布">
+          <Toggle checked={wf.total !== false} onChange={(v) => set({ waterfall: { ...wf, total: v } })} label="最后加一根合计" />
+          {wf.total !== false && <Row label="合计叫"><CommitInput value={wf.totalLabel ?? ""} placeholder="合计" onCommit={(v) => set({ waterfall: { ...wf, totalLabel: v || undefined } })} /></Row>}
+          <Toggle checked={wf.showValues !== false} onChange={(v) => set({ waterfall: { ...wf, showValues: v } })} label="柱子上写增减" />
+          <Row label="增 / 减 / 合计">
+            <Color value={wf.upColor} fallback={palette[0]} onChange={(v) => set({ waterfall: { ...wf, upColor: v } })} />
+            <Color value={wf.downColor} fallback="#ef5d6f" onChange={(v) => set({ waterfall: { ...wf, downColor: v } })} />
+            <Color value={wf.totalColor} fallback="#8c99a8" onChange={(v) => set({ waterfall: { ...wf, totalColor: v } })} />
+          </Row>
+        </Section>
+      )}
+
+      {t === "ranking" && (
+        <Section id="ranking" title="排行榜">
+          <Row label="顺序"><Seg size="sm" value={rk.order ?? "desc"} onChange={(v) => set({ ranking: { ...rk, order: v } })} options={[{ value: "desc", label: "从高到低" }, { value: "asc", label: "从低到高", title: "看倒数几名" }]} /></Row>
+          <Row label="进度条"><Color value={rk.barColor} fallback="#4d8dff" onChange={(v) => set({ ranking: { ...rk, barColor: v } })} /></Row>
+          <small className="st-hint">显示几名在「数据」页的「显示多少」里设,默认前 10。</small>
+        </Section>
+      )}
+
       {t === "kpi" && (
         <Section id="kpi" title="指标卡">
           <Row label="数值">
@@ -207,17 +261,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
             <Toggle checked={o.showLegend} onChange={(v) => set({ showLegend: v })} label="图例" />
             <Toggle checked={!!co.showLabels} onChange={(v) => chart({ showLabels: v })} label="数据标签" />
           </>}
-          <div className="st-palette">
-            <span>配色</span>
-            {palette.map((c, i) => (
-              <span className="st-swatch" key={i} style={{ background: c }}>
-                <input type="color" value={c} aria-label={`第 ${i + 1} 种颜色`} onChange={(e) => { const p = [...palette]; p[i] = e.target.value; chart({ palette: p }); }} />
-                {palette.length > 1 && <button type="button" aria-label="删除颜色" onClick={() => chart({ palette: palette.filter((_, j) => j !== i) })}>×</button>}
-              </span>
-            ))}
-            <button type="button" className="st-swatch-add" aria-label="加一种颜色" onClick={() => chart({ palette: [...palette, DEFAULT_DASHBOARD_PALETTE[palette.length % DEFAULT_DASHBOARD_PALETTE.length]] })}><Plus size={11} /></button>
-            {co.palette && <button type="button" className="st-link" onClick={() => chart({ palette: undefined })}>默认</button>}
-          </div>
+          <PaletteRow palette={palette} custom={!!co.palette} onChange={(p) => chart({ palette: p })} />
         </Section>
       )}
 
@@ -379,5 +423,22 @@ function ImageSection({ widget, onChange }: { widget: DashboardWidget; onChange:
       {error && <small className="st-hint st-error">{error}</small>}
       <Row label="填充"><Seg size="sm" value={io.fit ?? "contain"} onChange={(v) => setImage({ fit: v })} options={[{ value: "contain", label: "完整显示" }, { value: "cover", label: "铺满裁切" }]} /></Row>
     </Section>
+  );
+}
+
+/** 配色:一排色块,点开改,× 删,+ 加;改过才出现「默认」。 */
+function PaletteRow({ palette, custom, onChange }: { palette: string[]; custom: boolean; onChange: (p: string[] | undefined) => void }) {
+  return (
+    <div className="st-palette">
+      <span>配色</span>
+      {palette.map((c, i) => (
+        <span className="st-swatch" key={i} style={{ background: c }}>
+          <input type="color" value={c} aria-label={`第 ${i + 1} 种颜色`} onChange={(e) => { const p = [...palette]; p[i] = e.target.value; onChange(p); }} />
+          {palette.length > 1 && <button type="button" aria-label="删除颜色" onClick={() => onChange(palette.filter((_, j) => j !== i))}>×</button>}
+        </span>
+      ))}
+      <button type="button" className="st-swatch-add" aria-label="加一种颜色" onClick={() => onChange([...palette, DEFAULT_DASHBOARD_PALETTE[palette.length % DEFAULT_DASHBOARD_PALETTE.length]])}><Plus size={11} /></button>
+      {custom && <button type="button" className="st-link" onClick={() => onChange(undefined)}>默认</button>}
+    </div>
   );
 }

@@ -24,9 +24,15 @@ export function shelvesOf(type: DashboardWidgetType): ShelfId[] {
     case "kpi":
     case "gauge": return ["measures", "conditions"];
     case "line":
-    case "bar": return ["dimensions", "measures", "series", "conditions"];
+    case "bar":
+    case "scatter": return ["dimensions", "measures", "series", "conditions"];
+    case "heatmap": return ["dimensions", "series", "measures", "conditions"];
     case "pie":
-    case "funnel": return ["dimensions", "measures", "conditions"];
+    case "funnel":
+    case "treemap":
+    case "waterfall":
+    case "ranking":
+    case "radar": return ["dimensions", "measures", "conditions"];
     case "table": return ["rows", "columns", "measures", "conditions"];
     default: return [];
   }
@@ -36,9 +42,15 @@ export function shelfTitle(type: DashboardWidgetType, shelf: ShelfId): string {
   switch (shelf) {
     case "rows": return "行";
     case "columns": return "列";
-    case "dimensions": return type === "pie" ? "分类" : type === "funnel" ? "环节" : type === "bar" ? "分类轴" : "横轴";
-    case "series": return "拆分系列";
-    case "measures": return type === "kpi" ? "指标" : "数值";
+    case "dimensions": return ({
+      pie: "分类", funnel: "环节", bar: "分类轴", treemap: "层级(可两层)", waterfall: "每一步",
+      ranking: "排名对象", radar: "每个形状是", scatter: "每个点是",
+    } as Partial<Record<DashboardWidgetType, string>>)[type] ?? "横轴";
+    case "series": return type === "heatmap" ? "纵轴" : type === "scatter" ? "颜色分组" : "拆分系列";
+    case "measures": return ({
+      kpi: "指标", scatter: "数值(横轴 / 纵轴 / 大小)", radar: "数值(每个一条轴)",
+      waterfall: "增减量", ranking: "数值(第二个小字显示)",
+    } as Partial<Record<DashboardWidgetType, string>>)[type] ?? "数值";
     case "conditions": return "条件";
   }
 }
@@ -46,9 +58,18 @@ export function shelfTitle(type: DashboardWidgetType, shelf: ShelfId): string {
 export function shelfLimit(type: DashboardWidgetType, shelf: ShelfId): number {
   if (shelf === "conditions") return 20;
   if (shelf === "series") return 1;
-  if (shelf === "dimensions") return 1;
+  if (shelf === "dimensions") return type === "treemap" ? 2 : 1;
   if (shelf === "rows" || shelf === "columns") return 4;
-  if (shelf === "measures") return type === "table" ? 12 : type === "pie" || type === "funnel" || type === "gauge" ? 1 : 6;
+  if (shelf === "measures") {
+    switch (type) {
+      case "table": return 12;
+      case "radar": return 8;
+      case "scatter": return 3;
+      case "ranking": return 2;
+      case "pie": case "funnel": case "gauge": case "treemap": case "waterfall": case "heatmap": return 1;
+      default: return 6;
+    }
+  }
   return 0;
 }
 
@@ -256,13 +277,20 @@ export function convertWidget(widget: DashboardWidget, type: DashboardWidgetType
       break;
     case "pie":
     case "funnel":
-      next = withDims(next, allDims.slice(0, 1));
-      next.bindings = { ...next.bindings, seriesDimension: undefined, measures: measures.slice(0, 1) };
+    case "waterfall":
+    case "ranking":
+    case "radar":
+    case "treemap": {
+      next = withDims(next, allDims.slice(0, type === "treemap" ? 2 : 1));
+      next.bindings = { ...next.bindings, seriesDimension: undefined, measures: measures.slice(0, shelfLimit(type, "measures")) };
       break;
+    }
     case "line":
     case "bar":
+    case "scatter":
+    case "heatmap":
       next = withDims(next, allDims.slice(0, 1));
-      next.bindings = { ...next.bindings, seriesDimension: allDims[1], measures: measures.slice(0, 6) };
+      next.bindings = { ...next.bindings, seriesDimension: allDims[1], measures: measures.slice(0, shelfLimit(type, "measures")) };
       break;
     case "table":
       for (const d of allDims) placements[d] = widget.options.table?.dimensionPlacements?.[d] ?? "row";
@@ -289,6 +317,10 @@ export function recommend(widget: DashboardWidget, dataset?: Dataset): Recommend
   if (dims.some(isTime)) out.push({ type: "line", reason: "有时间,看趋势" });
   if (dims.length >= 1 && measures.length >= 1) out.push({ type: "bar", reason: "按分类比大小" });
   if (dims.length === 1 && measures.length === 1 && !dims.some(isTime)) out.push({ type: "pie", reason: "看占比" });
+  if (dims.length === 1 && measures.length === 1 && !dims.some(isTime)) out.push({ type: "ranking", reason: "排个名次" });
+  if (measures.length >= 2 && measures.length <= 3 && dims.length <= 1 && !dims.some(isTime)) out.push({ type: "scatter", reason: "看两个数值有没有关系" });
+  if (measures.length >= 3 && dims.length <= 1 && !dims.some(isTime)) out.push({ type: "radar", reason: "多项指标比轮廓" });
+  if (dims.length === 2 && measures.length === 1) out.push({ type: "heatmap", reason: "两个维度交叉看高低" });
   if (dims.length >= 2 || measures.length >= 4) out.push({ type: "table", reason: "字段多,用表格看全" });
   if (!out.some((r) => r.type === "table")) out.push({ type: "table", reason: "看明细" });
   const seen = new Set<string>();

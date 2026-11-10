@@ -76,6 +76,7 @@
     "test:result-grid": "node scripts/test-result-grid.mjs",
     "test:themes": "node scripts/test-themes.mjs",
     "test:dashboard-smart": "node scripts/test-dashboard-smart.mjs",
+    "test:more-charts": "node scripts/test-more-charts.mjs",
     "test:widget-conditions": "node scripts/test-widget-conditions.mjs",
     "test:table-export": "node scripts/test-table-export.mjs"
   },

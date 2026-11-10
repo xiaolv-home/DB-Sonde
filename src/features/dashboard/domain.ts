@@ -10,7 +10,10 @@ export const DEFAULT_DASHBOARD_PALETTE = ["#4d8dff", "#2ed6a1", "#ffb547", "#a98
 /* 组件类型的**唯一定义处**。AI 的 schema、画布的下拉、导入时的白名单都从这里取 ——
    以前这串字面量在 4 个文件里各写一遍,加一种类型漏掉任何一处的表现是
    「AI 生成了但渲染不出来」或者反过来,而且不会报错。 */
-export const WIDGET_TYPES = ["kpi", "gauge", "line", "bar", "pie", "funnel", "table", "text", "image", "container"] as const;
+export const WIDGET_TYPES = [
+  "kpi", "gauge", "line", "bar", "waterfall", "ranking", "pie", "funnel", "treemap",
+  "scatter", "radar", "heatmap", "table", "text", "image", "container",
+] as const;
 /** 能放进容器分页的类型 —— 容器不能套娃。 */
 export const LEAF_WIDGET_TYPES = WIDGET_TYPES.filter((t) => t !== "container");
 export type DashboardWidgetType = (typeof WIDGET_TYPES)[number];
@@ -269,6 +272,24 @@ export interface DashboardFunnelOptions {
   align?: "center" | "left";
 }
 
+/** 散点:平均线分四象限、点旁标名字。 */
+export interface DashboardScatterOptions { quadrant?: boolean; showNames?: boolean }
+/** 雷达:多边形 / 圆形,是否填色。 */
+export interface DashboardRadarOptions { shape?: "polygon" | "circle"; fill?: boolean }
+/** 热力:格子里写数值、主色。 */
+export interface DashboardHeatmapOptions { showValues?: boolean; color?: string }
+/** 瀑布:末尾的合计柱、增减颜色。 */
+export interface DashboardWaterfallOptions {
+  total?: boolean;
+  totalLabel?: string;
+  showValues?: boolean;
+  upColor?: string;
+  downColor?: string;
+  totalColor?: string;
+}
+/** 排行榜:正序(倒数几名)/ 倒序。 */
+export interface DashboardRankingOptions { order?: "desc" | "asc"; barColor?: string }
+
 /** 图片:src 是 data URL(导入时就压过,别存原图)。 */
 export interface DashboardImageOptions {
   src?: string;
@@ -354,6 +375,11 @@ export interface DashboardWidget {
     gauge?: DashboardGaugeOptions;
     funnel?: DashboardFunnelOptions;
     image?: DashboardImageOptions;
+    scatter?: DashboardScatterOptions;
+    radar?: DashboardRadarOptions;
+    heatmap?: DashboardHeatmapOptions;
+    waterfall?: DashboardWaterfallOptions;
+    ranking?: DashboardRankingOptions;
     container?: DashboardContainerOptions;
     appearance?: DashboardAppearanceOptions;
   };
@@ -410,6 +436,12 @@ export const widgetDefaults: Record<DashboardWidgetType, { w: number; h: number 
   bar: { w: 6, h: 4 },
   pie: { w: 4, h: 4 },
   funnel: { w: 4, h: 4 },
+  treemap: { w: 6, h: 5 },
+  waterfall: { w: 6, h: 4 },
+  ranking: { w: 4, h: 5 },
+  scatter: { w: 6, h: 5 },
+  radar: { w: 5, h: 5 },
+  heatmap: { w: 8, h: 5 },
   table: { w: 12, h: 4 },
   text: { w: 6, h: 2 },
   image: { w: 4, h: 3 },
@@ -441,6 +473,12 @@ export function createWidget(type: DashboardWidgetType, datasetId = "", title?: 
     bar: "Bar chart",
     pie: "Pie chart",
     funnel: "Funnel",
+    treemap: "Treemap",
+    waterfall: "Waterfall",
+    ranking: "Ranking",
+    scatter: "Scatter",
+    radar: "Radar",
+    heatmap: "Heatmap",
     table: "Table",
     text: "Text",
     image: "Image",
@@ -466,7 +504,8 @@ export function createWidget(type: DashboardWidgetType, datasetId = "", title?: 
       decimals: 2,
       showLegend: true,
       smooth: true,
-      topN: 0,
+      // 排行榜默认前 10、雷达默认前 5:「全部」几百家店画进去就没法看了,但查看者仍可在数据页改
+      topN: type === "ranking" ? 10 : type === "radar" ? 5 : 0,
       content: undefined,
       metrics: {},
     },
@@ -634,7 +673,7 @@ export function normalizeDashboard(value: unknown): DashboardDocument {
             ? raw.type as DashboardWidgetType
             : "text";
           const fallback = createWidget(type, typeof raw.datasetId === "string" ? raw.datasetId : "");
-          const dimensionLimit = type === "table" ? 4 : isSummaryWidget(type) ? 0 : 1;
+          const dimensionLimit = type === "table" ? 4 : type === "treemap" ? 2 : isSummaryWidget(type) ? 0 : 1;
           const dimensions = (Array.isArray(raw.bindings?.dimensions)
             ? raw.bindings.dimensions.filter((name): name is string => typeof name === "string" && !!name)
             : [raw.bindings?.dimension].filter((name): name is string => typeof name === "string" && !!name)

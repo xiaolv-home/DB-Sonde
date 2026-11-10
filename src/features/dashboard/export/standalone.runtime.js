@@ -873,6 +873,66 @@
   }
 
   // ---- 文本 ----
+  // ---- 散点 / 雷达 / 热力 / 矩形树 / 瀑布 / 排行榜(配置在 moreCharts.runtime.js,跟看板同一份) ----
+  var MORE_TYPES = ["scatter", "radar", "heatmap", "treemap", "waterfall", "ranking"];
+  function moreInput(bw, base, metrics) {
+    var w = bw.widget, co = w.options.chart || {}, nf = w.options.numberFormat;
+    var dims = (w.bindings.dimensions && w.bindings.dimensions.length) ? w.bindings.dimensions : (w.bindings.dimension ? [w.bindings.dimension] : []);
+    return {
+      rows: base.rows,
+      dims: dims.map(function (d) { return colIndex(base, d); }).filter(function (i) { return i >= 0; }),
+      series: w.bindings.seriesDimension ? colIndex(base, w.bindings.seriesDimension) : -1,
+      measures: metrics.map(function (m) { return { name: m.name }; }),
+      agg: function (rows, i) { return aggregate(rows, metrics[i]); },
+      fmt: function (i, v) { return metricValue(metrics[i], v, nf); },
+      palette: (co.palette && co.palette.length) ? co.palette : PALETTE,
+      colorOf: function (name) { return co.dimensionColors ? co.dimensionColors[name] : undefined; },
+      theme: { muted: cssVar("--text-3", "#8b96a8"), border: cssVar("--border", "rgba(140,150,170,.2)"), surface: cssVar("--surface", "#ffffff"), text: cssVar("--text", "#1c2434"), accent: cssVar("--accent", "#4d8dff") },
+      opts: w.options, animation: true,
+    };
+  }
+  function renderMore(bw, body) {
+    clearNode(body);
+    var w = bw.widget, base = bw.data.base;
+    if (!base) { body.appendChild(stateBox("暂无数据")); return; }
+    var metrics = withCi(bw.metrics.primary, base);
+    if (!metrics.length) { body.appendChild(stateBox("未选择指标")); return; }
+    var api = globalThis.__DASH_MORE__, input = moreInput(bw, base, metrics);
+    if (w.type === "ranking") {
+      var data = api.ranking(input);
+      if (data.empty) { body.appendChild(stateBox(data.empty)); return; }
+      var list = el("div", null);
+      list.style.cssText = "height:100%;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:2px";
+      var medal = ["#e5a630", "#9aa4b2", "#c08457"], barColor = (w.options.ranking || {}).barColor || cssVar("--accent", "#4d8dff");
+      data.items.forEach(function (it) {
+        var row = el("div", null); row.style.cssText = "display:flex;gap:10px;align-items:flex-start";
+        var no = el("span", null); no.textContent = it.rank;
+        no.style.cssText = "flex:none;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;font-size:11.5px;font-weight:600;" + (it.rank <= 3 ? "color:#fff;background:" + medal[it.rank - 1] : "background:var(--surface-3);color:var(--text-3)");
+        var main = el("div", null); main.style.cssText = "flex:1;min-width:0;display:flex;flex-direction:column;gap:4px";
+        var line = el("div", null); line.style.cssText = "display:flex;gap:8px;align-items:baseline;font-size:13px";
+        var name = el("span", null); name.textContent = it.name; name.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        var val = el("b", null); val.textContent = it.text; val.style.cssText = "flex:none;font-variant-numeric:tabular-nums";
+        line.appendChild(name); line.appendChild(val);
+        var track = el("div", null); track.style.cssText = "height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden";
+        var fill = el("i", null); fill.style.cssText = "display:block;height:100%;border-radius:3px;width:" + Math.round(it.ratio * 100) + "%;background:" + barColor;
+        track.appendChild(fill);
+        main.appendChild(line); main.appendChild(track);
+        if (it.extra) { var ex = el("small", null); ex.textContent = it.extra; ex.style.cssText = "font-size:11px;opacity:.6"; main.appendChild(ex); }
+        row.appendChild(no); row.appendChild(main); list.appendChild(row);
+      });
+      body.appendChild(list);
+      return;
+    }
+    var option = api[w.type](input);
+    if (option.empty) { body.appendChild(stateBox(option.empty)); return; }
+    var holder = el("div", "dash-x-chart");
+    body.appendChild(holder);
+    requestAnimationFrame(function () {
+      if (!holder.isConnected) return;
+      echarts.init(holder, null, { renderer: "canvas" }).setOption(option);
+    });
+  }
+
   // ---- 图片 ----
   function renderImage(bw, body) {
     clearNode(body);
@@ -1136,6 +1196,7 @@
         if (w.type === "text") renderText(view, body);
         else if (w.type === "image") renderImage(view, body);
         else if (w.type === "gauge") renderGauge(view, body);
+        else if (MORE_TYPES.indexOf(w.type) >= 0) renderMore(view, body);
         else if (w.type === "kpi") renderKpi(view, body);
         else if (w.type === "table") renderTable(view, body);
         else renderChart(view, body);

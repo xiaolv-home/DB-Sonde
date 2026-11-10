@@ -82,8 +82,8 @@ body.st-field-dragging .dash-widget { outline: 1px dashed color-mix(in srgb, var
 .st-insp-title { min-width: 0; flex: 1; height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; outline: none; user-select: text; }
 .st-insp-title:hover { border-color: var(--border); }
 .st-insp-title:focus { border-color: var(--accent); background: var(--surface); }
-.st-types { flex: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; padding: 8px 10px 4px; }
-.st-types button { position: relative; height: 44px; min-width: 0; white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); font: inherit; font-size: 11px; }
+.st-types { flex: none; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; padding: 8px 10px 4px; }
+.st-types button { position: relative; height: 44px; min-width: 0; padding: 0; white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); font: inherit; font-size: 11px; }
 .st-types button:hover { background: var(--surface-2); color: var(--text); }
 .st-types button.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
 .st-types button.rec::after { content: ""; position: absolute; top: 5px; right: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }

@@ -16,11 +16,11 @@ import { useDatasets } from "../../datasets/datasetsStore";
 import { isTimeField } from "../../datasets/domain";
 import { useFieldValues } from "../useFieldValues";
 import DateRangePicker from "../components/DateRangePicker";
-import { isStaticWidget, type DashboardKpiOptions, type DashboardWidget } from "../domain";
+import { isStaticWidget, type DashboardKpiOptions, type DashboardWidget, type DashboardWidgetType } from "../domain";
 import Shelf, { FieldIcon, type FieldValuesPort } from "./Shelf";
 import StylePanel from "./StylePanel";
 import { convertWidget, fieldLabel, recommend, shelvesOf } from "./smart";
-import { ALL_PRESETS, TYPE_META, presetOf, type WidgetPreset } from "./catalog";
+import { ALL_KINDS, TYPE_META } from "./catalog";
 import { CommitInput, MenuItem, Pop, Section, Seg, Toggle } from "../../../components/StudioKit";
 import type { WidgetCondition } from "../../datasets/widgetQuery";
 
@@ -80,18 +80,10 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
   const patch = (change: Partial<DashboardWidget>) => onChange({ ...widget, ...change });
   const recs = isData ? recommend(widget, dataset).filter((r) => r.type !== widget.type).slice(0, 2) : [];
   const best = isData ? recommend(widget, dataset)[0] : undefined;
-  const current = presetOf(widget);
-  const Icon = current?.icon ?? TYPE_META[widget.type].icon;
-  /* 切换条:取数的组件在所有取数的预设之间换(字段跟过去);文本只在「标题 / 文本」之间换;
-     图片和容器只有一种,不显示。 */
-  const choices = isData
-    ? ALL_PRESETS.filter((p) => !isStaticWidget(p.type))
-    : ALL_PRESETS.filter((p) => p.type === widget.type);
-  const switchTo = (preset: WidgetPreset) => {
-    const converted = convertWidget(widget, preset.type, dataset);
-    onChange(preset.apply ? preset.apply(converted) : converted);
-  };
-  const recPreset = (type: string) => ALL_PRESETS.find((p) => p.type === type);
+  const Icon = TYPE_META[widget.type].icon;
+  /* 切换条:取数的组件之间随时换,字段跟过去。文本、图片、容器不取数,没得换。 */
+  const choices = isData ? ALL_KINDS.filter((k) => !isStaticWidget(k.type)) : [];
+  const switchTo = (type: DashboardWidgetType) => onChange(convertWidget(widget, type, dataset));
 
   return (
     <aside className="st-inspector">
@@ -102,14 +94,14 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
       </div>
       {choices.length > 1 && (
         <div className="st-types" role="radiogroup" aria-label="组件类型">
-          {choices.map((preset) => {
-            const I = preset.icon;
-            const on = preset.id === current?.id;
-            const rec = !!best && best.type !== widget.type && recPreset(best.type)?.id === preset.id;
+          {choices.map((kind) => {
+            const I = kind.icon;
+            const on = kind.type === widget.type;
+            const rec = !!best && best.type !== widget.type && best.type === kind.type;
             return (
-              <button type="button" key={preset.id} role="radio" aria-checked={on} className={`${on ? "on" : ""} ${rec ? "rec" : ""}`}
-                title={`${preset.label} · ${preset.hint}`} onClick={() => switchTo(preset)}>
-                <I size={15} /><span>{preset.label}</span>
+              <button type="button" key={kind.type} role="radio" aria-checked={on} className={`${on ? "on" : ""} ${rec ? "rec" : ""}`}
+                title={`${kind.label} · ${kind.hint}`} onClick={() => switchTo(kind.type)}>
+                <I size={15} /><span>{kind.short ?? kind.label}</span>
               </button>
             );
           })}
@@ -120,7 +112,7 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
           <Lightbulb size={13} />
           <span>这些字段更适合</span>
           {recs.map((r) => (
-            <button type="button" key={r.type} title={r.reason} onClick={() => switchTo(recPreset(r.type)!)}>{recPreset(r.type)!.label}</button>
+            <button type="button" key={r.type} title={r.reason} onClick={() => switchTo(r.type)}>{TYPE_META[r.type].label}</button>
           ))}
         </div>
       )}
@@ -180,7 +172,7 @@ function DataTab({ widget, dataset, values, scope, onChange }: {
         </div>
       )}
 
-      {(widget.type === "bar" || widget.type === "pie" || widget.type === "funnel" || widget.type === "line" || widget.type === "table") && (
+      {(["bar", "pie", "funnel", "line", "table", "ranking", "radar", "treemap"] as DashboardWidgetType[]).includes(widget.type) && (
         <div className="st-block">
           <div className="st-block-head">显示多少</div>
           <Seg size="sm" value={topN} onChange={(v) => onChange({ ...widget, options: { ...widget.options, topN: v } })}

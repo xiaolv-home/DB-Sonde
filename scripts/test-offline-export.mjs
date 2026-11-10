@@ -219,7 +219,9 @@ try {
       markPoint: 'MarkPointComponent', markArea: 'MarkAreaComponent',
     };
     const declared = new Set([...echartsParts.charts, ...echartsParts.components, ...echartsParts.renderers]);
-    const code = runtimeSource.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+    /* 散点 / 雷达 / 热力 / 矩形树 / 瀑布的配置在共用的 moreCharts.runtime.js 里,一起扫。 */
+    const code = (runtimeSource + '\n' + readFileSync('src/features/dashboard/moreCharts.runtime.js', 'utf8'))
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
     const missingSeries = [];
     for (const [type, part] of Object.entries(SERIES)) {

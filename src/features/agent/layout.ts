@@ -93,6 +93,12 @@ const HEIGHT: Record<LayoutItem["type"], number> = {
   bar: 4,
   pie: 4,
   funnel: 4,
+  treemap: 5,
+  waterfall: 4,
+  ranking: 5,
+  scatter: 5,
+  radar: 5,
+  heatmap: 5,
   table: 6,
   text: 2,
   image: 3,
@@ -121,7 +127,8 @@ export function bandOf(item: LayoutItem): Band {
   if (item.band) return item.band;
   if (item.type === "kpi" || item.type === "gauge") return "kpi";
   if (item.type === "line") return "trend";
-  if (item.type === "pie" || item.type === "funnel") return "structure";
+  if (item.type === "pie" || item.type === "funnel" || item.type === "treemap") return "structure";
+  if (item.type === "ranking" || item.type === "waterfall") return "ranking";
   if (item.type === "bar") return "ranking";
   return "detail";
 }

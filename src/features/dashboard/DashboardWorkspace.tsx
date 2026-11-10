@@ -9,7 +9,6 @@ import { refineAnalysisDashboard } from "./refineAnalysisDashboard";
 import AiProvenanceBanner from "./components/AiProvenanceBanner";
 import { defaultMetricScope } from "../metrics/queryPlan";
 import { isStaticWidget, placeWidget } from "./domain";
-import type { WidgetPreset } from "./studio/catalog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { DashboardTab } from "../../store/appStore";
@@ -189,12 +188,11 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
     else if (created !== undefined) onDone?.(created);
   };
 
-  const addWidget = (type: DashboardWidgetType, preset?: WidgetPreset) =>
+  const addWidget = (type: DashboardWidgetType) =>
     runEdit(
       (doc) => service.addWidget(doc, {
-        type, title: preset ? (preset.title ?? preset.label) : widgetTitle(type, t),
+        type, title: widgetTitle(type, t),
         datasetId: isStaticWidget(type) ? undefined : lastDatasetId(),
-        style: preset?.apply,
       }),
       setSelectedWidgetId,
     );

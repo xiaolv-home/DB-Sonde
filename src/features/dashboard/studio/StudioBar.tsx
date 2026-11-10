@@ -19,7 +19,7 @@ import DateRangePicker from "../components/DateRangePicker";
 import type { DashboardDocument, DashboardDrillFilter, DashboardFilter, DashboardWidgetType } from "../domain";
 import type { DashboardFilterValues } from "../filtering";
 import { useFieldValues } from "../useFieldValues";
-import { PRESET_GROUPS, type WidgetPreset } from "./catalog";
+import { KIND_GROUPS, type WidgetKind } from "./catalog";
 import { FieldIcon } from "./Shelf";
 import { CommitInput, MenuItem, Pop, Seg, ValuePicker } from "../../../components/StudioKit";
 
@@ -28,21 +28,21 @@ const SOH = String.fromCharCode(1);
 /* ── 添加组件 ─────────────────────────────────────────────────────── */
 
 /** 按用途分组的组件目录。底下一行跟着鼠标说「这个什么时候用」。 */
-function AddMenu({ anchor, onClose, onPick }: { anchor: HTMLElement; onClose: () => void; onPick: (preset: WidgetPreset) => void }) {
-  const [hover, setHover] = useState<WidgetPreset | null>(null);
+function AddMenu({ anchor, onClose, onPick }: { anchor: HTMLElement; onClose: () => void; onPick: (kind: WidgetKind) => void }) {
+  const [hover, setHover] = useState<WidgetKind | null>(null);
   return (
     <Pop anchor={anchor} width={392} onClose={onClose}>
       <div className="st-add-groups" onMouseLeave={() => setHover(null)}>
-        {PRESET_GROUPS.map((group) => (
+        {KIND_GROUPS.map((group) => (
           <section key={group.title} className="st-add-group">
             <div className="st-add-group-title">{group.title}</div>
             <div className="st-add-grid">
-              {group.presets.map((preset) => {
-                const I = preset.icon;
+              {group.kinds.map((kind) => {
+                const I = kind.icon;
                 return (
-                  <button type="button" key={preset.id} title={preset.hint}
-                    onMouseEnter={() => setHover(preset)} onFocus={() => setHover(preset)} onClick={() => onPick(preset)}>
-                    <I size={17} /><span>{preset.label}</span>
+                  <button type="button" key={kind.type} title={kind.hint}
+                    onMouseEnter={() => setHover(kind)} onFocus={() => setHover(kind)} onClick={() => onPick(kind)}>
+                    <I size={17} /><span>{kind.label}</span>
                   </button>
                 );
               })}
@@ -70,7 +70,7 @@ export function TopBar(p: {
   onSelectDocument: (id: string) => void;
   onNewDocument: () => void;
   onDuplicateDocument: () => void;
-  onAddWidget: (type: DashboardWidgetType, preset?: WidgetPreset) => void;
+  onAddWidget: (type: DashboardWidgetType) => void;
   onPreview: () => void;
   onUndo: () => void;
   onSave: () => void;
@@ -127,7 +127,7 @@ export function TopBar(p: {
           <MenuItem icon={<Copy size={13} />} onClick={() => { setPages(null); p.onDuplicateDocument(); }}>复制一份当前看板</MenuItem>
         </Pop>
       )}
-      {add && <AddMenu anchor={add} onClose={() => setAdd(null)} onPick={(preset) => { setAdd(null); p.onAddWidget(preset.type, preset); }} />}
+      {add && <AddMenu anchor={add} onClose={() => setAdd(null)} onPick={(kind) => { setAdd(null); p.onAddWidget(kind.type); }} />}
       {more && (
         <Pop anchor={more} width={240} onClose={() => setMore(null)}>
           <div className="st-menu-group">自动刷新</div>

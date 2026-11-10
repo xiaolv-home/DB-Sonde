@@ -5,8 +5,8 @@ import { loadSrc } from './lib/load-src.mjs';
 
 const m = loadSrc('dashboard-smart', {
   'src/features/dashboard/studio/smart.ts': '*',
-  'src/features/dashboard/domain.ts': '{ createWidget, isSummaryWidget }',
-  'src/features/dashboard/studio/catalog.ts': '{ ALL_PRESETS, presetOf }',
+  'src/features/dashboard/domain.ts': '{ createWidget, isSummaryWidget, WIDGET_TYPES }',
+  'src/features/dashboard/studio/catalog.ts': '{ ALL_KINDS, TYPE_META }',
   'src/features/dashboard/resolveDatasets.ts': '{ widgetQueryOf }',
 });
 
@@ -99,19 +99,28 @@ assert.deepEqual(m.shelvesOf('funnel'), ['dimensions', 'measures', 'conditions']
 assert.deepEqual(m.dimsOf(funnel), ['store']);
 assert.equal(m.shelfTitle('funnel', 'dimensions'), '环节');
 
-// 目录:每个预设落在合法类型上,套上后能认回自己(切换条点亮的就是刚点的那个)
-const ids = new Set();
-for (const p of m.ALL_PRESETS) {
-  assert.ok(!ids.has(p.id), `预设 id 重复:${p.id}`); ids.add(p.id);
-  const made = p.apply ? p.apply(w(p.type)) : w(p.type);
-  assert.equal(m.presetOf(made).id, p.id, `「${p.label}」套上后被认成了「${m.presetOf(made).label}」`);
-}
-// 从面积图切回折线图要把堆叠也关掉,不然折线还叠着
-const area = m.ALL_PRESETS.find((p) => p.id === 'area').apply(w('line'));
-const backToLine = m.ALL_PRESETS.find((p) => p.id === 'line').apply(area);
-assert.equal(m.presetOf(backToLine).id, 'line');
-assert.notEqual(backToLine.options.chart.stack, true, '切回折线图后不该还堆叠');
-// 老饼图没设过洞:默认有洞,算环形图
-assert.equal(m.presetOf(w('pie')).id, 'donut');
+// 目录:一种类型只出现一次 —— 样式变体(面积、环形、条形…)不许再冒充新组件
+assert.deepEqual([...m.ALL_KINDS.map((k) => k.type)].sort(), [...m.WIDGET_TYPES].sort(), '目录要恰好覆盖每种组件类型各一次');
+for (const t of m.WIDGET_TYPES) assert.ok(m.TYPE_META[t]?.label, `${t} 没有名字`);
+
+// 热力图:第二个维度去「纵轴」(series);矩形树图能放两层;散点最多三个数值
+let heat = m.toggleField(m.toggleField(w('heatmap'), 'store', dataset), 'region', dataset);
+assert.deepEqual(m.shelfItems(heat, 'dimensions'), ['store']);
+assert.deepEqual(m.shelfItems(heat, 'series'), ['region'], '热力图第二个维度该进纵轴');
+assert.equal(m.shelfTitle('heatmap', 'series'), '纵轴');
+let tree = m.toggleField(m.toggleField(w('treemap'), 'region', dataset), 'store', dataset);
+assert.deepEqual(m.shelfItems(tree, 'dimensions'), ['region', 'store'], '矩形树图两层');
+assert.deepEqual(m.widgetQueryOf({ ...tree, bindings: { ...tree.bindings, measures: ['amount'] } }, dataset).dimensions, ['region', 'store']);
+let sc = w('scatter');
+for (const f of ['amount', 'qty', 'store_id']) sc = m.addToShelf(sc, 'measures', f, dataset);
+assert.equal(m.shelfItems(sc, 'measures').length, 3);
+// 换类型:柱状图(分类 + 系列)→ 热力图,系列变纵轴;→ 雷达图,只留一个维度
+const barTwo = m.toggleField(m.toggleField(m.toggleField(w('bar'), 'store', dataset), 'region', dataset), 'amount', dataset);
+const asHeat = m.convertWidget(barTwo, 'heatmap', dataset);
+assert.deepEqual([m.dimsOf(asHeat), asHeat.bindings.seriesDimension], [['store'], 'region']);
+assert.deepEqual(m.dimsOf(m.convertWidget(barTwo, 'radar', dataset)), ['store']);
+// 排行榜默认前 10、雷达默认前 5
+assert.equal(w('ranking').options.topN, 10);
+assert.equal(w('radar').options.topN, 5);
 
 console.log('dashboard smart: ok');
