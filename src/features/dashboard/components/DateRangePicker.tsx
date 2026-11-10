@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -43,16 +43,28 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   const [pending, setPending] = useState<string | null>(null); // 已点起点、待点终点(代表日:日/周=当天,月=月首,年=年首)
   const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useState(() => parse(end || start));
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
+  /* 按弹层**实际**大小放:下面放得下就往下,放不下翻到按钮上面,上下都不够就贴住窗口、
+     弹层里面滚。原来一律往下放,按钮在窗口下半截时下面几行月份直接被窗口截掉,点不到。
+     高度跟粒度变(日历 6 行比月份 4 行高),所以换粒度也要重新放。 */
   const place = () => {
     const r = triggerRef.current?.getBoundingClientRect();
     if (!r) return;
-    const width = 540;
-    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) });
+    const gap = 6, margin = 8;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const width = popRef.current?.offsetWidth ?? 540;
+    const height = popRef.current?.scrollHeight ?? 0;
+    const left = Math.max(margin, Math.min(r.left, vw - width - margin));
+    if (r.bottom + gap + height <= vh - margin) return setPos({ top: r.bottom + gap, left });
+    if (r.top - gap - height >= margin) return setPos({ top: r.top - gap - height, left });
+    const maxHeight = vh - margin * 2;
+    setPos({ top: Math.max(margin, Math.min(r.bottom + gap, vh - margin - height)), left, maxHeight: height > maxHeight ? maxHeight : undefined });
   };
+  // 弹层画出来、尺寸确定之后再量一次(第一次 place 时还没有弹层,量不到高度)。
+  useLayoutEffect(() => { if (open) place(); }, [open, mode]);
   const openPop = () => { place(); const d = parse(end || start); setView(new Date(d.getFullYear(), d.getMonth(), 1)); setPending(null); setMode("day"); setOpen(true); };
   const close = () => { setOpen(false); setPending(null); };
 
@@ -169,7 +181,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
         <span>{activePreset ? activePreset.label : `${start} — ${end}`}</span>
       </button>
       {open && createPortal(
-        <div className="dash-daterange-pop" ref={popRef} style={{ top: pos.top, left: pos.left }}>
+        <div className="dash-daterange-pop" ref={popRef} style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined }}>
           <div className="dash-daterange-presets">
             {presets().map((p) => (
               <button key={p.label} type="button" className={activePreset?.label === p.label ? "on" : ""} onClick={() => { const [s, e] = p.range(); onChange(s, e); close(); }}>{p.label}</button>
