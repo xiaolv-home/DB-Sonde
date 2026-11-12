@@ -19,6 +19,19 @@ try {
   assert.deepEqual(m.checkUrl('localhost:3000'), { url: 'http://localhost:3000/' });
   for (const bad of ['', 'file:///etc/passwd', 'javascript:alert(1)', 'tauri://localhost', 'http://u:p@192.0.2.10', 'ftp://x.com'])
     assert('error' in m.checkUrl(bad), `${bad || '(空)'} 应该被拒`);
+  // 本应用自己的源不能进 iframe。Windows 看不见子框架导航,CSP frame-src 又放行 http:,
+  // allow-scripts + allow-same-origin 碰到同源页面就能自己卸掉 sandbox。
+  for (const bad of [
+    'http://tauri.localhost/', 'https://tauri.localhost/index.html', 'http://tauri.localhost:8080/', 'http://tauri.localhost./',
+    'http://ipc.localhost/plugin', 'https://ipc.localhost/', 'http://asset.localhost/icon.png', 'https://asset.localhost/',
+    'tauri://localhost/', 'asset://localhost/icon.png', 'ipc://localhost/',
+    'http://localhost:1420/', 'http://127.0.0.1:1420/index.html', 'http://127.0.0.1:01420/', 'http://[::1]:1420/',
+  ]) {
+    assert('error' in m.checkUrl(bad), `${bad} 应该被拒`);
+    assert.equal(m.monitorFrameSrc(bad), null, `${bad} 不能成为 iframe src`);
+  }
+  assert.equal(m.monitorFrameSrc('http://localhost:3000/'), 'http://localhost:3000/', '别的端口上的本地监控页仍可嵌');
+  assert.equal(m.monitorFrameSrc('http://127.0.0.1:3000/grafana'), 'http://127.0.0.1:3000/grafana');
 
   // 存取往返
   const a = m.newSource('ETL 运行台', m.checkUrl('192.0.2.10:18086').url);
@@ -72,7 +85,9 @@ try {
   const iframe = center.match(/<iframe\b[^>]*\/>/)?.[0];
   assert.ok(iframe, '找不到监控 iframe');
   assert.match(iframe, /title=\{active\.name\}/);
-  assert.match(iframe, /src=\{active\.url\}/);
+  assert.match(iframe, /src=\{embedSrc\}/);
+  assert.match(center, /monitorFrameSrc\(active\.url\)/);
+  assert.doesNotMatch(iframe, /src=\{active\.url\}/);
   assert.match(iframe, /sandbox=\{MONITOR_FRAME_SANDBOX\}/);
   assert.doesNotMatch(iframe, /allow-top-navigation/);
 

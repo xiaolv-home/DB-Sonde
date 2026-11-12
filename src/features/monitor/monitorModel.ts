@@ -14,13 +14,38 @@ export const KIND_INFO: Record<MonitorKind, { label: string; hint: string }> = {
 /**
  * 嵌进来的监控页实际要用的 iframe 权限,多一个都不给。
  * - allow-scripts:图表、点击、筛选都是页面自己的脚本
- * - allow-same-origin:留住页面自己的源,登录 Cookie、本地存储和打回自己的接口才走得通
+ * - allow-same-origin:留住页面自己的源。不给的话源变成不透明的,登录 Cookie、
+ *   localStorage 和没开 CORS 的同源接口都会失败。外部监控页和本应用不同源,
+ *   这两项叠在一起并不能卸掉 sandbox;能卸掉的前提是 iframe 指向本应用自己。
+ *   那个口子由 checkUrl 堵住(见 isOwnApp),不要靠拿掉这一项。
  * - allow-forms:在页面上登录、有些筛选是表单提交
  * - allow-popups:页面里 window.open / 新窗口链接;弹窗仍带着这套限制
  * 不要加 allow-top-navigation 及其变体,也不要 allow-popups-to-escape-sandbox:
  * 嵌进来的页面不能把本软件的窗口领走,弹出的窗口也不能卸掉这层限制。
  */
 export const MONITOR_FRAME_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups";
+
+/** 跟 vite / tauri.conf.json 的 devUrl 端口一致。嵌这个端口等于把本软件再嵌一遍。 */
+const DEV_SERVER_PORT = "1420";
+/** Tauri 应用页、IPC、asset 用的主机。带不带端口都算本应用。 */
+const APP_HOSTS = new Set(["tauri.localhost", "ipc.localhost", "asset.localhost"]);
+
+function bareHost(url: URL): string {
+  return url.hostname.replace(/\.+$/, "").toLowerCase();
+}
+
+/**
+ * 本应用自己的源。Windows 的 NavigationStarting 不报子框架,CSP 的 frame-src 又放行
+ * http:,所以 http://tauri.localhost 能进 iframe。再叠上 allow-scripts 和
+ * allow-same-origin,页面就和主窗口同源,还能自己把 sandbox 删掉。
+ */
+function isOwnApp(url: URL): boolean {
+  const host = bareHost(url);
+  if (APP_HOSTS.has(host)) return true;
+  return url.protocol === "http:"
+    && (host === "localhost" || host === "127.0.0.1" || host === "[::1]")
+    && url.port === DEV_SERVER_PORT;
+}
 
 export interface MonitorSource {
   id: string;
@@ -48,7 +73,14 @@ export function checkUrl(raw: string): { url: string } | { error: string } {
   if (url.protocol !== "http:" && url.protocol !== "https:") return { error: "只支持 http / https 网页" };
   if (!url.hostname) return { error: "网址里缺少主机名" };
   if (url.username || url.password) return { error: "不要把账号密码写在网址里,打开页面后在页面上登录" };
+  if (isOwnApp(url)) return { error: "不能嵌本软件自己的页面" };
   return { url: url.toString() };
+}
+
+/** 能写进 iframe src 的地址。指回本应用时返回 null,调用方不要渲染 iframe。 */
+export function monitorFrameSrc(raw: string): string | null {
+  const checked = checkUrl(raw);
+  return "url" in checked ? checked.url : null;
 }
 
 /** 存下来的地址必须已经是规范形式(checkUrl 过一遍不变)。 */
