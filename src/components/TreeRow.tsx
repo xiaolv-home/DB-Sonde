@@ -18,6 +18,11 @@ import DatabaseLogo from "./DatabaseLogo";
 import { connectionAccent } from "../lib/databaseIdentity";
 import { useI18n } from "../hooks/useI18n";
 
+/** 行内只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 function NodeIcon({ node, expanded }: { node: TreeNode; expanded: boolean }) {
   switch (node.kind) {
     case "connection":
@@ -91,6 +96,7 @@ export default function TreeRow({ nodeKey, depth, parentKey, onContext }: Props)
   const onClick = () => useApp.getState().selectNode(node.key);
 
   const showTwisty = node.hasChildren && (!isConn || connected);
+  const twistLabel = node.expanded ? `收起 ${node.label}` : `展开 ${node.label}`;
 
   return (
     <>
@@ -129,17 +135,21 @@ export default function TreeRow({ nodeKey, depth, parentKey, onContext }: Props)
         onContextMenu={(e) => onContext(node, e)}
         title={node.detail ? `${node.label} · ${node.detail}` : node.label}
       >
-        <span
-          className={`twisty ${node.expanded ? "open" : ""} ${showTwisty ? "" : "leaf"}`}
-          onClick={(e) => {
-            if (showTwisty) {
+        {showTwisty ? (
+          <button
+            className={`twisty ${node.expanded ? "open" : ""}`}
+            {...iconName(twistLabel)}
+            aria-expanded={node.expanded}
+            onClick={(e) => {
               e.stopPropagation();
               useApp.getState().toggleNode(node.key);
-            }
-          }}
-        >
-          <ChevronRight size={13} />
-        </span>
+            }}
+          >
+            <ChevronRight size={13} />
+          </button>
+        ) : (
+          <span className="twisty leaf" />
+        )}
 
         {/* 连接中才呼吸 —— 呼吸灯是「正在发生的事」的信号;
             给一个稳定的状态点加呼吸,那就成装饰了。 */}
@@ -163,17 +173,17 @@ export default function TreeRow({ nodeKey, depth, parentKey, onContext }: Props)
         ) : null}
 
         {isConn && connected ? (
-          <span
+          <button
             className="row-action"
             style={{ marginLeft: "auto" }}
+            {...iconName(t("action.newQuery"))}
             onClick={(e) => {
               e.stopPropagation();
               useApp.getState().openQueryTab({ connId: node.connId, title: t("query.title") });
             }}
-            title={t("action.newQuery")}
           >
             <SquareTerminal size={14} />
-          </span>
+          </button>
         ) : null}
       </div>
 

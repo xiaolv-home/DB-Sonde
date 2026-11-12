@@ -170,6 +170,7 @@ export default function AiSettings() {
   const configError = useAi((s) => s.configError);
   const [draftKey, setDraftKey] = useState("");
   const [draftUrl, setDraftUrl] = useState(config.cloud.baseUrl);
+  const [keyCleared, setKeyCleared] = useState(false);
   const draftUrlRef = useRef(config.cloud.baseUrl);
   const clearingKey = useRef(false);
   const flushingKey = useRef<Promise<boolean> | null>(null);
@@ -224,6 +225,18 @@ export default function AiSettings() {
     const trimmed = keyDraft.trim();
     if (trimmed) return persistKey(trimmed, next);
     return Promise.resolve(updateCloud({ baseUrl: next, apiKey: "", hasKey: false }));
+  };
+  // 只观察 commitUrl 的结果来决定要不要出状态提示,清 Key 仍由 commitUrl 自己做。
+  const noteClearedKey = (next: string) => {
+    const hadKey = hasKey;
+    const previous = cloudOrigin(config.cloud.baseUrl);
+    return commitUrl(next).then((ok) => {
+      if (ok !== false && hadKey) {
+        const now = useAi.getState().config.cloud;
+        if (cloudOrigin(now.baseUrl) !== previous && !now.hasKey && !now.apiKey.trim()) setKeyCleared(true);
+      }
+      return ok;
+    });
   };
   const requestClose = () => {
     void commitUrl(draftUrlRef.current).then((ok) => (ok === false ? false : persistKey(draftKey))).then((ok) => {
@@ -312,29 +325,40 @@ export default function AiSettings() {
           {config.provider === "cloud" && (
             <>
               <div className="form-row">
-                <label>{t("baseUrl")}</label>
+                <label htmlFor="cloud-base-url">{t("baseUrl")}</label>
                 <input
+                  id="cloud-base-url"
                   className="input"
                   value={draftUrl}
                   spellCheck={false}
+                  aria-describedby={keyCleared ? "cloud-host-key-hint cloud-host-key-cleared" : "cloud-host-key-hint"}
                   onChange={(e) => setUrl(e.target.value)}
-                  onBlur={(e) => { void commitUrl(e.target.value); }}
+                  onBlur={(e) => { void noteClearedKey(e.target.value); }}
                 />
+                <p id="cloud-host-key-hint" className="ai-field-hint">{t("cloudKeyHostHint")}</p>
               </div>
               <div className="form-row">
-                <label>{t("apiKey")}</label>
+                <label htmlFor="cloud-api-key">{t("apiKey")}</label>
                 <input
+                  id="cloud-api-key"
                   className="input"
                   type="password"
                   value={draftKey}
                   spellCheck={false}
                   autoComplete="off"
+                  aria-describedby={keyCleared ? "cloud-host-key-hint cloud-host-key-cleared" : "cloud-host-key-hint"}
                   placeholder={hasKey ? t("apiKeySaved") : ""}
                   onChange={(e) => setDraftKey(e.target.value)}
                   onBlur={() => {
-                    if (!clearingKey.current) void persistKey(draftKey);
+                    if (clearingKey.current) return;
+                    void persistKey(draftKey).then((ok) => {
+                      if (ok !== false && draftKey.trim()) setKeyCleared(false);
+                    });
                   }}
                 />
+                {keyCleared && (
+                  <p id="cloud-host-key-cleared" className="ai-field-hint" role="status">{t("cloudKeyCleared")}</p>
+                )}
               </div>
               {hasKey && (
                 <div className="form-row">

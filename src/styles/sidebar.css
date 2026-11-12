@@ -326,6 +326,11 @@
   place-items: center;
   color: var(--text-3);
   flex: 0 0 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: default;
   transition: transform var(--dur-1) var(--ease);
 }
 .node .twisty.open {
@@ -397,8 +402,13 @@
   place-items: center;
   width: 22px;
   height: 22px;
+  padding: 0;
+  border: 0;
   border-radius: 5px;
+  background: transparent;
   color: var(--text-3);
+  font: inherit;
+  cursor: default;
 }
 .node:hover .row-action {
   display: grid;
