@@ -47,6 +47,11 @@ interface Props {
 
 type InteractionMode = "move" | "resize";
 
+/** 卡片上只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 export default function DashboardCanvas({
   widgetReasons,
   previewTabs,
@@ -135,11 +140,11 @@ export default function DashboardCanvas({
   const actions = (widget: DashboardWidget) => !preview && (
     <>
       {(widget.type === "line" || widget.type === "bar" || widget.type === "pie" || widget.type === "funnel" || widget.type === "gauge") && (
-        <button className="icon-btn" title="导出 PNG" onClick={(event) => { event.stopPropagation(); exportChartPng(widget.id); }}><Download size={12} /></button>
+        <button className="icon-btn" {...iconName(`导出组件 ${widget.title} 为 PNG`)} onClick={(event) => { event.stopPropagation(); exportChartPng(widget.id); }}><Download size={12} /></button>
       )}
-      <button className="icon-btn" title={t("dashboard.duplicateWidget")} onClick={(event) => { event.stopPropagation(); onDuplicate(widget.id); }}><Copy size={12} /></button>
-      <button className="icon-btn" title={widget.visible ? t("dashboard.hideWidget") : t("dashboard.showWidget")} onClick={(event) => { event.stopPropagation(); onToggle(widget.id); }}>{widget.visible ? <EyeOff size={12} /> : <Eye size={12} />}</button>
-      <button className="icon-btn" title={t("dashboard.deleteWidget")} onClick={(event) => { event.stopPropagation(); onDelete(widget.id); }}><Trash2 size={12} /></button>
+      <button className="icon-btn" {...iconName(`复制组件 ${widget.title}`)} onClick={(event) => { event.stopPropagation(); onDuplicate(widget.id); }}><Copy size={12} /></button>
+      <button className="icon-btn" {...iconName(widget.visible ? `隐藏组件 ${widget.title}` : `显示组件 ${widget.title}`)} aria-pressed={widget.visible} onClick={(event) => { event.stopPropagation(); onToggle(widget.id); }}>{widget.visible ? <EyeOff size={12} /> : <Eye size={12} />}</button>
+      <button className="icon-btn" {...iconName(`删除组件 ${widget.title}`)} onClick={(event) => { event.stopPropagation(); onDelete(widget.id); }}><Trash2 size={12} /></button>
     </>
   );
 
@@ -169,7 +174,7 @@ export default function DashboardCanvas({
       onMouseDown={(event) => { event.stopPropagation(); onSelect(widget.id); }}
     >
       <header className={`dash-widget-header ${ap.titleAlign === "center" ? "title-center" : ""}`} onPointerDown={(event) => begin(event, widget, "move")} hidden={ap.hideTitle && preview}>
-        {!preview && <GripHorizontal size={12} />}
+        {!preview && <button type="button" className="dash-drag" {...iconName(`拖动组件 ${widget.title}`)}><GripHorizontal size={12} /></button>}
         <strong style={{ color: readableColor(ap.titleColor, appearanceBackground(ap)) || undefined, fontSize: ap.titleSize || undefined, textAlign: ap.titleAlign || undefined, flex: ap.titleAlign ? 1 : undefined }}>{widget.title}</strong>
         {widgetReasons?.[widget.id] && (
           <span className="dash-why" title={`AI 为什么建这个图:\n${widgetReasons[widget.id]}`}><Sparkles size={11} /></span>
@@ -180,7 +185,7 @@ export default function DashboardCanvas({
       <ComponentFilterBar widget={widget} dataset={datasetOf(widget, datasets)} scope={scope} value={componentFilterValues[widget.id]} onChange={(value) => onComponentFiltersChange(widget.id, value)} />
       <div className="dash-widget-body" style={{ padding: ap.padding != null ? ap.padding : undefined }}><WidgetRenderer staticRender={staticRender} widget={widget} runtime={runtime[widget.id] ?? runtime[widget.datasetId]} metrics={metrics} dimensionLabels={datasetOf(widget, datasets)?.dimensionLabels} onDrill={onDrill} drillPath={drillPaths[widget.id]} onDrillDown={(value) => onDrillDown(widget.id, value)} onDrillTo={(level) => onDrillTo(widget.id, level)} /></div>
       {widget.footnote && <div className="dash-widget-foot">{widget.footnote}</div>}
-      {!preview && <button className="dash-resize" aria-label={t("dashboard.resizeWidget")} onPointerDown={(event) => begin(event, widget, "resize")}><Maximize2 size={10} /></button>}
+      {!preview && <button className="dash-resize" {...iconName(`调整组件 ${widget.title} 的大小`)} onPointerDown={(event) => begin(event, widget, "resize")}><Maximize2 size={10} /></button>}
     </article>
     );
   };
@@ -194,7 +199,7 @@ export default function DashboardCanvas({
     return (
       <div className={`dash-tab-container ${cont.tabPosition === "left" ? "tabs-left" : ""}`}>
         <div className="dash-tab-bar" hidden={cont.showTabBar === false && preview}>
-          {widget.tabs.map((tab) => <button key={tab.id} className={tab.id === activeTab ? "on" : ""} onClick={(event) => { event.stopPropagation(); setActiveTabs((current) => ({ ...current, [widget.id]: tab.id })); }}>{tab.label}</button>)}
+          {widget.tabs.map((tab) => <button key={tab.id} className={tab.id === activeTab ? "on" : ""} aria-pressed={tab.id === activeTab} onClick={(event) => { event.stopPropagation(); setActiveTabs((current) => ({ ...current, [widget.id]: tab.id })); }}>{tab.label}</button>)}
           {!preview && activeTab && (
             <label className="dash-tab-add"><Plus size={12} /><span>{t("dashboard.addToTab")}</span>
               <select value="" onChange={(event) => { const type = event.target.value as DashboardWidgetType; if (type) onAddChild(widget.id, activeTab, type); }}>
@@ -239,7 +244,7 @@ export default function DashboardCanvas({
           onMouseDown={(event) => { event.stopPropagation(); onSelect(widget.id); }}
         >
           <header className={`dash-widget-header ${ap.titleAlign === "center" ? "title-center" : ""}`} onPointerDown={(event) => begin(event, widget, "move")} hidden={ap.hideTitle && preview}>
-            {!preview && <GripHorizontal size={13} />}
+            {!preview && <button type="button" className="dash-drag" {...iconName(`拖动组件 ${widget.title}`)}><GripHorizontal size={13} /></button>}
             <strong style={{ color: readableColor(ap.titleColor, appearanceBackground(ap)) || undefined, fontSize: ap.titleSize || undefined, textAlign: ap.titleAlign || undefined, flex: ap.titleAlign ? 1 : undefined }}>{widget.title}</strong>
             {widgetReasons?.[widget.id] && (
               <span className="dash-why" title={`AI 为什么建这个图:\n${widgetReasons[widget.id]}`}><Sparkles size={11} /></span>
@@ -250,7 +255,7 @@ export default function DashboardCanvas({
           {widget.type !== "container" && <ComponentFilterBar widget={widget} dataset={datasetOf(widget, datasets)} scope={scope} value={componentFilterValues[widget.id]} onChange={(value) => onComponentFiltersChange(widget.id, value)} />}
           <div className="dash-widget-body" style={{ padding: ap.padding != null ? ap.padding : undefined }}>{widget.type === "container" ? renderContainer(widget) : <WidgetRenderer staticRender={staticRender} widget={widget} runtime={runtime[widget.id] ?? runtime[widget.datasetId]} metrics={metrics} dimensionLabels={datasetOf(widget, datasets)?.dimensionLabels} onDrill={onDrill} drillPath={drillPaths[widget.id]} onDrillDown={(value) => onDrillDown(widget.id, value)} onDrillTo={(level) => onDrillTo(widget.id, level)} />}</div>
           {widget.footnote && <div className="dash-widget-foot">{widget.footnote}</div>}
-          {!preview && <button className="dash-resize" aria-label={t("dashboard.resizeWidget")} onPointerDown={(event) => begin(event, widget, "resize")}><Maximize2 size={11} /></button>}
+          {!preview && <button className="dash-resize" {...iconName(`调整组件 ${widget.title} 的大小`)} onPointerDown={(event) => begin(event, widget, "resize")}><Maximize2 size={11} /></button>}
         </article>
         );
       })}

@@ -13,6 +13,11 @@ import type { DashboardDimensionSort, DashboardWidget } from "../domain";
 import { addToShelf, fieldLabel, removeFromShelf, setConditions, setShelf, shelfItems, shelfLimit, shelfTitle, shelvesOf, type ShelfId } from "./smart";
 import { MenuItem, Pop, Seg, ValuePicker, CommitInput } from "../../../components/StudioKit";
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 /* ── 拖拽 ─────────────────────────────────────────────────────────── */
 
 export const FIELD_MIME = "application/x-sonde-field";
@@ -163,7 +168,7 @@ export default function Shelf({ widget, shelf, dataset, onChange, values }: {
               {shelf === "conditions" ? <Filter size={12} className="st-ic cond" /> : <FieldIcon field={field} size={12} />}
               <span className="st-pill-text">{pillText(widget, shelf, name, dataset, cond)}</span>
               {pillBadges(widget, shelf, name, index, dataset)}
-              <button type="button" className="st-pill-x" aria-label="移除" onClick={(e) => { e.stopPropagation(); onChange(removeFromShelf(widget, shelf, index, dataset)); }}><X size={11} /></button>
+              <button type="button" className="st-pill-x" {...iconName(`移除 ${fieldLabel(dataset, name)}`)} onClick={(e) => { e.stopPropagation(); onChange(removeFromShelf(widget, shelf, index, dataset)); }}><X size={11} /></button>
             </div>
           );
         })}
@@ -200,7 +205,8 @@ function AddFieldButton({ widget, shelf, dataset, onAdd }: { widget: DashboardWi
   );
   return (
     <>
-      <button type="button" className={`st-shelf-add ${anchor ? "on" : ""}`} aria-label={`添加到${shelfTitle(widget.type, shelf)}`}
+      <button type="button" className={`st-shelf-add ${anchor ? "on" : ""}`} {...iconName(`添加到${shelfTitle(widget.type, shelf)}`)}
+        aria-haspopup="menu" aria-expanded={!!anchor}
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}><Plus size={13} /></button>
       {anchor && (
         <Pop anchor={anchor} width={240} onClose={() => { setAnchor(null); setQ(""); }}>
@@ -298,7 +304,7 @@ function PillMenu({ widget, shelf, index, dataset, onChange, onClose }: {
         <div className="st-pm-label">汇总方式</div>
         <div className="st-agg-grid">
           {(Object.keys(AGG_LABELS) as AggKind[]).map((a) => (
-            <button type="button" key={a} className={a === agg ? "on" : ""}
+            <button type="button" key={a} className={a === agg ? "on" : ""} aria-pressed={a === agg}
               onClick={() => onChange({ ...widget, bindings: { ...widget.bindings, aggregations: { ...(widget.bindings.aggregations ?? {}), [name]: a } } })}>{AGG_LABELS[a]}</button>
           ))}
         </div>
@@ -344,7 +350,7 @@ function PillMenu({ widget, shelf, index, dataset, onChange, onClose }: {
         <div className="st-pm-label">时间粒度</div>
         <div className="st-agg-grid">
           {(["raw", "year", "quarter", "month", "week", "day"] as TimeGrain[]).map((g) => (
-            <button type="button" key={g} className={g === grain ? "on" : ""}
+            <button type="button" key={g} className={g === grain ? "on" : ""} aria-pressed={g === grain}
               onClick={() => onChange({ ...widget, bindings: { ...widget.bindings, grains: { ...(widget.bindings.grains ?? {}), [name]: g } } })}>{GRAIN_LABELS[g]}</button>
           ))}
         </div>
@@ -409,7 +415,7 @@ export function ConditionEditor({ condition, dataset, values, onChange, onRemove
         )}
         <div className="st-op-list">
           {ops.map((op) => (
-            <button type="button" key={op} className={op === condition.op ? "on" : ""}
+            <button type="button" key={op} className={op === condition.op ? "on" : ""} aria-pressed={op === condition.op}
               onClick={() => {
                 const nextArity = CONDITION_OPS[op].arity;
                 const keep = nextArity === "n" ? vals : nextArity === 0 ? [] : vals.slice(0, nextArity);

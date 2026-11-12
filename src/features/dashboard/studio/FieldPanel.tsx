@@ -16,6 +16,11 @@ import { FieldIcon, endFieldDrag, startFieldDrag } from "./Shelf";
 import { shelfItems, shelvesOf, toggleField } from "./smart";
 import { MenuItem, Pop } from "../../../components/StudioKit";
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 export default function FieldPanel({ widget, datasetId, onDataset, onChange, onCollapse }: {
   widget?: DashboardWidget;
   /** 没选组件时浏览的数据集(拖到画布上就用它)。 */
@@ -73,7 +78,7 @@ export default function FieldPanel({ widget, datasetId, onDataset, onChange, onC
   const row = (f: DatasetField) => {
     const on = used.has(f.name);
     return (
-      <button type="button" key={f.name} className={`st-field ${on ? "on" : ""}`} draggable
+      <button type="button" key={f.name} className={`st-field ${on ? "on" : ""}`} draggable aria-pressed={on}
         title={`${f.label ? `${f.label}\n` : ""}${f.name}${f.type ? ` · ${f.type}` : ""}\n单击加入选中的组件 · 拖到字段区或画布`}
         onDragStart={(e) => startFieldDrag(e, { name: f.name })}
         onDragEnd={endFieldDrag}
@@ -88,12 +93,12 @@ export default function FieldPanel({ widget, datasetId, onDataset, onChange, onC
   return (
     <aside className="st-fields">
       <div className="st-fields-head">
-        <button type="button" className={`st-ds-pick ${dataset ? "" : "empty"}`} onClick={(e) => setPick(pick ? null : e.currentTarget)}>
+        <button type="button" className={`st-ds-pick ${dataset ? "" : "empty"}`} aria-haspopup="menu" aria-expanded={!!pick} onClick={(e) => setPick(pick ? null : e.currentTarget)}>
           <Boxes size={14} />
           <span>{dataset?.name || (loaded ? "选数据集" : "正在读…")}</span>
           <ChevronDown size={13} />
         </button>
-        <button type="button" className="icon-btn" title="收起字段面板" onClick={onCollapse}><PanelLeftClose size={14} /></button>
+        <button type="button" className="icon-btn" {...iconName("收起字段面板")} aria-expanded={true} onClick={onCollapse}><PanelLeftClose size={14} /></button>
       </div>
       {pick && (
         <Pop anchor={pick} width={260} onClose={() => setPick(null)}>
@@ -131,7 +136,7 @@ export default function FieldPanel({ widget, datasetId, onDataset, onChange, onC
           </div>
           <div className="st-fields-foot">
             {dataWidget ? "单击加入 · 拖到右侧字段区" : "拖字段到画布空白处,直接生成图表"}
-            <button type="button" className="icon-btn" title="编辑这个数据集:加字段、改显示名、加计算字段" onClick={() => useDatasets.getState().edit(dataset.id)}><Settings2 size={13} /></button>
+            <button type="button" className="icon-btn" {...iconName(`编辑数据集 ${dataset.name || "未命名数据集"}`)} onClick={() => useDatasets.getState().edit(dataset.id)}><Settings2 size={13} /></button>
           </div>
         </>
       )}

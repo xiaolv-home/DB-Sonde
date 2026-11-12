@@ -8,6 +8,11 @@ import { exportSheet } from "../export/sheet";
 import { maxOf, minOf } from "../../../lib/numbers";
 import { compareText } from "../../../lib/collate";
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 
 interface Props {
   columns: TableColumnSpec[];
@@ -334,7 +339,7 @@ function DashboardTable({ columns, rows, options = NO_OPTIONS, onDrill, filename
             数据没取全:撞到行数上限了,下面这些是其中一段
           </em>
         )}
-        <button className="dash-dt-csv" onClick={() => void exportTable()} title="导出 Excel"><Download size={12} /> Excel</button>
+        <button className="dash-dt-csv" {...iconName("导出 Excel")} onClick={() => void exportTable()}><Download size={12} /> Excel</button>
         {exportHint && <em className="dash-dt-export-hint">{exportHint}</em>}
       </div>
       <div className="dash-dt-scroll" ref={scrollRef}>
@@ -475,9 +480,9 @@ function DashboardTable({ columns, rows, options = NO_OPTIONS, onDrill, filename
       </div>
       {pageCount > 1 && (
         <div className="dash-dt-pager">
-          <button disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>‹</button>
+          <button {...iconName("上一页")} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>‹</button>
           <span>{curPage} / {pageCount}</span>
-          <button disabled={curPage >= pageCount} onClick={() => setPage(curPage + 1)}>›</button>
+          <button {...iconName("下一页")} disabled={curPage >= pageCount} onClick={() => setPage(curPage + 1)}>›</button>
         </div>
       )}
     </div>

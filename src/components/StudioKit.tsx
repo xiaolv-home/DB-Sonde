@@ -71,6 +71,11 @@ export function Pop({ anchor, onClose, width = 260, children, className = "" }: 
   );
 }
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 /** 一个按钮 + 它的浮层。最常见的用法,省得每处都管 anchor 和 open。 */
 export function PopButton({ label, className = "", title, width, children, disabled }: {
   label: ReactNode;
@@ -113,6 +118,7 @@ export function Seg<T extends string | number>({ value, options, onChange, size 
     <div className={`st-seg ${size ?? ""}`} role="radiogroup">
       {options.map((o) => (
         <button type="button" key={String(o.value)} role="radio" aria-checked={o.value === value} title={o.title}
+          aria-label={typeof o.label === "string" ? undefined : o.title}
           className={o.value === value ? "on" : ""} onClick={() => onChange(o.value)}>{o.label}</button>
       ))}
     </div>
@@ -159,7 +165,7 @@ export function Color({ value, onChange, fallback }: { value: string | undefined
   return (
     <span className={`st-color ${value ? "" : "unset"}`}>
       <input type="color" value={value ?? fallback} onChange={(e) => onChange(e.target.value)} />
-      {value && <button type="button" title="恢复默认" onClick={() => onChange(undefined)}>×</button>}
+      {value && <button type="button" {...iconName("恢复默认")} onClick={() => onChange(undefined)}>×</button>}
     </span>
   );
 }
@@ -197,7 +203,7 @@ export function Section({ title, children, defaultOpen = true, aside, id }: {
   };
   return (
     <section className={`st-section ${open ? "open" : ""}`}>
-      <button type="button" className="st-section-head" onClick={toggle}>
+      <button type="button" className="st-section-head" aria-expanded={open} onClick={toggle}>
         {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<b>{title}</b>
         {aside && <span className="st-section-aside">{aside}</span>}
       </button>
@@ -252,7 +258,7 @@ export function ValuePicker({ options, selected, onChange, loading, truncated, m
       )}
       <div className="st-values-list">
         {[...extra, ...list].slice(0, 500).map((v) => (
-          <button type="button" key={v} className={selected.includes(v) ? "on" : ""} onClick={() => toggle(v)}>
+          <button type="button" key={v} className={selected.includes(v) ? "on" : ""} aria-pressed={selected.includes(v)} onClick={() => toggle(v)}>
             <span className="st-check">{selected.includes(v) && <Check size={11} />}</span>
             <span className="st-values-text">{v === "" ? "(空字符串)" : v}</span>
           </button>

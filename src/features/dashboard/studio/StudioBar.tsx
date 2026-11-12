@@ -25,6 +25,11 @@ import { CommitInput, MenuItem, Pop, Seg, ValuePicker } from "../../../component
 
 const SOH = String.fromCharCode(1);
 
+/** 工具条只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 /* ── 添加组件 ─────────────────────────────────────────────────────── */
 
 /** 按用途分组的组件目录。底下一行跟着鼠标说「这个什么时候用」。 */
@@ -89,22 +94,22 @@ export function TopBar(p: {
 
   return (
     <div className="st-topbar">
-      <button type="button" className={`st-pages ${pages ? "on" : ""}`} title="切换看板" onClick={(e) => setPages(pages ? null : e.currentTarget)}>
+      <button type="button" className={`st-pages ${pages ? "on" : ""}`} {...iconName(`切换看板 ${doc.title}`)} aria-haspopup="menu" aria-expanded={!!pages} onClick={(e) => setPages(pages ? null : e.currentTarget)}>
         <LayoutDashboard size={15} /><ChevronDown size={12} />
       </button>
       <CommitInput className="st-doc-title" value={doc.title} ariaLabel={t("dashboard.name")} onCommit={(v) => p.onTitle(v.trim() || doc.title)} />
       <span className={`st-save-state ${p.dirty ? "dirty" : ""}`}>{p.dirty ? "未保存" : "已保存"}</span>
-      {!p.preview && <button type="button" className="icon-btn" disabled={!p.canUndo} title="撤销 (⌘Z)" onClick={p.onUndo}><Undo2 size={15} /></button>}
+      {!p.preview && <button type="button" className="icon-btn" disabled={!p.canUndo} {...iconName("撤销 (⌘Z)")} onClick={p.onUndo}><Undo2 size={15} /></button>}
       {!p.preview && (
-        <button type="button" className={`btn sm st-add ${add ? "on" : ""}`} onClick={(e) => setAdd(add ? null : e.currentTarget)}>
+        <button type="button" className={`btn sm st-add ${add ? "on" : ""}`} aria-haspopup="menu" aria-expanded={!!add} onClick={(e) => setAdd(add ? null : e.currentTarget)}>
           <Plus size={14} />添加组件
         </button>
       )}
       <span className="toolbar-spacer" />
-      <button type="button" className={`btn sm ${p.preview ? "primary" : ""}`} onClick={p.onPreview} title="⌘E 切换">
+      <button type="button" className={`btn sm ${p.preview ? "primary" : ""}`} onClick={p.onPreview} title="⌘E 切换" aria-pressed={p.preview}>
         {p.preview ? <><Pencil size={13} />回到编辑</> : <><Eye size={13} />查看效果</>}
       </button>
-      <button type="button" className={`btn sm ${more ? "on" : ""}`} onClick={(e) => setMore(more ? null : e.currentTarget)}><MoreHorizontal size={14} />更多</button>
+      <button type="button" className={`btn sm ${more ? "on" : ""}`} aria-haspopup="menu" aria-expanded={!!more} onClick={(e) => setMore(more ? null : e.currentTarget)}><MoreHorizontal size={14} />更多</button>
       {!p.preview && (
         <button type="button" className="btn sm primary" onClick={p.onSave} disabled={p.saving} title={p.storagePath ? `保存到 ${p.storagePath} (⌘S)` : "保存 (⌘S)"}>
           {p.saving ? <Loader2 size={13} className="spin" /> : <Save size={13} />}保存
@@ -200,7 +205,7 @@ export function FilterRail(p: {
         <span className="st-rail-date" title="看板的数据日期:没固定日期的组件都跟着它">
           <CalendarRange size={14} />
           <DateRangePicker start={scope.start} end={scope.end} onChange={p.onScope} />
-          {!p.preview && <button type="button" className="icon-btn" title="不按日期筛(看全部)" onClick={p.onClearScope}><X size={12} /></button>}
+          {!p.preview && <button type="button" className="icon-btn" {...iconName("不按日期筛(看全部)")} onClick={p.onClearScope}><X size={12} /></button>}
         </span>
       ) : (
         <button type="button" className="st-chip st-rail-all" disabled={p.preview} title="现在不按日期筛。点一下按日期范围看" onClick={() => p.onScope(scope.start, scope.end)}>
@@ -218,7 +223,7 @@ export function FilterRail(p: {
         </button>
       )}
       {!p.preview && (
-        <button type="button" className={`st-add-filter ${adding ? "on" : ""}`} onClick={(e) => setAdding(adding ? null : e.currentTarget)} title="加一个看板筛选:所有含这个字段的组件一起筛">
+        <button type="button" className={`st-add-filter ${adding ? "on" : ""}`} {...iconName("加一个看板筛选:所有含这个字段的组件一起筛")} aria-haspopup="menu" aria-expanded={!!adding} onClick={(e) => setAdding(adding ? null : e.currentTarget)}>
           <Filter size={13} />{p.document.filters.length ? "" : "加筛选"}<Plus size={12} />
         </button>
       )}
@@ -241,7 +246,7 @@ export function FilterRail(p: {
       )}
       <span className="toolbar-spacer" />
       {p.document.refreshInterval ? <span className="st-auto" title="自动刷新"><Timer size={12} />{p.document.refreshInterval >= 60 ? `${p.document.refreshInterval / 60} 分` : `${p.document.refreshInterval} 秒`}</span> : null}
-      <button type="button" className="icon-btn" title="重新取数" onClick={p.onRefresh}><RefreshCw size={14} className={p.refreshing ? "spin" : ""} /></button>
+      <button type="button" className="icon-btn" {...iconName("重新取数")} onClick={p.onRefresh}><RefreshCw size={14} className={p.refreshing ? "spin" : ""} /></button>
     </div>
   );
 }
@@ -274,6 +279,8 @@ function FilterChip({ filter, pool, preview, value, autoOpen, onOpened, onChange
       <button type="button" ref={(el) => { if (autoOpen && el && !anchor) { open(el); onOpened(); } }}
         className={`st-chip ${selected.length ? "active" : ""} ${anchor ? "on" : ""} ${entry ? "" : "orphan"}`}
         title={entry ? `${filter.title}:${summary}` : `看板里已经没有组件用「${filter.field}」了`}
+        aria-haspopup="menu"
+        aria-expanded={!!anchor}
         onClick={(e) => (anchor ? setAnchor(null) : open(e.currentTarget))}>
         <span className="st-chip-label">{filter.title || entry?.label || filter.field}</span>
         <span className="st-chip-value">{summary}</span>

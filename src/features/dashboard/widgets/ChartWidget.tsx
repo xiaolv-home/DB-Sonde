@@ -17,6 +17,11 @@ import { pieComposition } from "./pieComposition";
 import { installFreeCrosshair } from "../freeCrosshair";
 import { orderLabels, orderSpecOf } from "../labelOrder";
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 interface Props {
   staticRender?: boolean;
   widget: DashboardWidget;
@@ -539,7 +544,7 @@ export default function ChartWidget(props: Props) {
   return (
     <div className="dash-chart-drill">
       <div className="dash-drill-crumbs">
-        <button className="back" title="返回上一层" onClick={() => onDrillTo?.(drillPath.length - 1)}>
+        <button className="back" {...iconName("返回上一层")} onClick={() => onDrillTo?.(drillPath.length - 1)}>
           <ChevronLeft size={12} />返回
         </button>
         <button onClick={() => onDrillTo?.(0)}>全部</button>

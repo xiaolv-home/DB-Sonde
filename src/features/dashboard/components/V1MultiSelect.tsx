@@ -2,6 +2,11 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 export interface V1SelectOption { value: string; label: string }
 
 interface Props {
@@ -64,10 +69,10 @@ export default function V1MultiSelect({ ariaLabel, options, values, onChange, pl
   };
   return (
     <div ref={rootRef} className={`dash-v1-multi ${open ? "open" : ""}`}>
-      <div className="dash-v1-multi-trigger" role="combobox" aria-label={ariaLabel} aria-expanded={open} tabIndex={0} onClick={toggleOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleOpen(); } }}>
+      <div className="dash-v1-multi-trigger" role="combobox" aria-label={ariaLabel} aria-expanded={open} aria-haspopup="listbox" tabIndex={0} onClick={toggleOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleOpen(); } }}>
         <div className="dash-v1-multi-values">
           {values.length === 0 && <span className="placeholder">{placeholder}</span>}
-          {values.map((value) => <span className="dash-v1-multi-chip" key={value}>{labels.get(value) ?? value}<button title="移除" onClick={(event) => { event.stopPropagation(); toggle(value); }}><X size={11} /></button></span>)}
+          {values.map((value) => <span className="dash-v1-multi-chip" key={value}>{labels.get(value) ?? value}<button {...iconName(`移除 ${labels.get(value) ?? value}`)} onClick={(event) => { event.stopPropagation(); toggle(value); }}><X size={11} /></button></span>)}
         </div>
         <ChevronDown className="dash-v1-multi-chevron" size={14} />
       </div>
@@ -78,7 +83,7 @@ export default function V1MultiSelect({ ariaLabel, options, values, onChange, pl
             {filtered.length === 0 && <div className="dash-v1-multi-empty">无可选项</div>}
             {filtered.map((option) => {
               const selected = values.includes(option.value);
-              return <button type="button" className={selected ? "selected" : ""} key={option.value} onClick={() => toggle(option.value)}><span>{option.label}</span>{selected && <Check size={14} />}</button>;
+              return <button type="button" className={selected ? "selected" : ""} aria-pressed={selected} key={option.value} onClick={() => toggle(option.value)}><span>{option.label}</span>{selected && <Check size={14} />}</button>;
             })}
           </div>
         </div>,

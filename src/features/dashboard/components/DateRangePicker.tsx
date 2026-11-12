@@ -15,6 +15,11 @@ type Mode = "day" | "week" | "month" | "year";
 
 const MONTHS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 function presets(): { label: string; range: () => [string, string] }[] {
   const t = startOfToday();
   return [
@@ -141,9 +146,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
       return (
         <>
           <div className="dash-cal-head">
-            <button type="button" onClick={() => setView(new Date(y - 1, 0, 1))}><ChevronLeft size={15} /></button>
+            <button type="button" {...iconName("上一年")} onClick={() => setView(new Date(y - 1, 0, 1))}><ChevronLeft size={15} /></button>
             <strong>{y} 年</strong>
-            <button type="button" onClick={() => setView(new Date(y + 1, 0, 1))}><ChevronRight size={15} /></button>
+            <button type="button" {...iconName("下一年")} onClick={() => setView(new Date(y + 1, 0, 1))}><ChevronRight size={15} /></button>
           </div>
           <div className="dash-cal-cells">
             {MONTHS.map((label, m) => {
@@ -159,9 +164,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
       return (
         <>
           <div className="dash-cal-head">
-            <button type="button" onClick={() => setView(new Date(yearBase - 12, 0, 1))}><ChevronLeft size={15} /></button>
+            <button type="button" {...iconName("往前 12 年")} onClick={() => setView(new Date(yearBase - 12, 0, 1))}><ChevronLeft size={15} /></button>
             <strong>{yearBase} - {yearBase + 11}</strong>
-            <button type="button" onClick={() => setView(new Date(yearBase + 12, 0, 1))}><ChevronRight size={15} /></button>
+            <button type="button" {...iconName("往后 12 年")} onClick={() => setView(new Date(yearBase + 12, 0, 1))}><ChevronRight size={15} /></button>
           </div>
           <div className="dash-cal-cells">
             {Array.from({ length: 12 }, (_, i) => yearBase + i).map((y) => (
@@ -175,9 +180,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
     return (
       <>
         <div className="dash-cal-head">
-          <button type="button" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}><ChevronLeft size={15} /></button>
+          <button type="button" {...iconName("上个月")} onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}><ChevronLeft size={15} /></button>
           <strong>{view.getFullYear()} 年 {view.getMonth() + 1} 月</strong>
-          <button type="button" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}><ChevronRight size={15} /></button>
+          <button type="button" {...iconName("下个月")} onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}><ChevronRight size={15} /></button>
         </div>
         <div className="dash-cal-grid dash-cal-weekdays">{WEEKDAYS.map((w) => <span key={w}>{w}</span>)}</div>
         <div className="dash-cal-grid" onMouseLeave={() => setHover(null)}>
@@ -232,13 +237,13 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
         >
           <div className="dash-daterange-presets">
             {presets().map((p) => (
-              <button key={p.label} type="button" className={activePreset?.label === p.label ? "on" : ""} onClick={() => { const [s, e] = p.range(); onChange(s, e); close(); }}>{p.label}</button>
+              <button key={p.label} type="button" className={activePreset?.label === p.label ? "on" : ""} aria-pressed={activePreset?.label === p.label} onClick={() => { const [s, e] = p.range(); onChange(s, e); close(); }}>{p.label}</button>
             ))}
           </div>
           <div className="dash-cal">
             <div className="dash-cal-modes">
               {(["day", "week", "month", "year"] as Mode[]).map((m) => (
-                <button key={m} type="button" className={mode === m ? "on" : ""} onClick={() => { setMode(m); setPending(null); }}>{{ day: "日", week: "周", month: "月", year: "年" }[m]}</button>
+                <button key={m} type="button" className={mode === m ? "on" : ""} aria-pressed={mode === m} onClick={() => { setMode(m); setPending(null); }}>{{ day: "日", week: "周", month: "月", year: "年" }[m]}</button>
               ))}
             </div>
             {grid()}

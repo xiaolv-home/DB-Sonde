@@ -21,6 +21,11 @@ import {
 import { dimsOf, fieldLabel } from "./smart";
 import { Color, CommitInput, Num, Row, Section, Seg, Sel, Toggle } from "../../../components/StudioKit";
 
+/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 const PRESETS: Array<{ id: string; label: string }> = [
   { id: "editorial", label: "简洁" }, { id: "slate", label: "石板" }, { id: "ocean", label: "海" }, { id: "jade", label: "玉" },
   { id: "mint", label: "薄荷" }, { id: "indigo", label: "靛" }, { id: "violet", label: "紫" }, { id: "plum", label: "梅" },
@@ -108,10 +113,10 @@ export default function StylePanel({ widget, dataset, onChange }: {
       {t === "container" && (
         <Section id="container" title="分页">
           <div className="st-tablist-edit">
-            {widget.tabs.map((tab, i) => (
+            {widget.tabs.map((tab) => (
               <div key={tab.id} className="st-tab-edit">
                 <CommitInput value={tab.label} onCommit={(label) => onChange({ ...widget, tabs: widget.tabs.map((x) => (x.id === tab.id ? { ...x, label } : x)) })} />
-                {widget.tabs.length > 1 && <button type="button" className="icon-btn" aria-label={`删除第 ${i + 1} 页`} onClick={() => onChange({ ...widget, tabs: widget.tabs.filter((x) => x.id !== tab.id) })}><X size={12} /></button>}
+                {widget.tabs.length > 1 && <button type="button" className="icon-btn" {...iconName(`删除分页 ${tab.label}`)} onClick={() => onChange({ ...widget, tabs: widget.tabs.filter((x) => x.id !== tab.id) })}><X size={12} /></button>}
               </div>
             ))}
             <button type="button" className="st-link" onClick={() => onChange({ ...widget, tabs: [...widget.tabs, { id: `tab-${nanoid(8)}`, label: `第 ${widget.tabs.length + 1} 页` }] })}><Plus size={12} />加一页</button>
@@ -289,7 +294,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
               <div className="st-markline" key={i}>
                 <Num value={line.value} onChange={(v) => chart({ markLine: (co.markLine ?? []).map((l, j) => (j === i ? { ...l, value: v ?? 0 } : l)) })} />
                 <CommitInput value={line.label ?? ""} placeholder="如:目标" onCommit={(label) => chart({ markLine: (co.markLine ?? []).map((l, j) => (j === i ? { ...l, label } : l)) })} />
-                <button type="button" className="icon-btn" aria-label="删除参考线" onClick={() => chart({ markLine: (co.markLine ?? []).filter((_, j) => j !== i) })}><X size={12} /></button>
+                <button type="button" className="icon-btn" {...iconName(line.label?.trim() ? `删除参考线 ${line.label.trim()}` : `删除第 ${i + 1} 条参考线`)} onClick={() => chart({ markLine: (co.markLine ?? []).filter((_, j) => j !== i) })}><X size={12} /></button>
               </div>
             ))}
             <button type="button" className="st-link" onClick={() => chart({ markLine: [...(co.markLine ?? []), { value: 0, label: "" }] })}><Plus size={12} />加一条参考线</button>
@@ -323,9 +328,9 @@ export default function StylePanel({ widget, dataset, onChange }: {
 
       <Section id="look" title="外观" defaultOpen={false} aside={ap.visualPreset && ap.visualPreset !== "none" ? PRESETS.find((p) => p.id === ap.visualPreset)?.label : undefined}>
         <div className="st-presets">
-          <button type="button" className={`st-preset none ${!ap.visualPreset || ap.visualPreset === "none" ? "on" : ""}`} onClick={() => look({ visualPreset: undefined })}>默认</button>
+          <button type="button" className={`st-preset none ${!ap.visualPreset || ap.visualPreset === "none" ? "on" : ""}`} aria-pressed={!ap.visualPreset || ap.visualPreset === "none"} onClick={() => look({ visualPreset: undefined })}>默认</button>
           {PRESETS.map((p) => (
-            <button type="button" key={p.id} data-visual-preset={p.id} className={`st-preset ${ap.visualPreset === p.id ? "on" : ""}`} title={p.label} onClick={() => look({ visualPreset: p.id })}><span>{p.label}</span></button>
+            <button type="button" key={p.id} data-visual-preset={p.id} className={`st-preset ${ap.visualPreset === p.id ? "on" : ""}`} title={p.label} aria-pressed={ap.visualPreset === p.id} onClick={() => look({ visualPreset: p.id })}><span>{p.label}</span></button>
           ))}
         </div>
         <Row label="背景 / 文字">
@@ -440,10 +445,10 @@ function PaletteRow({ palette, custom, onChange }: { palette: string[]; custom: 
       {palette.map((c, i) => (
         <span className="st-swatch" key={i} style={{ background: c }}>
           <input type="color" value={c} aria-label={`第 ${i + 1} 种颜色`} onChange={(e) => { const p = [...palette]; p[i] = e.target.value; onChange(p); }} />
-          {palette.length > 1 && <button type="button" aria-label="删除颜色" onClick={() => onChange(palette.filter((_, j) => j !== i))}>×</button>}
+          {palette.length > 1 && <button type="button" {...iconName(`删除第 ${i + 1} 种颜色`)} onClick={() => onChange(palette.filter((_, j) => j !== i))}>×</button>}
         </span>
       ))}
-      <button type="button" className="st-swatch-add" aria-label="加一种颜色" onClick={() => { const defaults = defaultDashboardPalette(); onChange([...palette, defaults[palette.length % defaults.length]]); }}><Plus size={11} /></button>
+      <button type="button" className="st-swatch-add" {...iconName("加一种颜色")} onClick={() => { const defaults = defaultDashboardPalette(); onChange([...palette, defaults[palette.length % defaults.length]]); }}><Plus size={11} /></button>
       {custom && <button type="button" className="st-link" onClick={() => onChange(undefined)}>默认</button>}
     </div>
   );

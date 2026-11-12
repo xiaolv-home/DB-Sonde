@@ -456,7 +456,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
       <div className={`st-body ${!preview && fieldsOpen ? "with-fields" : ""}`}>
         {!preview && (fieldsOpen
           ? <FieldPanel widget={selectedWidget} datasetId={browseDatasetId ?? lastDatasetId()} onDataset={setBrowseDatasetId} onChange={updateWidget} onCollapse={() => toggleFields(false)} />
-          : <button type="button" className="st-fields-rail" title="展开字段面板" onClick={() => toggleFields(true)}><PanelLeftOpen size={15} /><span>字段</span></button>)}
+          : <button type="button" className="st-fields-rail" title="展开字段面板" aria-label="展开字段面板" aria-expanded={false} onClick={() => toggleFields(true)}><PanelLeftOpen size={15} /><span>字段</span></button>)}
         <main className="dash-canvas-shell st-canvas"
           onDragOver={(event) => { if (!preview && event.dataTransfer.types.includes("application/x-sonde-field")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
           onDrop={(event) => { if (!preview) dropField(event); }}>
