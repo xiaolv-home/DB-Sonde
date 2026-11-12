@@ -262,7 +262,7 @@ function DataPanel({ tab, kind, columns, editable, editHint, reloadKey, onDirtyC
   /* 只认 reloadKey —— 它是外面「请求刷新一次」时自增的计数器。load 的身份会随
      筛选/排序/分页变,列进依赖的话每改一次条件就额外多刷一次(上面那个
      `useEffect(..., [load])` 已经负责那种情况了)。 */
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 只认 reloadKey;条件变化由上面依赖 load 的 effect 负责
   useEffect(() => { if (reloadKey > 0) void load("refresh"); }, [reloadKey]);
 
   const result: QueryResult = useMemo(

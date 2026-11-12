@@ -161,7 +161,7 @@ export default function ProcessList({ connId, kind, active = true }: { connId: s
     /* 下面这行会被 exhaustive-deps 盯上,它是冲着「ref 指向的 DOM 节点可能已经变了」
        去的;而 sequence 只是个请求序号计数器 —— 在清理里自增正是为了作废还在飞的
        那些响应,这就是它的用法本身。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 清理时递增的是请求序号 ref,不是会过期的 DOM 节点
     return () => { sequence.current++; inFlight.current = null; };
   }, [load]);
 

@@ -78,7 +78,7 @@ export default function ChartWidget(props: Props) {
     });
   /* theme 不是多余依赖:这个回调用 getPropertyValue 现读 CSS 变量的值,换主题时
      那些值会变,而 eslint 看不出来。去掉它,换主题图表就不重画。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 换主题会改 CSS 变量,回调用 getPropertyValue 现读,静态分析看不到 theme
   }, [theme, widget.type, widget.options.chart?.barOrientation, widget.options.chart?.grouping, widget.options.numberFormat, widget.options.decimals]);
   useEffect(() => {
     const chart = crosshairChartRef.current;

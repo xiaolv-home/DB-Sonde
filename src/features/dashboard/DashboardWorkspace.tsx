@@ -141,7 +141,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
     /* 只认 tab.id。tab.documentId 是这个 effect 自己在末尾写上去的(新建的白板
        落到标签页上),列进依赖就会立刻再跑一遍、把刚建的板子覆盖掉。
        t 是 i18n 取词函数,只用来给白板起个默认名,不该触发重新加载。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只认 tab.id;documentId 是这个 effect 自己写上去的
   }, [tab.id]);
 
   // 自动刷新:每 refreshInterval 秒触发一次全量重取(bump runtimeRevision)。

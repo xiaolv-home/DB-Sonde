@@ -85,7 +85,7 @@ export default function AiPanel() {
   useEffect(() => {
     const q = useAi.getState().consumeSeed();
     if (q && !streamingRef.current) send(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在 seedNonce 变化时发送;send 每次渲染都是新函数
   }, [seedNonce]);
 
   const submitKeys = useSubmitOnEnter(() => send());

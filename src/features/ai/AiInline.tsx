@@ -52,7 +52,7 @@ export default function AiInline({ ctx, action, kind, catalog, onRunSql, onClose
   // Run the action picked in the right-click menu straight away.
   useEffect(() => {
     if (action !== "ask") run(action);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在打开时跑一次菜单动作,run 每次渲染都是新函数
   }, []);
 
   const run = (action: InlineAction, userText?: string) => {
