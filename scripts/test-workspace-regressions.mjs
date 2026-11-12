@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { buildSync } from 'esbuild';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -451,28 +451,39 @@ try {
   assert.equal(useAnalysis.getState().running, false);
   assert.equal(useAnalysis.getState().stopping, false);
 
-  // Run the actual installer with harmless command doubles, blocking both before build and before installation.
-  const project = join(dir, 'project'), bin = join(dir, 'bin');
-  mkdirSync(join(project, 'scripts'), { recursive: true });
-  mkdirSync(join(project, 'src-tauri/target/release/bundle/macos/DB Sonde.app'), { recursive: true });
-  mkdirSync(bin);
-  const script = join(project, 'scripts/install-local.zsh');
-  writeFileSync(script, readFileSync('scripts/install-local.zsh'));
-  for (const name of ['cargo', 'npm', 'codesign', 'ditto', 'mv', 'osascript', 'killall']) {
-    writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' '${name}' >> "$TEST_LOG"\n`, { mode: 0o755 });
-  }
-  writeFileSync(join(bin, 'security'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nn=0; [ ! -f "$TEST_COUNT" ] || n=$(cat "$TEST_COUNT"); n=$((n+1)); echo "$n" > "$TEST_COUNT"; [ "$n" -ge "$TEST_BLOCK_AT" ]\n', { mode: 0o755 });
-  for (const blockAt of [1, 2, 3]) {
-    const log = join(dir, `commands-${blockAt}`), count = join(dir, `count-${blockAt}`);
-    writeFileSync(log, '');
-    const check = spawnSync('/bin/zsh', [script], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`,
-      TEST_LOG: log, TEST_COUNT: count, TEST_BLOCK_AT: String(blockAt) } });
-    assert.equal(check.status, 1, check.stderr);
-    assert(check.stderr.includes('Save your work and quit'));
-    const commands = readFileSync(log, 'utf8');
-    assert(!/ditto|mv|osascript|killall/.test(commands), commands);
-    assert.equal(commands.includes('cargo'), blockAt > 1);
+  // The installer is a zsh script. Without zsh, spawnSync('/bin/zsh') returns status null
+  // and the assertions below cannot run. Skip that block instead of failing the suite.
+  const zshOnPath = () => {
+    const found = spawnSync('sh', ['-c', 'command -v zsh'], { encoding: 'utf8' });
+    const path = (found.stdout || '').trim();
+    return path && existsSync(path) ? path : null;
+  };
+  const zsh = ['/bin/zsh', '/usr/bin/zsh'].find((path) => existsSync(path)) ?? zshOnPath();
+  if (!zsh) console.log('skipped: zsh not found');
+  else {
+    // Run the actual installer with harmless command doubles, blocking both before build and before installation.
+    const project = join(dir, 'project'), bin = join(dir, 'bin');
+    mkdirSync(join(project, 'scripts'), { recursive: true });
+    mkdirSync(join(project, 'src-tauri/target/release/bundle/macos/DB Sonde.app'), { recursive: true });
+    mkdirSync(bin);
+    const script = join(project, 'scripts/install-local.zsh');
+    writeFileSync(script, readFileSync('scripts/install-local.zsh'));
+    for (const name of ['cargo', 'npm', 'codesign', 'ditto', 'mv', 'osascript', 'killall']) {
+      writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' '${name}' >> "$TEST_LOG"\n`, { mode: 0o755 });
+    }
+    writeFileSync(join(bin, 'security'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nn=0; [ ! -f "$TEST_COUNT" ] || n=$(cat "$TEST_COUNT"); n=$((n+1)); echo "$n" > "$TEST_COUNT"; [ "$n" -ge "$TEST_BLOCK_AT" ]\n', { mode: 0o755 });
+    for (const blockAt of [1, 2, 3]) {
+      const log = join(dir, `commands-${blockAt}`), count = join(dir, `count-${blockAt}`);
+      writeFileSync(log, '');
+      const check = spawnSync(zsh, [script], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`,
+        TEST_LOG: log, TEST_COUNT: count, TEST_BLOCK_AT: String(blockAt) } });
+      assert.equal(check.status, 1, check.stderr);
+      assert(check.stderr.includes('Save your work and quit'));
+      const commands = readFileSync(log, 'utf8');
+      assert(!/ditto|mv|osascript|killall/.test(commands), commands);
+      assert.equal(commands.includes('cargo'), blockAt > 1);
+    }
   }
   console.log('Workspace regressions passed: autonomous planning and follow-up, evidence supplementation within scope, independent conclusion review with bounded rewriting and rejection, full-category charts without forced Top5, model-designed layout preserved; explicit AI model selection for all three steps, immutable run configuration and credential-free checkpoints, neutral layouts, additive pie composition with full denominator, old board optimization preserving IDs and scope; complete design styles through real tool validation and repository save, palette fallback, legend and smoothing normalization, unknown style rejection; exact ratio totals, aggregated counts, comparison validation, calendar weeks and leap days across time zones, dimension collision checks, null handling, filter provenance and search escaping; invalid selections/dates, stored draft types, dashboard filter preservation through SQL, cancellation without stale completion, no overlapping analysis, installer refuses live apps before build and before replacement.');
 } finally {
