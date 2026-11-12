@@ -51,9 +51,14 @@ ring = "0.17.14"
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# 只在 macOS 上用:wry 的导航回调拿不到「是不是子框架」,监控中心的 iframe
-# 和主窗口跳转长得一样。这里改 WKWebView 的策略方法,子框架直接放行。
+# macOS:wry 的导航回调分不出主框架和 iframe。改 WKWebView 的策略方法,
+# 子框架只放行 subframe_navigation_allowed。
 objc2 = "0.6.4"
+
+[target.'cfg(windows)'.dependencies]
+# Windows:NavigationStarting 不管子框架。版本跟 wry 0.55 的 webview2-com 0.38 / windows 0.61 对齐。
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [dependencies.sqlx]
 version = "0.8"

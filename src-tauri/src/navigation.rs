@@ -9,11 +9,33 @@
 //! 应用自己的页面或 `file:` / `javascript:` 这类地址。
 //!
 //! 监控中心嵌在主窗口里的页面是 iframe,不是主框架跳转。Windows 的 `NavigationStarting`
-//! 本来就只报主框架。macOS 的 `decidePolicyForNavigationAction` 主框架和 iframe 都会进
-//! 这个钩子,而且回调里只有 URL —— 所以在 macOS 上改 wry 的策略方法:子框架只放行
-//! http(s)(排除应用、ipc、asset 这些主机)和 `about:blank` / `about:srcdoc`。
-//! Linux 上 WebKitGTK 同样分不清(发行说明里 Linux 也还没做验证),iframe 导航会被当成
-//! 主窗口跳转取消;真要在 Linux 上嵌监控页,得等 wry 把 frame 信息传出来。
+//! 只报主框架,所以 webview 就绪后另订 `FrameNavigationStarting`,并在 `FrameCreated`
+//! 上给更里面的框架订同样的取消。判断和 macOS 是同一个 `subframe_navigation_allowed`:
+//! 只放行普通 http(s)(排除应用、ipc、asset 主机和开发服务器)和 `about:blank` /
+//! `about:srcdoc`。子框架被取消时不打开系统浏览器。
+//!
+//! 打包后的 HTML 由自定义协议带回 `Content-Security-Policy` 响应头(Tauri 2.11 的
+//! `protocol::tauri::get_response`;`set_csp` 注明 Windows / macOS 用响应头,`<meta>`
+//! 只在 data URL 那条路上注入)。`frame-ancestors` 在 `<meta>` 里会被忽略,在响应头里
+//! 才生效,所以 `frame-ancestors 'none'` 让应用页面本身嵌不进任何框架。Vite 开发服务器
+//! 不发这道头,ipc/asset 主机也不是这份 HTML,导航事件仍然要取消。
+//!
+//! wry 会把 WebView2 的请求头抄进自定义协议的 `http::Request`,`Sec-Fetch-Dest` 在协议
+//! 处理函数里看得见。但这条 `tauri` 协议由 Tauri 注册一次,应用挂不进去:先注册会盖掉
+//! 页面资源,后加的 `WebResourceRequested` 写出的拒绝会被 wry 的 deferral 盖掉。
+//! 所以不在协议层拒绝。`reject_framed_app_request` 把「iframe/frame 来取不允许的地址」
+//! 留成可测判断,和导航事件用的是同一套地址规则。
+//!
+//! Tauri 的 IPC 不区分是不是子框架。Windows 上消息来源是发出 `postMessage` 的那个框架
+//! 的 URL(`WebMessageReceived.Source`)。来源算应用自己的源时,权限只看窗口标签。
+//! 主窗口里若真有 iframe 打开到了应用源,会按 `main` 放行。`monitor-win-*` 不在能力清单
+//! 里,本地源也调不了命令。公开接口没有「非顶层框架」这个身份,按框架拒绝会把主页面
+//! 自己的调用一起挡掉。
+//!
+//! macOS 的 `decidePolicyForNavigationAction` 主框架和 iframe 都会进这个钩子,而且回调里
+//! 只有 URL,所以改 wry 的策略方法,子框架走上面那套判断。Linux 上 WebKitGTK 同样分不清
+//! (发行说明里 Linux 也还没做验证),iframe 导航会被当成主窗口跳转取消;真要在 Linux 上
+//! 嵌监控页,得等 wry 把 frame 信息传出来。
 
 use std::cell::Cell;
 use std::sync::Mutex;
@@ -96,9 +118,14 @@ fn is_tauri_localhost(url: &Url) -> bool {
     url.host_str() == Some("tauri.localhost") && url.port().is_none()
 }
 
+fn is_loopback_host(host: &str) -> bool {
+    // `url` 把 IPv6 主机序列化成带方括号的 `[::1]`,跟页面里 `hostname` 一致。
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+}
+
 fn is_dev_server(url: &Url) -> bool {
     url.scheme() == "http"
-        && matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"))
+        && url.host_str().is_some_and(is_loopback_host)
         && url.port() == Some(DEV_SERVER_PORT)
 }
 
@@ -131,6 +158,32 @@ fn subframe_navigation_allowed(url: &Url) -> bool {
         && url.host_str().is_some()
         && !is_internal_http_host(url)
         && !is_dev_server(url)
+}
+
+/// 响应头里的 CSP 单独有一条 `frame-ancestors 'none'` 时,这份文档不能被嵌进框架。
+///
+/// 打包后 Tauri 把同一段策略写成 `Content-Security-Policy` 响应头,不是 `<meta>`。
+/// 浏览器只认响应头里的 `frame-ancestors`。这里锁的是配置文本本身;开发服务器不发这道头。
+fn csp_frame_ancestors_blocks_embedding(csp: &str) -> bool {
+    csp.split(';').any(|directive| {
+        let mut tokens = directive.split_whitespace();
+        tokens
+            .next()
+            .is_some_and(|name| name.eq_ignore_ascii_case("frame-ancestors"))
+            && tokens.eq(["'none'"])
+    })
+}
+
+/// 请求头能看见 `Sec-Fetch-Dest` 时:iframe / frame 来取子框架策略不允许的地址就拒绝。
+/// 顶层文档的 dest 是 `document`,不在这里拒绝,应用自己的页面还要能打开。
+fn reject_framed_app_request(url: &Url, sec_fetch_dest: Option<&str>) -> bool {
+    let framed = sec_fetch_dest.is_some_and(|dest| {
+        matches!(
+            dest.trim().to_ascii_lowercase().as_str(),
+            "iframe" | "frame" | "fencedframe" | "object" | "embed"
+        )
+    });
+    framed && !subframe_navigation_allowed(url)
 }
 
 /// 监控独立窗口要在里面浏览远程网页,所以 http(s) 留在窗口里。
@@ -218,15 +271,19 @@ fn on_navigation<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
 pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("sonde-navigation")
         .on_navigation(on_navigation)
-        .on_webview_ready(|_webview| {
-            install_platform_hooks();
+        .on_webview_ready(|webview| {
+            install_platform_hooks(&webview);
         })
         .build()
 }
 
-fn install_platform_hooks() {
+fn install_platform_hooks<R: Runtime>(webview: &Webview<R>) {
     #[cfg(target_os = "macos")]
     macos::install_subframe_filter();
+    #[cfg(windows)]
+    windows_frame::install(webview);
+    #[cfg(not(windows))]
+    let _ = webview;
 }
 
 #[cfg(target_os = "macos")]
@@ -378,12 +435,163 @@ mod macos {
     }
 }
 
+/// WebView2 的主框架事件看不到 iframe。直接子框架用 `FrameNavigationStarting`,
+/// 再往里的框架在 `FrameCreated` 上订同一个取消。旧运行时没有后两个接口时,
+/// 直接子框架(监控页那个 iframe)仍然会被第一道事件拦住。
+#[cfg(windows)]
+mod windows_frame {
+    use std::sync::Mutex;
+
+    use tauri::Runtime;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Controller, ICoreWebView2Frame, ICoreWebView2Frame2, ICoreWebView2Frame7,
+        ICoreWebView2NavigationStartingEventArgs, ICoreWebView2_4,
+    };
+    use webview2_com::{
+        take_pwstr, FrameChildFrameCreatedEventHandler, FrameCreatedEventHandler,
+        FrameNavigationStartingEventHandler, NavigationStartingEventHandler,
+    };
+    use windows_core::{Interface, PWSTR};
+
+    use super::subframe_navigation_allowed;
+
+    pub fn install<R: Runtime>(webview: &tauri::Webview<R>) {
+        let label = webview.label().to_string();
+        if let Err(err) = webview.with_webview(move |platform| {
+            if !claim(&label) {
+                return;
+            }
+            if let Err(err) = unsafe { attach(&platform.controller()) } {
+                release(&label);
+                eprintln!("DB Sonde: 子框架导航守卫没装上({label}): {err}");
+            }
+        }) {
+            eprintln!("DB Sonde: 拿不到 WebView2({label}): {err}");
+        }
+    }
+
+    fn seen() -> &'static Mutex<Vec<String>> {
+        static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        &SEEN
+    }
+
+    fn claim(label: &str) -> bool {
+        let mut seen = seen()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if seen.iter().any(|item| item == label) {
+            return false;
+        }
+        seen.push(label.to_string());
+        true
+    }
+
+    fn release(label: &str) {
+        let mut seen = seen()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        seen.retain(|item| item != label);
+    }
+
+    unsafe fn attach(controller: &ICoreWebView2Controller) -> windows_core::Result<()> {
+        let core = controller.CoreWebView2()?;
+        let mut token = 0i64;
+        // 和顶层 NavigationStarting 同一个参数:Uri + SetCancel。这个事件只报子框架。
+        core.add_FrameNavigationStarting(
+            &NavigationStartingEventHandler::create(Box::new(|_sender, args| {
+                cancel_if_blocked(args)?;
+                Ok(())
+            })),
+            &mut token,
+        )?;
+
+        match core.cast::<ICoreWebView2_4>() {
+            Ok(newer) => {
+                let mut created = 0i64;
+                if let Err(err) = newer.add_FrameCreated(
+                    &FrameCreatedEventHandler::create(Box::new(|_sender, args| {
+                        if let Some(args) = args {
+                            if let Ok(frame) = unsafe { args.Frame() } {
+                                if let Err(err) = unsafe { watch_frame(&frame) } {
+                                    eprintln!("DB Sonde: 嵌套框架导航守卫没装上: {err}");
+                                }
+                            }
+                        }
+                        Ok(())
+                    })),
+                    &mut created,
+                ) {
+                    eprintln!("DB Sonde: 嵌套框架创建事件没订上: {err}");
+                }
+            }
+            Err(err) => {
+                eprintln!("DB Sonde: 这份 WebView2 没有 FrameCreated,只守直接子框架: {err}");
+            }
+        }
+        Ok(())
+    }
+
+    unsafe fn watch_frame(frame: &ICoreWebView2Frame) -> windows_core::Result<()> {
+        let frame2 = frame.cast::<ICoreWebView2Frame2>()?;
+        let mut token = 0i64;
+        frame2.add_NavigationStarting(
+            &FrameNavigationStartingEventHandler::create(Box::new(|_frame, args| {
+                cancel_if_blocked(args)?;
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        if let Ok(deeper) = frame.cast::<ICoreWebView2Frame7>() {
+            let mut created = 0i64;
+            deeper.add_FrameCreated(
+                &FrameChildFrameCreatedEventHandler::create(Box::new(|_parent, args| {
+                    if let Some(args) = args {
+                        if let Ok(child) = unsafe { args.Frame() } {
+                            if let Err(err) = unsafe { watch_frame(&child) } {
+                                eprintln!("DB Sonde: 嵌套框架导航守卫没装上: {err}");
+                            }
+                        }
+                    }
+                    Ok(())
+                })),
+                &mut created,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// 地址缺失或解析失败按不允许处理。允许的远程网页保持原样,不改去系统浏览器。
+    fn cancel_if_blocked(
+        args: Option<ICoreWebView2NavigationStartingEventArgs>,
+    ) -> windows_core::Result<()> {
+        let Some(args) = args else {
+            return Ok(());
+        };
+        let mut raw = PWSTR::null();
+        let allowed = match unsafe { args.Uri(&mut raw) } {
+            Ok(()) => {
+                let text = take_pwstr(raw);
+                tauri::Url::parse(&text).is_ok_and(|url| subframe_navigation_allowed(&url))
+            }
+            Err(err) => {
+                eprintln!("DB Sonde: 读不到子框架地址,取消这次导航: {err}");
+                false
+            }
+        };
+        if !allowed {
+            unsafe { args.SetCancel(true) }?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        applies_app_navigation_guard, decide_navigation, handoff_to_browser, judge,
-        monitor_navigation_allowed, navigation_type_is_user_gesture, subframe_navigation_allowed,
-        NavigationDecision, NavigationEffect, EXTERNAL_OPEN_GAP,
+        applies_app_navigation_guard, csp_frame_ancestors_blocks_embedding, decide_navigation,
+        handoff_to_browser, judge, monitor_navigation_allowed, navigation_type_is_user_gesture,
+        reject_framed_app_request, subframe_navigation_allowed, NavigationDecision,
+        NavigationEffect, EXTERNAL_OPEN_GAP,
     };
     use std::time::Instant;
     use tauri::Url;
@@ -425,6 +633,10 @@ mod tests {
         );
         assert_eq!(
             decide("http://127.0.0.1:1420/src/main.tsx", true),
+            NavigationDecision::Allow
+        );
+        assert_eq!(
+            decide("http://[::1]:1420/", true),
             NavigationDecision::Allow
         );
         assert_eq!(
@@ -485,6 +697,10 @@ mod tests {
         for window in windows {
             let label = window.as_str().unwrap();
             assert!(
+                !label.starts_with("monitor-win-"),
+                "{label} would skip the app guard and still be allowed to invoke"
+            );
+            assert!(
                 applies_app_navigation_guard(label),
                 "{label} is in the capability list"
             );
@@ -535,6 +751,7 @@ mod tests {
             "http://asset.localhost/icon.png",
             "http://localhost:1420/",
             "http://127.0.0.1:1420/index.html",
+            "http://[::1]:1420/",
             "file:///etc/passwd",
             "javascript:alert(1)",
             "data:text/html,hello",
@@ -572,6 +789,7 @@ mod tests {
             "https://asset.localhost/",
             "http://localhost:1420/",
             "http://127.0.0.1:1420/",
+            "http://[::1]:1420/",
             "file:///etc/passwd",
             "javascript:alert(1)",
             "data:text/html,hello",
@@ -581,6 +799,64 @@ mod tests {
         ] {
             assert!(!subframe_navigation_allowed(&parse(raw)), "{raw}");
         }
+    }
+
+    #[test]
+    fn framed_app_requests_are_rejected_when_the_fetch_dest_says_frame() {
+        let app = parse("http://tauri.localhost/index.html");
+        let ipc = parse("https://ipc.localhost/plugin");
+        let asset = parse("http://asset.localhost/icon.png");
+        let dev = parse("http://localhost:1420/");
+        let remote = parse("https://example.com/embed");
+        for dest in [
+            "iframe",
+            "frame",
+            "IFRAME",
+            " fencedframe ",
+            "object",
+            "embed",
+        ] {
+            assert!(reject_framed_app_request(&app, Some(dest)), "{dest}");
+            assert!(reject_framed_app_request(&ipc, Some(dest)), "{dest}");
+            assert!(reject_framed_app_request(&asset, Some(dest)), "{dest}");
+            assert!(reject_framed_app_request(&dev, Some(dest)), "{dest}");
+            assert!(
+                !reject_framed_app_request(&remote, Some(dest)),
+                "a remote page is a normal monitoring frame"
+            );
+        }
+        assert!(!reject_framed_app_request(&app, Some("document")));
+        assert!(!reject_framed_app_request(&app, Some("empty")));
+        assert!(!reject_framed_app_request(&app, None));
+        assert!(reject_framed_app_request(
+            &parse("javascript:alert(1)"),
+            Some("iframe")
+        ));
+    }
+
+    #[test]
+    fn production_csp_frame_ancestors_none_is_a_response_header_policy() {
+        // 自定义协议对 HTML 设置 Content-Security-Policy 响应头。frame-ancestors
+        // 只有写在响应头里才禁止被嵌入;<meta http-equiv> 里的同名指令会被忽略。
+        // 开发服务器不走这条协议,所以导航取消不能省。
+        let main: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = main["app"]["security"]["csp"].as_str().unwrap();
+        let dev = main["app"]["security"]["devCsp"].as_str().unwrap();
+        assert!(csp_frame_ancestors_blocks_embedding(csp), "{csp}");
+        assert!(csp_frame_ancestors_blocks_embedding(dev), "{dev}");
+        assert!(!csp_frame_ancestors_blocks_embedding(
+            "default-src 'self'; frame-src 'none'"
+        ));
+        assert!(!csp_frame_ancestors_blocks_embedding(
+            "frame-ancestors 'none' https://example.com"
+        ));
+        assert!(!csp_frame_ancestors_blocks_embedding(
+            "frame-ancestors 'self'"
+        ));
+        assert!(csp_frame_ancestors_blocks_embedding(
+            "default-src 'self'; Frame-Ancestors 'none'; frame-src http:"
+        ));
     }
 
     #[test]
