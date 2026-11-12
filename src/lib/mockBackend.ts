@@ -328,6 +328,9 @@ export const mockApi = {
     await delay(200);
     return "SQLite 3.45.0 (mock)";
   },
+  async hasSavedSecret(id: string) {
+    return connections.find((item) => item.id === id)?.kind === "sqlite";
+  },
   async connect(id: string): Promise<ConnectionMeta> {
     await delay(150);
     return {

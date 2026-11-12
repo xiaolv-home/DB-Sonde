@@ -97,7 +97,7 @@
 }
 
 /* Workspace pages retain local edits while inactive. */
-.workspace-pane { flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
+.workspace-pane { position: relative; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
 .tab-unsaved { color: var(--amber); font-size: 10px; }
 
 /* 侧栏文件行里的内联改名输入框 */
@@ -108,10 +108,11 @@
   font-size: 13px;
 }
 
-/* 恢复的标签页还没连上库。居中一张卡片:是什么、在哪、为什么没连、点这里。 */
+/* 恢复的标签页还没连上库。卡片只铺在这个标签的内容区里，不盖住侧栏、标签条和顶栏。 */
 .disconnected {
-  position: absolute;
-  inset: 0;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

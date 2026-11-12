@@ -59,6 +59,10 @@ export const api = {
   connect: (id: string, password: string | null) =>
     inTauri ? invoke<ConnectionMeta>("connect", { id, password }) : mockApi.connect(id),
 
+  /** True when a password is already in the vault, or the database does not use one. Never returns the secret. */
+  hasSavedSecret: (id: string) =>
+    inTauri ? invoke<boolean>("connection_has_saved_secret", { id }) : mockApi.hasSavedSecret(id),
+
   disconnect: (id: string) =>
     inTauri ? invoke<void>("disconnect", { id }) : mockApi.disconnect(),
 

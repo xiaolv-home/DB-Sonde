@@ -93,6 +93,7 @@ pub fn run() {
             commands::connections::delete_connection,
             commands::connections::test_connection,
             commands::connections::connect,
+            commands::connections::connection_has_saved_secret,
             commands::connections::disconnect,
             commands::objects::list_databases,
             commands::objects::list_schemas,

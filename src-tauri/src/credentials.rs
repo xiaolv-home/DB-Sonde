@@ -132,6 +132,10 @@ fn write_vault(dir: &Path, vault: &Vault) -> AppResult<()> {
     }
     result
 }
+/// Whether a sealed record exists. Does not decrypt, so the password never leaves the vault.
+fn stored_at(dir: &Path, id: &str) -> AppResult<bool> {
+    Ok(read_vault(dir)?.contains_key(id))
+}
 fn load_at(dir: &Path, id: &str) -> AppResult<Option<String>> {
     let vault = read_vault(dir)?;
     let Some(sealed) = vault.get(id) else {
@@ -173,6 +177,10 @@ fn save_at(dir: &Path, id: &str, password: &str) -> AppResult<()> {
 pub fn load(app: &AppHandle, config: &ConnectionConfig) -> AppResult<Option<String>> {
     let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
     load_at(&directory(app)?, &account(config))
+}
+pub fn has_saved(app: &AppHandle, config: &ConnectionConfig) -> AppResult<bool> {
+    let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
+    stored_at(&directory(app)?, &account(config))
 }
 pub fn save(app: &AppHandle, config: &ConnectionConfig, password: &str) -> AppResult<()> {
     let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
@@ -387,6 +395,12 @@ mod tests {
             Some("test-secret-123")
         );
         assert_eq!(load_at(&dir, "two").unwrap().as_deref(), Some(""));
+        assert!(stored_at(&dir, "one").unwrap());
+        assert!(stored_at(&dir, "two").unwrap());
+        assert!(!stored_at(&dir, "missing").unwrap());
+        let flag = stored_at(&dir, "one").unwrap().to_string();
+        assert_eq!(flag, "true");
+        assert!(!flag.contains("test-secret"));
         assert!(
             !String::from_utf8(fs::read(dir.join("credentials.json")).unwrap())
                 .unwrap()
