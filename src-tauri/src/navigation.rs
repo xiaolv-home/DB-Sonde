@@ -23,8 +23,7 @@
 //! wry 会把 WebView2 的请求头抄进自定义协议的 `http::Request`,`Sec-Fetch-Dest` 在协议
 //! 处理函数里看得见。但这条 `tauri` 协议由 Tauri 注册一次,应用挂不进去:先注册会盖掉
 //! 页面资源,后加的 `WebResourceRequested` 写出的拒绝会被 wry 的 deferral 盖掉。
-//! 所以不在协议层拒绝。`reject_framed_app_request` 把「iframe/frame 来取不允许的地址」
-//! 留成可测判断,和导航事件用的是同一套地址规则。
+//! 所以不在协议层按 `Sec-Fetch-Dest` 拒绝,取消只发生在上面的导航事件里。
 //!
 //! Tauri 的 IPC 不区分是不是子框架。Windows 上消息来源是发出 `postMessage` 的那个框架
 //! 的 URL(`WebMessageReceived.Source`)。来源算应用自己的源时,权限只看窗口标签。
@@ -52,7 +51,7 @@ const EXTERNAL_OPEN_GAP: Duration = Duration::from_secs(1);
 // wry 的导航回调只有 URL,点没点过链接只有 macOS 的策略方法能看见。
 // `None` 表示这个平台看不出来,仍按「可能是用户」处理,靠上面的节流挡连发。
 thread_local! {
-    static USER_GESTURE: Cell<Option<bool>> = Cell::new(None);
+    static USER_GESTURE: Cell<Option<bool>> = const { Cell::new(None) };
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -160,32 +159,6 @@ fn subframe_navigation_allowed(url: &Url) -> bool {
         && !is_dev_server(url)
 }
 
-/// 响应头里的 CSP 单独有一条 `frame-ancestors 'none'` 时,这份文档不能被嵌进框架。
-///
-/// 打包后 Tauri 把同一段策略写成 `Content-Security-Policy` 响应头,不是 `<meta>`。
-/// 浏览器只认响应头里的 `frame-ancestors`。这里锁的是配置文本本身;开发服务器不发这道头。
-fn csp_frame_ancestors_blocks_embedding(csp: &str) -> bool {
-    csp.split(';').any(|directive| {
-        let mut tokens = directive.split_whitespace();
-        tokens
-            .next()
-            .is_some_and(|name| name.eq_ignore_ascii_case("frame-ancestors"))
-            && tokens.eq(["'none'"])
-    })
-}
-
-/// 请求头能看见 `Sec-Fetch-Dest` 时:iframe / frame 来取子框架策略不允许的地址就拒绝。
-/// 顶层文档的 dest 是 `document`,不在这里拒绝,应用自己的页面还要能打开。
-fn reject_framed_app_request(url: &Url, sec_fetch_dest: Option<&str>) -> bool {
-    let framed = sec_fetch_dest.is_some_and(|dest| {
-        matches!(
-            dest.trim().to_ascii_lowercase().as_str(),
-            "iframe" | "frame" | "fencedframe" | "object" | "embed"
-        )
-    });
-    framed && !subframe_navigation_allowed(url)
-}
-
 /// 监控独立窗口要在里面浏览远程网页,所以 http(s) 留在窗口里。
 /// blob 是页面自己造的下载/预览,about 是空文档。其余和子框架一样拒绝。
 fn monitor_navigation_allowed(url: &Url) -> bool {
@@ -194,6 +167,8 @@ fn monitor_navigation_allowed(url: &Url) -> bool {
 
 /// `WKNavigationType` 里算用户操作的:点链接、提交表单、重新提交表单。
 /// 脚本改 `location`、`window.open`、重定向是 Other(-1),后退和刷新也不该弹出浏览器。
+/// 只有 macOS 的策略回调能拿到这个类型;测试在各平台都编译它。
+#[cfg(any(target_os = "macos", test))]
 fn navigation_type_is_user_gesture(kind: isize) -> bool {
     matches!(kind, 0 | 1 | 4)
 }
@@ -588,16 +563,28 @@ mod windows_frame {
 #[cfg(test)]
 mod tests {
     use super::{
-        applies_app_navigation_guard, csp_frame_ancestors_blocks_embedding, decide_navigation,
-        handoff_to_browser, judge, monitor_navigation_allowed, navigation_type_is_user_gesture,
-        reject_framed_app_request, subframe_navigation_allowed, NavigationDecision,
-        NavigationEffect, EXTERNAL_OPEN_GAP,
+        applies_app_navigation_guard, decide_navigation, handoff_to_browser, judge,
+        monitor_navigation_allowed, navigation_type_is_user_gesture, subframe_navigation_allowed,
+        NavigationDecision, NavigationEffect, EXTERNAL_OPEN_GAP,
     };
     use std::time::Instant;
     use tauri::Url;
 
     fn parse(raw: &str) -> Url {
         Url::parse(raw).unwrap()
+    }
+
+    /// 响应头里的 CSP 单独有一条 `frame-ancestors 'none'` 时,这份文档不能被嵌进框架。
+    /// 打包后 Tauri 把同一段策略写成 `Content-Security-Policy` 响应头,不是 `<meta>`。
+    /// 浏览器只认响应头里的 `frame-ancestors`。这里锁的是配置文本本身。
+    fn csp_frame_ancestors_blocks_embedding(csp: &str) -> bool {
+        csp.split(';').any(|directive| {
+            let mut tokens = directive.split_whitespace();
+            tokens
+                .next()
+                .is_some_and(|name| name.eq_ignore_ascii_case("frame-ancestors"))
+                && tokens.eq(["'none'"])
+        })
     }
 
     fn decide(raw: &str, dev: bool) -> NavigationDecision {
@@ -799,39 +786,6 @@ mod tests {
         ] {
             assert!(!subframe_navigation_allowed(&parse(raw)), "{raw}");
         }
-    }
-
-    #[test]
-    fn framed_app_requests_are_rejected_when_the_fetch_dest_says_frame() {
-        let app = parse("http://tauri.localhost/index.html");
-        let ipc = parse("https://ipc.localhost/plugin");
-        let asset = parse("http://asset.localhost/icon.png");
-        let dev = parse("http://localhost:1420/");
-        let remote = parse("https://example.com/embed");
-        for dest in [
-            "iframe",
-            "frame",
-            "IFRAME",
-            " fencedframe ",
-            "object",
-            "embed",
-        ] {
-            assert!(reject_framed_app_request(&app, Some(dest)), "{dest}");
-            assert!(reject_framed_app_request(&ipc, Some(dest)), "{dest}");
-            assert!(reject_framed_app_request(&asset, Some(dest)), "{dest}");
-            assert!(reject_framed_app_request(&dev, Some(dest)), "{dest}");
-            assert!(
-                !reject_framed_app_request(&remote, Some(dest)),
-                "a remote page is a normal monitoring frame"
-            );
-        }
-        assert!(!reject_framed_app_request(&app, Some("document")));
-        assert!(!reject_framed_app_request(&app, Some("empty")));
-        assert!(!reject_framed_app_request(&app, None));
-        assert!(reject_framed_app_request(
-            &parse("javascript:alert(1)"),
-            Some("iframe")
-        ));
     }
 
     #[test]
