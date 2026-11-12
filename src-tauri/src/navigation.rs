@@ -903,6 +903,29 @@ mod tests {
         assert!(!navigation_type_is_user_gesture(3));
     }
 
+    fn csp_directive<'a>(policy: &'a str, name: &str) -> &'a str {
+        policy
+            .split(';')
+            .map(str::trim)
+            .find(|part| {
+                *part == name
+                    || part.starts_with(name) && part.as_bytes().get(name.len()) == Some(&b' ')
+            })
+            .unwrap_or("")
+    }
+
+    fn assert_connect_src_is_tight(directive: &str) {
+        let sources: Vec<&str> = directive.split_whitespace().skip(1).collect();
+        assert!(
+            sources.iter().all(|source| !source.contains("https:")),
+            "connect-src must not contain https: {directive}"
+        );
+        assert!(
+            !sources.contains(&"http:") && !sources.contains(&"http://*"),
+            "connect-src must not allow arbitrary http: {directive}"
+        );
+    }
+
     #[test]
     fn configured_csp_is_restrictive_and_overrides_do_not_clear_it() {
         let main: serde_json::Value =
@@ -918,7 +941,6 @@ mod tests {
             "script-src 'self'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' blob: data:",
-            "connect-src ",
             "frame-src http: https:",
             "worker-src 'none'",
             "object-src 'none'",
@@ -931,6 +953,19 @@ mod tests {
                 "production CSP missing {needle}: {csp}"
             );
         }
+        // Cloud model HTTP is proxied in Rust, so the webview no longer needs
+        // https: or a blanket http:. Loopback stays: the renderer still calls
+        // local and built-in model servers on 127.0.0.1 / localhost.
+        const PRODUCTION_CONNECT_SRC: &str =
+            "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*";
+        const DEV_CONNECT_SRC: &str =
+            "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*";
+        let connect = csp_directive(csp, "connect-src");
+        let dev_connect = csp_directive(dev, "connect-src");
+        assert_eq!(connect, PRODUCTION_CONNECT_SRC, "{csp}");
+        assert_eq!(dev_connect, DEV_CONNECT_SRC, "{dev}");
+        assert_connect_src_is_tight(connect);
+        assert_connect_src_is_tight(dev_connect);
         assert!(
             !csp.contains("unsafe-eval"),
             "production script-src must not allow eval"
