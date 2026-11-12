@@ -76,6 +76,7 @@
     "test:sql-punctuation": "node scripts/test-sql-punctuation.mjs",
     "test:result-grid": "node scripts/test-result-grid.mjs",
     "test:themes": "node scripts/test-themes.mjs",
+    "test:frost-contrast": "node scripts/test-frost-contrast.mjs",
     "test:drill-facts": "node scripts/test-drill-facts.mjs",
     "test:dashboard-smart": "node scripts/test-dashboard-smart.mjs",
     "test:more-charts": "node scripts/test-more-charts.mjs",
