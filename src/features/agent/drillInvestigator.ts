@@ -15,7 +15,7 @@
  * 代码守住的边界:范围只能越钻越小(不能越出用户核对过的筛选和日期),指标和维度
  * 必须是目录里真实支持的,同样的一步不重复查,取回来的数先过数据检查。
  */
-import { S } from "./jsonSchema";
+import { S, type JsonSchema } from "./jsonSchema";
 import type { NodeFn } from "./graph";
 import type { AgentState, DatasetSummary, DrillStep } from "./state";
 import type { Metric } from "../metrics/metricTypes";
@@ -61,6 +61,18 @@ const DECISION_SCHEMA = S.obj({
   rootCause: S.str("decision=done 时:沿调查路径说清根因。已被数据证实的和推测、待验证的分开写"),
   gaps: S.arr(S.str(), "数据到底了还没证实的、查不了的", 6),
 }, ["readings", "thinking", "decision", "drills", "rootCause", "gaps"]);
+
+/** 最后一轮不再提供「继续下钻」。decision 只能是 done,根因不能空。 */
+const CONCLUSION_SCHEMA: JsonSchema = {
+  ...DECISION_SCHEMA,
+  properties: {
+    ...DECISION_SCHEMA.properties,
+    thinking: S.str("现在知道了什么、为什么到这里可以收束"),
+    decision: S.enumOf(["done"], "最后一轮只能收束,必须写出根因"),
+    drills: { ...DECISION_SCHEMA.properties?.drills, maxItems: 0, description: "最后一轮不要再下钻,留空数组" },
+    rootCause: { type: "string", minLength: 1, description: "沿调查路径说清根因。已被数据证实的和推测、待验证的分开写" },
+  },
+};
 
 export interface DrillPorts {
   readCatalog(): Metric[];
@@ -173,8 +185,9 @@ export function createDrillInvestigator({ readCatalog, callStructured, callTool,
         compare: s.compare ?? "none", metrics: s.metricIds, reading: s.reading ?? "(待你解读)", failed: s.failed,
         facts: facts.filter((f) => f.id.startsWith(`${s.id}-`)).map((f) => f.text),
       }));
+      const conclude = round === ROUNDS - 1;
       const result = await callStructured<DrillDecision>({
-        role: "reasoning", node: "DrillInvestigator", name: "drill_decision", schema: DECISION_SCHEMA, signal: context?.signal,
+        role: "reasoning", node: "DrillInvestigator", name: "drill_decision", schema: conclude ? CONCLUSION_SCHEMA : DECISION_SCHEMA, signal: context?.signal,
         system: `你是经营分析师,在做一次从大到小的下钻调查。
 
 思路:先看整体和各分组跟对比期比变了多少,找出变化最大、最反常的那一块;然后缩小到那一块,
@@ -187,7 +200,7 @@ export function createDrillInvestigator({ readCatalog, callStructured, callTool,
 可钻的维度:每个指标支持的维度见目录;时间用 day/week/month。只能在上一步的范围里再缩小,
 筛选取值要照事实里出现的原样写。同一步不要重复。
 
-还剩 ${ROUNDS - round} 轮(每轮最多 2 步)。最后一轮必须 done。
+${conclude ? "这是最后一轮,必须收束:decision 只能是 done,rootCause 写清根因,不要再下钻。" : `还剩 ${ROUNDS - round} 轮(每轮最多 2 步)。最后一轮必须 done。`}
 用户问题:${state.userRequest}
 用户核对过的范围:${JSON.stringify({ 日期: scope.dateRange, 筛选: scope.filters.map((f) => `${label(f.field)}=${f.values.join("/")}`), 对比: scope.comparisonRanges })}
 整体那一层(overview):指标 ${JSON.stringify(overviewMetrics)},按 ${overviewDims.map(label).join("、") || "不拆"}
@@ -195,7 +208,7 @@ export function createDrillInvestigator({ readCatalog, callStructured, callTool,
 整体那一层的事实:
 ${facts.filter((f) => !/^S\d+-/.test(f.id)).map((f) => `[${f.id}] ${f.text}`).join("\n") || "(无)"}
 已经走过的步骤:${JSON.stringify(tree)}`,
-        user: "读完已有的数据,决定下一步往哪钻,或者给出根因。",
+        user: conclude ? "已到最后一轮。根据现有证据写出根因,decision 必须是 done,不要再给新的下钻。" : "读完已有的数据,决定下一步往哪钻,或者给出根因。",
       }, context?.modelConfig);
       context?.signal?.throwIfAborted();
       state.usage = [...state.usage, { node: "DrillInvestigator", ms: result.ms, promptTokens: result.promptTokens, completionTokens: result.completionTokens }];
@@ -207,9 +220,17 @@ ${facts.filter((f) => !/^S\d+-/.test(f.id)).map((f) => `[${f.id}] ${f.text}`).jo
       }
       log.push(`思路:${decision.thinking}`);
       gaps = decision.gaps;
-      if (decision.decision === "done" || round === ROUNDS - 1) {
-        rootCause = decision.rootCause?.trim() || rootCause;
-        if (decision.decision !== "done") gaps = [...gaps, "调查轮数用完了,最后一步还没来得及解读。"];
+      if (decision.decision === "done" || conclude) {
+        const written = decision.rootCause?.trim();
+        rootCause = written || rootCause;
+        // 最后一轮即使模型仍想下钻,也要收束并把根因写出来,不能空着手结束。
+        if (conclude && !rootCause) {
+          const noted = steps.map((step) => step.reading?.trim()).filter((text): text is string => Boolean(text));
+          rootCause = noted.length
+            ? `调查轮数已用完。沿已有步骤看到：${noted.join("；")}`
+            : `调查轮数已用完,现有证据还不足以写成更具体的根因。${decision.thinking?.trim() ?? ""}`.trim();
+        }
+        if (conclude && !written) gaps = [...gaps, "调查轮数用完了,已按已有证据强制收束。"];
         break;
       }
       let progressed = false;

@@ -117,6 +117,35 @@ try {
     assert(out.investigation.some(line => line.startsWith('没钻')), JSON.stringify(out.investigation));
   }
   await assert.rejects(investigator({ ...state, connId: 'B' }), /连接不一致/);
+  // 模型一路说还要下钻、不给根因。最后一轮必须强制收束,把根因写出来,不能空着手结束。
+  {
+    const localPlans = new Map([['primary', plans.get('primary')]]);
+    let asked = 0;
+    const node = m.createDrillInvestigator({
+      readCatalog: () => catalog, getPlan: id => localPlans.get(id),
+      callStructured: async (call) => {
+        asked += 1;
+        const choices = call.schema?.properties?.decision?.enum ?? [];
+        const forced = choices.length === 1 && choices[0] === 'done' && (call.schema?.properties?.rootCause?.minLength ?? 0) >= 1;
+        if (forced) {
+          return response({ readings: [{ stepId: 'S1', reading: '八月库存下降' }], thinking: '轮数用完,收束', decision: 'done', drills: [], rootCause: '库存下降集中在八月', gaps: [] });
+        }
+        return response(drill());
+      },
+      callTool: async (name) => {
+        if (name === 'build_query_plan') {
+          const id = `gap-${asked}-${localPlans.size}`;
+          localPlans.set(id, observed(['stock'], ['month']));
+          return ok({ planId: id });
+        }
+        if (name === 'execute_query_plan') return ok({ rowCount: 1 });
+        return ok({ issues: [] });
+      },
+    });
+    const unfinished = await node(state);
+    assert.equal(unfinished.rootCause, '库存下降集中在八月', '最后一轮必须写出根因,不能停在未收敛');
+    assert.ok(asked >= 2, '前面几轮仍可下钻,只在最后一轮强制收束');
+  }
   for (const target of ['model', 'build_query_plan', 'execute_query_plan', 'validate_dataset']) {
     const wait = later(), start = later(), controller = new AbortController(), trace = [];
     const node = m.createDrillInvestigator({ readCatalog: () => catalog, getPlan: id => plans.get(id),
