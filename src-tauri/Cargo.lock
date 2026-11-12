@@ -988,6 +988,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "libc",
+ "objc2",
  "oracle",
  "oracle-rs",
  "reqwest 0.12.28",

@@ -50,6 +50,11 @@ tauri-plugin-clipboard-manager = "2"
 ring = "0.17.14"
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# 只在 macOS 上用:wry 的导航回调拿不到「是不是子框架」,监控中心的 iframe
+# 和主窗口跳转长得一样。这里改 WKWebView 的策略方法,子框架直接放行。
+objc2 = "0.6.4"
+
 [dependencies.sqlx]
 version = "0.8"
 default-features = false
