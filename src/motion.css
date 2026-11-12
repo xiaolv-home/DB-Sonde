@@ -194,7 +194,7 @@
    基本看不出焦点在哪。用 :focus-visible 而不是 :focus:鼠标点按不该出现这个圈。 */
 :where(button, a, [role="button"], [tabindex]):focus-visible,
 :where(input, textarea, select):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -290,3 +290,16 @@ body.is-dragging * {
     background var(--dur-1) var(--ease),
     color var(--dur-1) var(--ease);
 }
+
+/* 工作台里的控件也沿用同一节奏；不对表格行、图表或面板尺寸做过渡。 */
+:where(.st-menu-item, .st-pages, .st-chip, .st-add-filter, .st-ds-pick, .st-types button,
+  .st-tabs button, .st-seg button, .st-agg-grid button, .st-chipset button, .object-nav button,
+  .qt-close, .new-tab) {
+  transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+:where(.st-menu-item, .st-pages, .st-chip, .st-add-filter, .st-ds-pick, .st-types button,
+  .st-tabs button, .st-seg button, .st-agg-grid button, .st-chipset button, .object-nav button,
+  .qt-close, .new-tab):hover:not(:disabled) { transition-duration: var(--dur-0); }
+:where(.st-menu-item, .st-pages, .st-chip, .st-add-filter, .st-ds-pick, .st-types button,
+  .st-tabs button, .st-seg button, .st-agg-grid button, .st-chipset button, .object-nav button,
+  .qt-close, .new-tab):active:not(:disabled) { transition-duration: 0ms; }

@@ -13,7 +13,7 @@ import { availableParallelism } from 'node:os';
 import { readFileSync } from 'node:fs';
 
 /** 要额外环境才能跑的(要编 Rust、连库……),只能单独 npm run */
-const OPT_IN = new Set(['test:postgres', 'test:startup-webkit', 'test:hardening-webkit']);
+const OPT_IN = new Set(['test:postgres', 'test:startup-webkit', 'test:hardening-webkit', 'test:ui-polish-webkit']);
 
 const scripts = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts;
 const tasks = [

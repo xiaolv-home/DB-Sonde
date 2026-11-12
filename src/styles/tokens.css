@@ -7,20 +7,20 @@
   /* 深色「墨」。眼睛累的三个来源都在这儿压下去:
      底色不用近黑(瞳孔放大,字的边缘会发散)、字不用近白(对比度压到约 10:1)、
      强调色和语义色降饱和(霓虹色在暗底上最刺眼)。 */
-  --bg: #1b1c20;
-  --surface: #212226;
-  --surface-2: #292a2f;
-  --surface-3: #33343a;
-  --header: #1d1e22;
-  --popover: #2b2c31;
-  --border: #2e2f35;
-  --border-2: #3e3f46;
+  --bg: #1b1d22;
+  --surface: #23262d;
+  --surface-2: #2a2e36;
+  --surface-3: #343a45;
+  --header: #202329;
+  --popover: #2c313a;
+  --border: #2c3038;
+  --border-2: #4a515d;
   /* 表格网格线:比边框淡得多。几千个格子每格都描边,线一亮整屏就是一张网。 */
-  --grid-line: #27282d;
+  --grid-line: #252930;
   --scrim: rgba(10, 11, 14, 0.42);
-  --text: #cfd1d6;
-  --text-2: #a1a3ab;
-  --text-3: #868891;
+  --text: #d5d9e1;
+  --text-2: #b0b7c3;
+  --text-3: #9da5b2;
   --accent: #7aa7dd;
   --accent-2: #6b97cd;
   --accent-ink: #11161d;
@@ -34,6 +34,9 @@
   --dirty: #3a3424;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
   --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.25);
+  /* 层级边界与网格线分开，避免提亮控件时把表格变成网。 */
+  --divider: color-mix(in srgb, var(--border-2) 58%, var(--border));
+  --focus-ring: var(--accent);
   --radius: 9px;
   --radius-sm: 6px;
   /* UI text (bundled Inter) */
@@ -85,7 +88,7 @@
   --scrim: rgba(24, 28, 40, 0.2);
   --text: #1f2024;
   --text-2: #55575f;
-  --text-3: #71737d;
+  --text-3: #606672;
   --accent: #2470c4;
   --accent-2: #1d63b0;
   --accent-ink: #ffffff;
@@ -135,7 +138,7 @@
   --scrim: rgba(60, 48, 28, 0.2);
   --text: #2c2a26;
   --text-2: #5d5950;
-  --text-3: #736e62;
+  --text-3: #655f54;
   --accent: #2d5f96;
   --accent-2: #265283;
   --accent-ink: #ffffff;

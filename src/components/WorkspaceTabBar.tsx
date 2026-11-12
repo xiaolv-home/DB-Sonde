@@ -121,7 +121,10 @@ export default function WorkspaceTabBar() {
               </span>
             )}
           </div>
-          <span
+          <button
+            type="button"
+            aria-label={`${t("action.close")} ${tab.title}`}
+            onMouseDown={(e) => e.stopPropagation()}
             className="qt-close"
             onClick={(e) => {
               e.stopPropagation();
@@ -129,11 +132,12 @@ export default function WorkspaceTabBar() {
             }}
           >
             <X size={13} />
-          </span>
+          </button>
         </div>
       ))}
       {tabs.length > 0 && (
-        <div
+        <button
+          type="button"
           className="new-tab"
           title={t("action.newQuery")}
           onClick={() => {
@@ -148,7 +152,7 @@ export default function WorkspaceTabBar() {
           }}
         >
           <Plus size={16} />
-        </div>
+        </button>
       )}
       </div>
 

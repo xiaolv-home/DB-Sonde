@@ -47,7 +47,7 @@
   padding: 0 8px 0 12px;
   border-radius: 999px;
   cursor: default;
-  color: var(--text-3);
+  color: var(--text-2);
   max-width: 220px;
   position: relative;
   z-index: 1;                 /* 压在胶囊上面 */
@@ -57,7 +57,7 @@
   margin-left: 6px;
 }
 .qtab:hover {
-  color: var(--text-2);
+  color: var(--text);
 }
 .qtab.active {
   color: var(--text);
@@ -73,6 +73,11 @@
   color: var(--text-3);
 }
 .qtab .qt-close {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  flex: 0 0 18px;
+  cursor: default;
   width: 18px;
   height: 18px;
   border-radius: 4px;
@@ -85,6 +90,11 @@
   color: var(--text);
 }
 .new-tab {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  flex: 0 0 36px;
+  cursor: default;
   display: grid;
   place-items: center;
   width: 36px;

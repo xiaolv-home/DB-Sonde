@@ -47,7 +47,10 @@ for (const [name, p] of Object.entries(palettes)) {
   for (const bg of [p.bg, p.surface]) {
     assert.ok(contrast(p.text, bg) >= 9, `${name} 正文对比度不够`);
     assert.ok(contrast(p['text-2'], bg) >= 4.5, `${name} 次要文字对比度不够`);
-    assert.ok(contrast(p['text-3'], bg) >= 3.8, `${name} 弱文字对比度不够`);
+    assert.ok(contrast(p['text-3'], bg) >= 4.5, `${name} 弱文字对比度不够`);
+  }
+  for (const bg of [p['surface-2'], p['surface-3'], p.popover]) {
+    assert.ok(contrast(p['text-3'], bg) >= 4.5, `${name} 面板与控件里的说明文字太淡`);
   }
   assert.ok(contrast(p['accent-ink'], p.accent) >= 4.5, `${name} 主按钮文字看不清`);
   assert.ok(contrast(p['red-ink'], p.red) >= 4.5, `${name} 危险按钮文字看不清`);

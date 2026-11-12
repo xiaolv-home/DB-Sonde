@@ -17,8 +17,17 @@
   gap: 8px;
   padding: 0 12px;
   background: var(--header);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
+
+/* 常驻导航轻一点，当前工作区用同一组强调色定位。 */
+.toolbar > .btn { background: transparent; border-color: transparent; color: var(--text-2); }
+.toolbar > .btn:hover { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.toolbar > .btn[aria-current="page"],
+.toolbar > .btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent-border); color: var(--text); }
+.toolbar > .btn[aria-current="page"] svg,
+.toolbar > .btn[aria-expanded="true"] svg { color: var(--accent); }
+.toolbar .language-btn { border-left-color: var(--divider); border-radius: 0; }
 
 .brand {
   display: flex;
@@ -309,10 +318,16 @@
   max-height: calc(100vh - 60px);
   overflow: auto;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   border-radius: 12px;
   box-shadow: var(--shadow);
 }
+/* 长表单只滚动正文，标题和操作始终在视口内。非表单弹窗保持原布局。 */
+.modal:has(> .modal-body) { display: flex; flex-direction: column; overflow: hidden; }
+.modal:has(> .modal-body) > .modal-head { flex: none; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.modal:has(> .modal-body) > .modal-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.modal:has(> .modal-body) > .modal-foot { flex: none; border-top: 1px solid var(--border); background: var(--header); padding-bottom: 14px; }
+
 .modal-head {
   display: flex;
   align-items: center;

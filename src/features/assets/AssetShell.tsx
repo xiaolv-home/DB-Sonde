@@ -1,4 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { useDismissTransition } from "../../hooks/useDismissTransition";
+import { createContext, useContext, useMemo, useState, useRef, useLayoutEffect, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { X, Workflow, Gauge, Boxes, MonitorDot } from "lucide-react";
 import { useCanvasCenter } from "../canvas/canvasCenterStore";
@@ -46,14 +47,24 @@ export function closeAssets() {
 
 /** 壳里留给内容的那块地方。null = 浮层没开(或还没落地),中心这一帧什么都不画。 */
 const SlotContext = createContext<HTMLElement | null>(null);
+const AssetDismissContext = createContext<RefObject<() => void>>({ current: closeAssets });
 
 /** 浮层本体:遮罩、面板、左侧导航、以及一块等着中心往里填的空列。 */
 function AssetChrome({ section, slotRef }: { section: AssetSection; slotRef: (node: HTMLDivElement | null) => void }) {
+  const { ref, closing, dismiss } = useDismissTransition(closeAssets);
+  const dismissRef = useContext(AssetDismissContext);
+  // Portal content and chrome share one exit owner. The ref keeps the callback
+  // current without remounting any center or restarting the entrance animation.
+  useLayoutEffect(() => {
+    dismissRef.current = dismiss;
+    return () => { dismissRef.current = closeAssets; };
+  }, [dismiss, dismissRef]);
   /* 侧栏那条竖排导航跟工作区标签栏共用同一块玻璃胶囊 —— 同一套动作,
      用户在两个地方看到的是一件东西,而不是两种各自发明的高亮。 */
   const { trackProps, pillProps } = useGlassPill(section);
+
   return (
-    <div className="asset-overlay" role="dialog" aria-modal="true" onMouseDown={closeAssets}>
+    <div ref={ref} inert={closing} className="asset-overlay" role="dialog" aria-modal="true" aria-label="数据资产" onMouseDown={dismiss}>
       <div className="asset-panel" onMouseDown={(e) => e.stopPropagation()}>
         <nav className="asset-rail pill-track" {...trackProps}>
           <span {...pillProps} />
@@ -97,13 +108,16 @@ export function AssetChromeHost({ section, children }: { section: AssetSection |
   /* 用 state 而不是 ref 存这个节点:壳先落地、中心才能往里投,
      中间隔着一次渲染,得有东西把这次变化通知出去。 */
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const dismissRef = useRef(closeAssets);
   /* 壳没开的时候,前一次留下的节点已经不在文档里了,不能再往里投。 */
   const target = useMemo(() => (section ? slot : null), [section, slot]);
   return (
-    <SlotContext.Provider value={target}>
-      {section && <AssetChrome section={section} slotRef={setSlot} />}
-      {children}
-    </SlotContext.Provider>
+    <AssetDismissContext.Provider value={dismissRef}>
+      <SlotContext.Provider value={target}>
+        {section && <AssetChrome section={section} slotRef={setSlot} />}
+        {children}
+      </SlotContext.Provider>
+    </AssetDismissContext.Provider>
   );
 }
 
@@ -125,6 +139,7 @@ export default function AssetShell({
   children: ReactNode;
 }) {
   const slot = useContext(SlotContext);
+  const dismissRef = useContext(AssetDismissContext);
   if (!slot) return null;
   return createPortal(
     <>
@@ -133,7 +148,7 @@ export default function AssetShell({
         {sub && <div className="asset-h-sub">{sub}</div>}
         <div className="toolbar-spacer" />
         {actions}
-        <button className="ai-icon" title="关闭" onClick={closeAssets}>
+        <button className="ai-icon" title="关闭" onClick={() => dismissRef.current()}>
           <X size={16} />
         </button>
       </header>

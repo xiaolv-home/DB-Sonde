@@ -1,3 +1,4 @@
+import { useDismissTransition } from "../../hooks/useDismissTransition";
 import { useCloudSettingsDraft } from "./useCloudSettingsDraft";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Play, Square, CircleCheck, Download, RefreshCw } from "lucide-react";
@@ -169,7 +170,8 @@ export default function AiSettings() {
   const close = useAi((s) => s.closeSettings);
   const configError = useAi((s) => s.configError);
   const cloudDraft = useCloudSettingsDraft();
-  const requestClose = () => { void cloudDraft.save().then(ok => { if (ok) close(); }); };
+  const { ref, closing, dismiss } = useDismissTransition(close);
+  const requestClose = () => { void cloudDraft.save().then(ok => { if (ok) dismiss(); }); };
 
   const discovery = useModelDiscovery(config.provider === "local" ? { provider: "local", baseUrl: config.local.baseUrl } : null);
   const detectMsg = discovery.error ?? (discovery.loaded
@@ -183,8 +185,8 @@ export default function AiSettings() {
   ];
 
   return (
-    <div className="modal-backdrop" onMouseDown={requestClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+    <div ref={ref} inert={closing} className="modal-backdrop" onMouseDown={requestClose}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t("settings")} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{t("settings")}</h3>
         </div>

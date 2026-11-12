@@ -1,3 +1,4 @@
+import { useDismissTransition } from "../hooks/useDismissTransition";
 import { useState } from "react";
 import { nanoid } from "nanoid";
 import { CheckCircle2, XCircle, Loader2, X, Info } from "lucide-react";
@@ -54,7 +55,7 @@ export default function ConnectionDialog() {
     patch({ kind, port: kind === "clickhouse" ? 8443 : dp, sslMode: kind === "clickhouse" ? "require" : "prefer", brand: null });
   };
 
-  const close = () => useApp.getState().closeDialog();
+  const { ref, closing, dismiss: close } = useDismissTransition(() => useApp.getState().closeDialog());
 
   const doTest = async () => {
     setTest({ s: "run", m: "" });
@@ -89,11 +90,11 @@ export default function ConnectionDialog() {
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="modal">
+    <div ref={ref} inert={closing} className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? t("connection.edit") : t("connection.new")}>
         <div className="modal-head">
           <h3>{editing ? t("connection.edit") : t("connection.new")}</h3>
-          <button className="icon-btn" style={{ marginLeft: "auto" }} onClick={close}>
+          <button className="icon-btn" aria-label={t("action.close")} style={{ marginLeft: "auto" }} onClick={close}>
             <X size={18} />
           </button>
         </div>

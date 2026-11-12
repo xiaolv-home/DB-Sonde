@@ -18,6 +18,8 @@ import { kindLabel } from "./types";
 
 function Toolbar() {
   const { language, t } = useI18n();
+  const panelOpen = useAi(s => s.panelOpen);
+  const activeKind = useApp(s => s.tabs.find(tab => tab.id === s.activeTabId)?.kind);
   return (
     <div className="toolbar">
       <div className="brand">
@@ -25,16 +27,16 @@ function Toolbar() {
         DB Sonde <small>beta</small>
       </div>
       <div className="toolbar-spacer" />
-      <button className="btn" onClick={() => useAi.getState().togglePanel()}>
+      <button className="btn" aria-expanded={panelOpen} onClick={() => useAi.getState().togglePanel()}>
         <Sparkles size={15} /> AI
       </button>
       {/* 「分析」是独立工作区,不是聊天框里的一个模式:
           数据范围由人在表单里锁死,AI 只管分析和做图 —— 抽参判错了看不出来,
           分析判错了一眼就看见,该谁干的活归谁。 */}
-      <button className="btn" onClick={() => useApp.getState().openAnalysisTab()} title="锁定数据范围,让 AI 做分析和看板">
+      <button className="btn" aria-current={activeKind === "analysis" ? "page" : undefined} onClick={() => useApp.getState().openAnalysisTab()} title="锁定数据范围,让 AI 做分析和看板">
         <LineChart size={15} /> 分析
       </button>
-      <button className="btn" onClick={() => useApp.getState().openDashboardTab()}>
+      <button className="btn" aria-current={activeKind === "dashboard" ? "page" : undefined} onClick={() => useApp.getState().openDashboardTab()}>
         <LayoutDashboard size={15} /> {t("toolbar.dashboard")}
       </button>
       {/* 数据集 / 指标 / 链路画布 / 监控中心收在一个「数据资产」浮层里,进去左侧随时互跳。 */}

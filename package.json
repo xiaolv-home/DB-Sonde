@@ -1,7 +1,7 @@
 {
   "name": "db-sonde",
   "private": true,
-  "version": "0.52.4",
+  "version": "0.52.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -83,7 +83,8 @@
     "test:startup-webkit": "node scripts/test-startup-webkit.mjs",
     "test:cloud-proxy": "node scripts/test-cloud-proxy.mjs",
     "test:hardening": "node scripts/test-hardening-boundaries.mjs",
-    "test:hardening-webkit": "node scripts/test-hardening-webkit.mjs"
+    "test:hardening-webkit": "node scripts/test-hardening-webkit.mjs",
+    "test:ui-polish-webkit": "node scripts/test-ui-polish-webkit.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
