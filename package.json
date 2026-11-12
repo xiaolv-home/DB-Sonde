@@ -60,6 +60,7 @@
     "test:sqlsafe": "node scripts/test-sql-safety.mjs",
     "test:stream": "node scripts/test-stream.mjs",
     "test:dates": "node scripts/test-calendar-dates.mjs",
+    "test:date-range-picker": "node scripts/test-date-range-picker.mjs",
     "test:security": "node scripts/test-security-regressions.mjs",
     "test:postgres": "node scripts/test-postgres-edit.mjs",
     "test:metadata": "node scripts/test-metadata-failure.mjs",

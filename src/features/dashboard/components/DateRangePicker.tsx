@@ -1,6 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  WEEKDAYS, addDays, dateKeyAction, expandRange, monthCells, monthEnd, pad, parseYmd, startOfToday, ymd,
+} from "./dateRangeCalendar";
 
 interface Props {
   start: string;
@@ -10,13 +13,6 @@ interface Props {
 
 type Mode = "day" | "week" | "month" | "year";
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y || 2000, (m || 1) - 1, d || 1); };
-const startOfToday = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); };
-const addDays = (base: Date, n: number) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + n);
-const monthEnd = (y: number, m: number) => new Date(y, m + 1, 0);
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 const MONTHS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
 
 function presets(): { label: string; range: () => [string, string] }[] {
@@ -36,16 +32,21 @@ function presets(): { label: string; range: () => [string, string] }[] {
 /**
  * 日期区间选择器 —— 单控件 + 弹层。四种粒度(日/周/月/年)都支持"点起点 → 点终点"选一段区间
  * (如 1 月–8 月、2021–2026 年)。portal 到 body(fixed + translateZ)避免被父容器滚动条穿透。
+ * 弹层是对话框:方向键在日期间移动,Enter / 空格选定,Esc 关掉并把焦点还给触发按钮。
  */
 export default function DateRangePicker({ start, end, onChange }: Props) {
+  const dialogId = useId();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("day");
   const [pending, setPending] = useState<string | null>(null); // 已点起点、待点终点(代表日:日/周=当天,月=月首,年=年首)
   const [hover, setHover] = useState<string | null>(null);
-  const [view, setView] = useState(() => parse(end || start));
+  const [view, setView] = useState(() => parseYmd(end || start));
+  const [cursor, setCursor] = useState<string | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  /** 只在打开、或方向键改了焦点日之后,才把 DOM 焦点移到那一格。鼠标点翻页不抢焦点。 */
+  const wantFocus = useRef(false);
 
   /* 按弹层**实际**大小放:下面放得下就往下,放不下翻到按钮上面,上下都不够就贴住窗口、
      弹层里面滚。原来一律往下放,按钮在窗口下半截时下面几行月份直接被窗口截掉,点不到。
@@ -65,8 +66,29 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   };
   // 弹层画出来、尺寸确定之后再量一次(第一次 place 时还没有弹层,量不到高度)。
   useLayoutEffect(() => { if (open) place(); }, [open, mode]);
-  const openPop = () => { place(); const d = parse(end || start); setView(new Date(d.getFullYear(), d.getMonth(), 1)); setPending(null); setMode("day"); setOpen(true); };
-  const close = () => { setOpen(false); setPending(null); };
+  const openPop = () => {
+    place();
+    const d = parseYmd(end || start);
+    setView(new Date(d.getFullYear(), d.getMonth(), 1));
+    setPending(null);
+    setMode("day");
+    wantFocus.current = true;
+    setCursor(ymd(d));
+    setOpen(true);
+  };
+  const close = (restoreFocus = false) => {
+    if (restoreFocus) triggerRef.current?.focus();
+    setOpen(false);
+    setPending(null);
+  };
+  // 翻月和改焦点日在同一次渲染里完成,这里能找到新月份里的那一格。
+  useLayoutEffect(() => {
+    if (!open || !wantFocus.current || !cursor) return;
+    const node = popRef.current?.querySelector<HTMLButtonElement>(`button[data-date="${cursor}"]`);
+    if (!node) return;
+    node.focus();
+    wantFocus.current = false;
+  }, [open, cursor]);
 
   useEffect(() => {
     if (!open) return;
@@ -77,33 +99,39 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
     return () => { document.removeEventListener("mousedown", onDoc); window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
   }, [open]);
 
-  const cells = useMemo(() => {
-    const first = new Date(view.getFullYear(), view.getMonth(), 1);
-    const gridStart = new Date(view.getFullYear(), view.getMonth(), 1 - first.getDay());
-    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
-  }, [view]);
+  const cells = useMemo(() => monthCells(view.getFullYear(), view.getMonth()), [view]);
 
   const activePreset = presets().find((p) => { const [s, e] = p.range(); return s === start && e === end; });
   const todayStr = ymd(startOfToday());
   const yearBase = Math.floor(view.getFullYear() / 12) * 12;
 
-  // 把两个"代表日"按当前粒度展开成完整区间。
-  const expand = (a: string, b: string): [string, string] => {
-    const [lo, hi] = [a, b].sort();
-    const s = parse(lo), e = parse(hi);
-    if (mode === "week") return [ymd(addDays(s, -s.getDay())), ymd(addDays(addDays(e, -e.getDay()), 6))];
-    if (mode === "month") return [ymd(new Date(s.getFullYear(), s.getMonth(), 1)), ymd(monthEnd(e.getFullYear(), e.getMonth()))];
-    if (mode === "year") return [`${s.getFullYear()}-01-01`, `${e.getFullYear()}-12-31`];
-    return [lo, hi];
-  };
+  // 把两个"代表日"按当前粒度展开成完整区间。周是周一到周日,和网格的一行对齐。
+  const expand = (a: string, b: string): [string, string] => expandRange(mode, a, b);
   // 当前高亮区间:待选终点时用 起点↔悬停;否则用 已选 start↔end。
   const hl = pending ? expand(pending, hover ?? pending) : [start, end];
 
-  const pick = (repDate: string) => {
+  const pick = (repDate: string, restoreFocus = false) => {
     if (!pending) { setPending(repDate); setHover(repDate); return; }
     const [s, e] = expand(pending, repDate);
     onChange(s, e);
-    close();
+    close(restoreFocus);
+  };
+
+  const onDayKeyDown = (event: KeyboardEvent<HTMLButtonElement>, date: string) => {
+    const action = dateKeyAction(event.key, date, view.getFullYear(), view.getMonth());
+    if (action.type === "none" || action.type === "close") return;
+    event.preventDefault();
+    if (action.type === "select") { pick(date, true); return; }
+    wantFocus.current = true;
+    setCursor(action.date);
+    if (action.paged) setView(new Date(action.year, action.month, 1));
+  };
+
+  const onDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    close(true);
   };
 
   const grid = () => {
@@ -161,9 +189,13 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
               <button
                 key={s}
                 type="button"
+                data-date={s}
+                tabIndex={s === cursor ? 0 : -1}
+                aria-label={`${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日${s === todayStr ? "，今天" : ""}`}
                 className={`dash-cal-day${inMonth ? "" : " other"}${inRange ? " in" : ""}${s === hl[0] ? " start" : ""}${s === hl[1] ? " end" : ""}${s === todayStr ? " today" : ""}`}
-                onClick={() => pick(s)}
+                onClick={() => { setCursor(s); pick(s); }}
                 onMouseEnter={() => setHover(s)}
+                onKeyDown={(event) => onDayKeyDown(event, s)}
               >
                 {d.getDate()}
               </button>
@@ -176,12 +208,28 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
 
   return (
     <div className="dash-daterange">
-      <button ref={triggerRef} type="button" className="dash-daterange-trigger" onClick={() => (open ? close() : openPop())}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="dash-daterange-trigger"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={dialogId}
+        onClick={() => (open ? close() : openPop())}
+      >
         <Calendar size={13} />
         <span>{activePreset ? activePreset.label : `${start} — ${end}`}</span>
       </button>
       {open && createPortal(
-        <div className="dash-daterange-pop" ref={popRef} style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined }}>
+        <div
+          id={dialogId}
+          role="dialog"
+          aria-label="选择日期范围"
+          className="dash-daterange-pop"
+          ref={popRef}
+          onKeyDown={onDialogKeyDown}
+          style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined }}
+        >
           <div className="dash-daterange-presets">
             {presets().map((p) => (
               <button key={p.label} type="button" className={activePreset?.label === p.label ? "on" : ""} onClick={() => { const [s, e] = p.range(); onChange(s, e); close(); }}>{p.label}</button>
