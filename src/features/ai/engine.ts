@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "../../lib/mockBackend";
+import { cloudModelRequest } from "./cloudProxy";
 
 export interface EngineStatus {
   running: boolean;
@@ -65,12 +66,22 @@ export async function modelProgress(): Promise<DownloadProgress | null> {
 
 /** Poll the OpenAI-compatible endpoint until the model has finished loading. */
 export async function waitReady(baseUrl: string, timeoutMs = 90000): Promise<boolean> {
-  const url = baseUrl.replace(/\/$/, "") + "/models";
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(url);
-      if (res.ok) return true;
+      if (inTauri) {
+        const res = await cloudModelRequest({
+          provider: "builtin",
+          baseUrl,
+          path: "models",
+          method: "GET",
+          timeoutMs: 2_000,
+        });
+        if (res.status >= 200 && res.status < 300) return true;
+      } else {
+        const res = await fetch(baseUrl.replace(/\/$/, "") + "/models");
+        if (res.ok) return true;
+      }
     } catch {
       /* not up yet */
     }

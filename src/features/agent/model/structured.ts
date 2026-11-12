@@ -132,8 +132,9 @@ async function once(
   const signal = call.signal ? AbortSignal.any([call.signal, timeout]) : timeout;
   const res = await request(() => {
     onAttempt();
-    if (inTauri && binding.provider === "cloud") {
+    if (inTauri) {
       return cloudModelRequest({
+        provider: binding.provider,
         baseUrl: url,
         path: "chat/completions",
         method: "POST",

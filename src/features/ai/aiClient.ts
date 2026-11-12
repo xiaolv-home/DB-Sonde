@@ -59,11 +59,11 @@ function modelIds(json: { data?: unknown; models?: unknown }): string[] {
 
 /** List model ids an OpenAI-compatible endpoint (LM Studio / Ollama / …) serves.
  *  Used by settings「检测模型」so the user never has to type the exact id.
- *  Cloud listings go through the Rust proxy so the saved key never reaches this process. */
+ *  Desktop listings go through the Rust proxy so the webview opens no model socket. */
 export async function listModels(baseUrl: string, apiKey?: string, provider?: AiConfig["provider"]): Promise<string[]> {
-  if (inTauri && provider === "cloud") {
+  if (inTauri && provider) {
     const signal = AbortSignal.timeout(15_000);
-    const res = await cloudModelRequest({ baseUrl, path: "models", method: "GET", timeoutMs: 15_000, signal });
+    const res = await cloudModelRequest({ provider, baseUrl, path: "models", method: "GET", timeoutMs: 15_000, signal });
     if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
     return modelIds(JSON.parse(res.body) as { data?: unknown; models?: unknown });
   }
@@ -133,7 +133,7 @@ export function streamChat(config: AiConfig, messages: ChatMessage[], cb: Stream
   }
 
   const body = JSON.stringify(buildChatRequest(config, endpoint.model, messages));
-  if (inTauri && config.provider === "cloud") return streamCloud(endpoint.url, body, cb);
+  if (inTauri) return streamCloud(config.provider, endpoint.url, body, cb);
 
   const controller = new AbortController();
   const url = endpoint.url.replace(/\/$/, "") + "/chat/completions";
@@ -176,7 +176,7 @@ export function streamChat(config: AiConfig, messages: ChatMessage[], cb: Stream
   return { cancel: () => controller.abort() };
 }
 
-function streamCloud(baseUrl: string, body: string, cb: StreamCallbacks): StreamHandle {
+function streamCloud(provider: AiConfig["provider"], baseUrl: string, body: string, cb: StreamCallbacks): StreamHandle {
   const parser = createSseParser(cb);
   let settled = false;
   let cancelled = false;
@@ -191,6 +191,7 @@ function streamCloud(baseUrl: string, body: string, cb: StreamCallbacks): Stream
     cb.onError(message);
   };
   const stream = cloudChatStream({
+    provider,
     baseUrl,
     body,
     onEvent: (event) => {

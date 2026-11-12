@@ -1,12 +1,14 @@
-//! Cloud model HTTP. The API key is read from the vault and attached here.
+//! Model HTTP for the desktop app. The cloud API key is read from the vault and
+//! attached here, and only to that saved origin. Local and built-in models are
+//! proxied too, without the cloud key, so the webview does not open loopback ports.
 //! Responses are scrubbed so a reflected key cannot cross IPC back to the webview.
 
 use crate::{
-    credentials::{self, CloudEndpoint},
+    credentials,
     error::{AppError, AppResult},
 };
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::Mutex,
@@ -120,24 +122,36 @@ pub fn authorized_cloud_url(
     if stored != requested {
         return Err(AppError::msg("云端地址与已保存的配置不一致"));
     }
-    let path = path.trim().trim_start_matches('/');
-    if path != "models" && path != "chat/completions" {
-        return Err(AppError::msg("不支持的模型接口路径"));
-    }
+    let path = model_path(path)?;
     Ok(format!("{stored}/{path}"))
+}
+
+fn is_loopback_host(url: &reqwest::Url) -> bool {
+    match url.host_str() {
+        Some(host) => match host.parse::<std::net::IpAddr>() {
+            Ok(ip) => ip.is_loopback(),
+            Err(_) => host.eq_ignore_ascii_case("localhost"),
+        },
+        None => false,
+    }
 }
 
 fn normalize_base(raw: &str) -> AppResult<String> {
     let mut parsed =
-        reqwest::Url::parse(raw.trim()).map_err(|_| AppError::msg("云端接口地址无效"))?;
+        reqwest::Url::parse(raw.trim()).map_err(|_| AppError::msg("模型接口地址无效"))?;
     if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
-        return Err(AppError::msg("云端接口地址无效"));
+        return Err(AppError::msg("模型接口地址无效"));
+    }
+    // Public cloud endpoints are https only. Plain http stays available for a
+    // loopback server (a local model, or the tests' tiny HTTP fixture).
+    if parsed.scheme() == "http" && !is_loopback_host(&parsed) {
+        return Err(AppError::msg("非本机地址必须使用 https"));
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(AppError::msg("云端接口地址不能包含账号密码"));
+        return Err(AppError::msg("模型接口地址不能包含账号密码"));
     }
     if parsed.query().is_some() || parsed.fragment().is_some() {
-        return Err(AppError::msg("云端接口地址无效"));
+        return Err(AppError::msg("模型接口地址无效"));
     }
     let path = parsed.path().trim_end_matches('/').to_string();
     parsed.set_path(&path);
@@ -146,6 +160,89 @@ fn normalize_base(raw: &str) -> AppResult<String> {
         text.pop();
     }
     Ok(text)
+}
+
+fn model_path(path: &str) -> AppResult<&str> {
+    let path = path.trim().trim_start_matches('/');
+    if path == "models" || path == "chat/completions" {
+        Ok(path)
+    } else {
+        Err(AppError::msg("不支持的模型接口路径"))
+    }
+}
+
+fn config_string(raw: &str, section: &str, field: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .get(section)
+                .and_then(|item| item.get(field))
+                .and_then(|item| item.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+/// Local model servers are user-configurable, but only on loopback, and only
+/// at the saved base URL. The cloud key is never attached.
+fn authorized_local_url(stored_base: &str, requested_base: &str, path: &str) -> AppResult<String> {
+    let stored = normalize_base(stored_base)?;
+    let requested = normalize_base(requested_base)?;
+    if stored != requested {
+        return Err(AppError::msg("模型地址与已保存的配置不一致"));
+    }
+    let parsed = reqwest::Url::parse(&stored).map_err(|_| AppError::msg("本地模型地址无效"))?;
+    if !is_loopback_host(&parsed) {
+        return Err(AppError::msg("本地模型地址只能是本机回环"));
+    }
+    let path = model_path(path)?;
+    Ok(format!("{stored}/{path}"))
+}
+
+fn authorized_builtin_url(requested_base: &str, path: &str) -> AppResult<String> {
+    let base = normalize_base(requested_base)?;
+    let parsed = reqwest::Url::parse(&base).map_err(|_| AppError::msg("内置模型地址无效"))?;
+    let port = parsed.port_or_known_default().unwrap_or(0);
+    if parsed.scheme() != "http"
+        || !is_loopback_host(&parsed)
+        || port != crate::ai::BUILTIN_PORT
+        || parsed.path() != "/v1"
+    {
+        return Err(AppError::msg("内置模型地址无效"));
+    }
+    let path = model_path(path)?;
+    Ok(format!("{base}/{path}"))
+}
+
+/// Where a proxied model call may go, and the secret to attach. Local and
+/// built-in calls get an empty secret.
+fn resolve_proxy_target(
+    config: &str,
+    provider: &str,
+    requested_base: &str,
+    path: &str,
+) -> AppResult<(String, String)> {
+    match provider {
+        "cloud" => {
+            let target = credentials::cloud_endpoint_from_config(config)?;
+            if target.api_key.is_empty() {
+                return Err(AppError::msg("云端模型尚未配置 API Key"));
+            }
+            let url = authorized_cloud_url(&target.base_url, requested_base, path)?;
+            Ok((url, target.api_key))
+        }
+        "local" => {
+            let saved = config_string(config, "local", "baseUrl");
+            if saved.trim().is_empty() {
+                return Err(AppError::msg("本地模型尚未配置接口地址"));
+            }
+            let url = authorized_local_url(&saved, requested_base, path)?;
+            Ok((url, String::new()))
+        }
+        "builtin" => Ok((authorized_builtin_url(requested_base, path)?, String::new())),
+        _ => Err(AppError::msg("不支持的模型来源")),
+    }
 }
 
 fn scrub(text: &str, secret: &str) -> String {
@@ -222,10 +319,11 @@ fn take_utf8(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
     text
 }
 
-async fn read_endpoint(app: AppHandle) -> AppResult<CloudEndpoint> {
-    tokio::task::spawn_blocking(move || credentials::cloud_endpoint(&app))
+async fn read_ai_config(app: AppHandle) -> AppResult<String> {
+    let loaded = tokio::task::spawn_blocking(move || credentials::ai_config_raw(&app))
         .await
-        .map_err(|_| AppError::msg("读取云端配置失败"))?
+        .map_err(|_| AppError::msg("读取模型配置失败"))??;
+    Ok(loaded.unwrap_or_else(|| "{}".to_string()))
 }
 
 async fn run_cancellable<T: Send + 'static>(
@@ -367,22 +465,38 @@ where
     })
 }
 
+/// Non-streaming model call. Grouped so the command stays under clippy's argument limit.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelHttpCall {
+    pub request_id: String,
+    pub provider: String,
+    pub base_url: String,
+    pub path: String,
+    pub method: String,
+    pub body: Option<String>,
+    pub timeout_ms: u64,
+}
+
 #[tauri::command]
 pub async fn cloud_model_request(
     app: AppHandle,
     proxy: State<'_, CloudProxy>,
-    request_id: String,
-    base_url: String,
-    path: String,
-    method: String,
-    body: Option<String>,
-    timeout_ms: u64,
+    call: ModelHttpCall,
 ) -> AppResult<ProxyHttpResponse> {
+    let ModelHttpCall {
+        request_id,
+        provider,
+        base_url,
+        path,
+        method,
+        body,
+        timeout_ms,
+    } = call;
     check_request_id(&request_id)?;
-    let target = read_endpoint(app).await?;
-    let url = authorized_cloud_url(&target.base_url, &base_url, &path)?;
+    let config = read_ai_config(app).await?;
+    let (url, secret) = resolve_proxy_target(&config, &provider, &base_url, &path)?;
     let client = proxy.client.clone();
-    let secret = target.api_key;
     run_cancellable(&proxy, &request_id, async move {
         execute(&client, &method, &url, &secret, body, timeout_ms).await
     })
@@ -394,15 +508,15 @@ pub async fn cloud_chat_stream(
     app: AppHandle,
     proxy: State<'_, CloudProxy>,
     request_id: String,
+    provider: String,
     base_url: String,
     body: String,
     channel: tauri::ipc::Channel<ChatStreamEvent>,
 ) -> AppResult<()> {
     check_request_id(&request_id)?;
-    let target = read_endpoint(app).await?;
-    let url = authorized_cloud_url(&target.base_url, &base_url, "chat/completions")?;
+    let config = read_ai_config(app).await?;
+    let (url, secret) = resolve_proxy_target(&config, &provider, &base_url, "chat/completions")?;
     let client = proxy.client.clone();
-    let secret = target.api_key;
     run_cancellable(&proxy, &request_id, async move {
         stream_chat(&client, &url, &secret, body, 0, |event| {
             channel
@@ -451,6 +565,16 @@ mod tests {
             authorized_cloud_url("https://user:secret@api.openai.com/v1", base, "models").is_err()
         );
         assert!(authorized_cloud_url("https://api.openai.com/v1?x=1", base, "models").is_err());
+        assert_eq!(
+            authorized_cloud_url("http://example.com/v1", "http://example.com/v1", "models")
+                .unwrap_err()
+                .to_string(),
+            "非本机地址必须使用 https"
+        );
+        assert!(
+            authorized_cloud_url("http://127.0.0.1:9/v1", "http://127.0.0.1:9/v1", "models")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -616,5 +740,96 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.to_string(), CANCELLED);
         assert!(!err.to_string().contains("sk-"));
+    }
+
+    #[test]
+    fn origin_change_without_a_new_key_leaves_the_proxy_nothing_to_send() {
+        let secret = "sk-test-UNIQUE-origin";
+        let replacement = "sk-new-UNIQUE-origin";
+        let stored = format!(
+            r#"{{"cloud":{{"baseUrl":"https://api.openai.com/v1","apiKey":"{secret}"}},"local":{{"baseUrl":"http://127.0.0.1:1234/v1"}}}}"#
+        );
+        let retargeted = credentials::merge_ai_config(
+            Some(&stored),
+            r#"{"cloud":{"baseUrl":"https://evil.example/v1","apiKey":"","hasKey":true},"local":{"baseUrl":"http://127.0.0.1:1234/v1"}}"#,
+        )
+        .unwrap();
+        assert!(!retargeted.contains(secret));
+        let refused = resolve_proxy_target(
+            &retargeted,
+            "cloud",
+            "https://evil.example/v1",
+            "chat/completions",
+        )
+        .unwrap_err();
+        assert_eq!(refused.to_string(), "云端模型尚未配置 API Key");
+        assert!(!refused.to_string().contains(secret));
+
+        let path_only = credentials::merge_ai_config(
+            Some(&stored),
+            r#"{"cloud":{"baseUrl":"https://api.openai.com/v1/openai","apiKey":"","hasKey":true}}"#,
+        )
+        .unwrap();
+        let (url, key) = resolve_proxy_target(
+            &path_only,
+            "cloud",
+            "https://api.openai.com/v1/openai",
+            "chat/completions",
+        )
+        .unwrap();
+        assert_eq!(key, secret);
+        assert_eq!(url, "https://api.openai.com/v1/openai/chat/completions");
+
+        let moved = credentials::merge_ai_config(
+            Some(&stored),
+            &format!(
+                r#"{{"cloud":{{"baseUrl":"https://api.example/v1","apiKey":"{replacement}","hasKey":true}}}}"#
+            ),
+        )
+        .unwrap();
+        let (url, key) =
+            resolve_proxy_target(&moved, "cloud", "https://api.example/v1", "models").unwrap();
+        assert_eq!(key, replacement);
+        assert_eq!(url, "https://api.example/v1/models");
+        assert_ne!(key, secret);
+    }
+
+    #[test]
+    fn local_and_builtin_calls_stay_on_loopback_and_omit_the_cloud_key() {
+        let secret = "sk-test-UNIQUE-local";
+        let config = format!(
+            r#"{{"cloud":{{"baseUrl":"https://api.openai.com/v1","apiKey":"{secret}"}},"local":{{"baseUrl":"http://127.0.0.1:1234/v1"}}}}"#
+        );
+        let (url, key) =
+            resolve_proxy_target(&config, "local", "http://127.0.0.1:1234/v1", "models").unwrap();
+        assert!(key.is_empty());
+        assert_eq!(url, "http://127.0.0.1:1234/v1/models");
+        assert!(
+            resolve_proxy_target(&config, "local", "http://127.0.0.1:8123/v1", "models").is_err()
+        );
+        let public_local = r#"{"local":{"baseUrl":"https://10.1.2.3/v1"}}"#;
+        assert!(
+            resolve_proxy_target(public_local, "local", "https://10.1.2.3/v1", "models").is_err()
+        );
+
+        let (builtin, key) = resolve_proxy_target(
+            &config,
+            "builtin",
+            "http://127.0.0.1:8899/v1",
+            "chat/completions",
+        )
+        .unwrap();
+        assert!(key.is_empty());
+        assert_eq!(builtin, "http://127.0.0.1:8899/v1/chat/completions");
+        assert!(
+            resolve_proxy_target(&config, "builtin", "http://localhost:8899/v1", "models").is_ok()
+        );
+        assert!(
+            resolve_proxy_target(&config, "builtin", "http://127.0.0.1:8123/v1", "models").is_err()
+        );
+        assert!(
+            resolve_proxy_target(&config, "builtin", "https://127.0.0.1:8899/v1", "models")
+                .is_err()
+        );
     }
 }

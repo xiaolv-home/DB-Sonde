@@ -18,6 +18,7 @@ try {
         export { callStructured } from './src/features/agent/model/structured';
         export { presentServiceConfig, secureRepository } from './src/lib/secureRepository';
         export { isSavedAiConfig } from './src/features/ai/aiConfigModel';
+        export { cloudOrigin } from './src/features/ai/cloudProxy';
         export { cloudKeyConfigured } from './src/features/agent/model/modelRouting';
         export { analysisModelProblems } from './src/features/agent/model/analysisModels';`,
       resolveDir: resolve("."),
@@ -56,6 +57,10 @@ try {
   const already = loaded.presentServiceConfig("ai.config", JSON.stringify({ cloud: { apiKey: "", hasKey: true, model: "m" } }));
   assert.equal(JSON.parse(already).cloud.hasKey, true);
   assert.equal(loaded.presentServiceConfig("other", leaked), leaked);
+  assert.equal(loaded.cloudOrigin("https://api.openai.com/v1"), loaded.cloudOrigin("https://api.openai.com/v1/openai"));
+  assert.equal(loaded.cloudOrigin("https://api.openai.com/v1"), loaded.cloudOrigin("https://api.openai.com:443/v1"));
+  assert.notEqual(loaded.cloudOrigin("https://api.openai.com/v1"), loaded.cloudOrigin("https://evil.example/v1"));
+  assert.equal(loaded.cloudOrigin("http://127.0.0.1:1234/v1"), "http://127.0.0.1:1234");
 
   const legacyStore = new Map([["ai.config", leaked]]);
   let vaultWrite = "";
@@ -88,7 +93,7 @@ try {
       args.channel.onmessage({ kind: "done", data: "" });
       return null;
     }
-    if (cmd === "cloud_model_request" && args.path === "models") {
+    if (cmd === "cloud_model_request" && args.call?.path === "models") {
       return { status: 200, body: JSON.stringify({ data: [{ id: "gpt-4o-mini" }] }), retryAfter: null };
     }
     if (cmd === "cloud_model_request") {
@@ -131,7 +136,7 @@ try {
   const models = await listModels(config.cloud.baseUrl, SECRET, "cloud");
   assert.deepEqual(models, ["gpt-4o-mini"]);
   assert.equal(fetches, 0);
-  assert.equal(calls.some((call) => call.cmd === "cloud_model_request" && call.args.path === "models"), true);
+  assert.equal(calls.some((call) => call.cmd === "cloud_model_request" && call.args.call?.path === "models" && call.args.call.provider === "cloud"), true);
 
   const structured = await callStructured({
     role: "reasoning",
@@ -146,25 +151,28 @@ try {
   assert.equal(structured.data.summary, "ok");
   assert.equal(fetches, 0);
 
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    body: {
-      getReader() {
-        const chunks = [new TextEncoder().encode('data: {"choices":[{"delta":{"content":"local"}}]}\n')];
-        let i = 0;
-        return { read: async () => (i < chunks.length ? { done: false, value: chunks[i++] } : { done: true }) };
-      },
-    },
-  });
   const before = calls.length;
   const localText = await new Promise((done, fail) => {
     streamChat({ ...config, provider: "local" }, [{ role: "user", content: "hi" }], {
       onToken: () => {}, onDone: done, onError: fail,
     });
   });
-  assert.equal(localText, "local");
-  assert.equal(calls.length, before, "local models stay on the renderer");
+  assert.equal(localText, "你好");
+  assert.equal(fetches, 0, "local models in the desktop app use the proxy");
+  const localCall = calls.slice(before).find((call) => call.cmd === "cloud_chat_stream");
+  assert.equal(localCall.args.provider, "local");
+  assert.equal(localCall.args.baseUrl, config.local.baseUrl);
+  assert.equal(JSON.stringify(localCall.args).includes(SECRET), false);
+
+  const builtinText = await new Promise((done, fail) => {
+    streamChat({ ...config, provider: "builtin", builtin: { ...config.builtin, ready: true } }, [{ role: "user", content: "hi" }], {
+      onToken: () => {}, onDone: done, onError: fail,
+    });
+  });
+  assert.equal(builtinText, "你好");
+  assert.equal(fetches, 0);
+  assert.equal(calls.at(-1).args.provider, "builtin");
+  assert.equal(calls.at(-1).args.baseUrl, config.builtin.baseUrl);
 
   assert.equal(cloudKeyConfigured({ apiKey: "", hasKey: true }), true);
   assert.equal(cloudKeyConfigured({ apiKey: "", hasKey: false }), false);
@@ -175,7 +183,7 @@ try {
     ["云端模型尚未配置 API Key，请打开 AI 设置"],
   );
 
-  console.log("cloud proxy: key stays out of the renderer; cloud calls use the proxy; local calls still use fetch");
+  console.log("cloud proxy: key stays out of the renderer; cloud, local, and builtin calls use the proxy");
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

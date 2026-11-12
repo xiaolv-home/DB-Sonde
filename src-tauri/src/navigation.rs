@@ -907,13 +907,13 @@ mod tests {
                 "production CSP missing {needle}: {csp}"
             );
         }
-        // Cloud model HTTP is proxied in Rust, so the webview no longer needs
-        // https: or a blanket http:. Loopback stays: the renderer still calls
-        // local and built-in model servers on 127.0.0.1 / localhost.
+        // Model HTTP, including a user-chosen local server and the built-in
+        // engine, is proxied in Rust. connect-src therefore has no https:, no
+        // blanket http:, and no loopback port wildcard. Dev keeps the Vite socket.
         const PRODUCTION_CONNECT_SRC: &str =
-            "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*";
+            "connect-src 'self' ipc: http://ipc.localhost";
         const DEV_CONNECT_SRC: &str =
-            "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*";
+            "connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:* ws://localhost:*";
         let connect = csp_directive(csp, "connect-src");
         let dev_connect = csp_directive(dev, "connect-src");
         assert_eq!(connect, PRODUCTION_CONNECT_SRC, "{csp}");

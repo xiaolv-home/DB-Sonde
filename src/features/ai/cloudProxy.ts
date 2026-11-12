@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { AiProvider } from "./aiTypes";
 
 export interface ProxyHttpResponse {
   status: number;
@@ -24,8 +25,21 @@ function asError(error: unknown): Error {
   return new Error(typeof error === "string" ? error : String(error));
 }
 
-/** Non-streaming cloud call. The API key stays in Rust. */
+/** Scheme, host, and port. Default ports are omitted, matching the Rust origin check. */
+export function cloudOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (parsed.username || parsed.password) return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Non-streaming model call. The cloud API key stays in Rust. */
 export function cloudModelRequest(options: {
+  provider: AiProvider;
   baseUrl: string;
   path: string;
   method: "GET" | "POST";
@@ -43,12 +57,15 @@ export function cloudModelRequest(options: {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     invoke<ProxyHttpResponse>("cloud_model_request", {
-      requestId: id,
-      baseUrl: options.baseUrl,
-      path: options.path,
-      method: options.method,
-      body: options.body ?? null,
-      timeoutMs: options.timeoutMs,
+      call: {
+        requestId: id,
+        provider: options.provider,
+        baseUrl: options.baseUrl,
+        path: options.path,
+        method: options.method,
+        body: options.body ?? null,
+        timeoutMs: options.timeoutMs,
+      },
     }).then(
       (value) => {
         signal?.removeEventListener("abort", onAbort);
@@ -69,8 +86,9 @@ export function proxyResponse(result: ProxyHttpResponse): Response {
   return new Response(result.body, { status: result.status, headers });
 }
 
-/** Streaming cloud chat. Chunks are already valid UTF-8 text. */
+/** Streaming model chat. Chunks are already valid UTF-8 text. */
 export function cloudChatStream(options: {
+  provider: AiProvider;
   baseUrl: string;
   body: string;
   onEvent: (event: ChatStreamEvent) => void;
@@ -83,6 +101,7 @@ export function cloudChatStream(options: {
   };
   const done = invoke("cloud_chat_stream", {
     requestId: id,
+    provider: options.provider,
     baseUrl: options.baseUrl,
     body: options.body,
     channel,

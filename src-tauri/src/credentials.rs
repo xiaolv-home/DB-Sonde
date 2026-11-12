@@ -202,10 +202,11 @@ pub struct CloudEndpoint {
     pub api_key: String,
 }
 
-pub fn cloud_endpoint(app: &AppHandle) -> AppResult<CloudEndpoint> {
+/// Decrypted AI settings. The cloud API key is still in this string; only the
+/// model proxy may read it.
+pub fn ai_config_raw(app: &AppHandle) -> AppResult<Option<String>> {
     let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
-    let raw = load_at(&directory(app)?, &service_account("ai.config")?)?;
-    cloud_endpoint_from_config(raw.as_deref().unwrap_or("{}"))
+    load_at(&directory(app)?, &service_account("ai.config")?)
 }
 
 pub fn cloud_endpoint_from_config(raw: &str) -> AppResult<CloudEndpoint> {
@@ -257,37 +258,61 @@ pub fn present_service_config(key: &str, raw: &str) -> AppResult<String> {
     Ok(serde_json::to_string(&value)?)
 }
 
-/// Empty `apiKey` plus `hasKey: true` keeps the stored secret. A non-empty
-/// `apiKey` replaces it. `hasKey: false` clears it. The sealed record never
-/// stores the `hasKey` indicator.
-fn merge_ai_config(existing: Option<&str>, incoming: &str) -> AppResult<String> {
+/// Scheme, host, and port. Default ports are omitted, so `:443` on https matches
+/// a URL that left the port out. An unparseable URL has no origin.
+fn http_origin(raw: &str) -> Option<String> {
+    let url = reqwest::Url::parse(raw.trim()).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
+        return None;
+    }
+    let text = url.origin().ascii_serialization();
+    if text == "null" {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn same_http_origin(left: &str, right: &str) -> bool {
+    match (http_origin(left), http_origin(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn cloud_field(value: Option<&serde_json::Value>, field: &str) -> String {
+    value
+        .and_then(|item| item.get("cloud"))
+        .and_then(|item| item.get(field))
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+/// Empty `apiKey` plus `hasKey: true` keeps the stored secret only when the
+/// base URL origin (scheme, host, and port) is unchanged. A path-only edit
+/// keeps the key. A different origin drops it unless this save supplies a new
+/// key, so the renderer cannot retarget the stored secret at another host.
+/// `hasKey: false` clears it. The sealed record never stores `hasKey`.
+pub(crate) fn merge_ai_config(existing: Option<&str>, incoming: &str) -> AppResult<String> {
     let mut value: serde_json::Value = serde_json::from_str(incoming)?;
-    let incoming_key = clean_api_key(
-        value
-            .get("cloud")
-            .and_then(|item| item.get("apiKey"))
-            .and_then(|item| item.as_str())
-            .unwrap_or(""),
-    )?;
+    let incoming_key = clean_api_key(&cloud_field(Some(&value), "apiKey"))?;
     let keep_existing = value
         .get("cloud")
         .and_then(|item| item.get("hasKey"))
         .and_then(|item| item.as_bool())
         .unwrap_or(false);
-    let stored_key = existing
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-        .and_then(|saved| {
-            saved
-                .get("cloud")
-                .and_then(|item| item.get("apiKey"))
-                .and_then(|item| item.as_str())
-                .map(str::to_string)
-        })
-        .unwrap_or_default();
-    let stored_key = clean_api_key(&stored_key)?;
+    let existing_json =
+        existing.and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok());
+    let stored_key = clean_api_key(&cloud_field(existing_json.as_ref(), "apiKey"))?;
+    let same_origin = same_http_origin(
+        &cloud_field(existing_json.as_ref(), "baseUrl"),
+        &cloud_field(Some(&value), "baseUrl"),
+    );
     let final_key = if !incoming_key.is_empty() {
         incoming_key
-    } else if keep_existing {
+    } else if keep_existing && same_origin {
         stored_key
     } else {
         String::new()
@@ -471,6 +496,76 @@ mod tests {
         let redacted = present_service_config("ai.config", numeric).unwrap();
         assert!(!redacted.contains("123456789"));
         assert!(present_service_config("ai.config", "{").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn changing_the_base_url_origin_drops_the_stored_key() {
+        let secret = "sk-test-UNIQUE-origin";
+        let replacement = "sk-new-UNIQUE-origin";
+        let dir = std::env::temp_dir().join(format!("sonde-ai-origin-{}", uuid::Uuid::new_v4()));
+        let initial = format!(
+            r#"{{"v":2,"provider":"cloud","cloud":{{"baseUrl":"https://api.openai.com/v1","apiKey":"{secret}","model":"gpt-4o-mini"}}}}"#
+        );
+        save_service_value(&dir, "ai.config", &initial).unwrap();
+
+        let path_only = r#"{"v":2,"provider":"cloud","cloud":{"baseUrl":"https://api.openai.com/v1/openai","apiKey":"","hasKey":true,"model":"gpt-4o-mini"}}"#;
+        save_service_value(&dir, "ai.config", path_only).unwrap();
+        let kept = cloud_endpoint_from_config(
+            &load_at(&dir, &service_account("ai.config").unwrap())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(kept.api_key, secret, "a path-only edit keeps the key");
+        assert_eq!(kept.base_url, "https://api.openai.com/v1/openai");
+        let explicit_port = r#"{"v":2,"provider":"cloud","cloud":{"baseUrl":"https://api.openai.com:443/v1","apiKey":"","hasKey":true,"model":"gpt-4o-mini"}}"#;
+        save_service_value(&dir, "ai.config", explicit_port).unwrap();
+        assert_eq!(
+            cloud_endpoint_from_config(
+                &load_at(&dir, &service_account("ai.config").unwrap())
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap()
+            .api_key,
+            secret,
+            "the default https port is the same origin"
+        );
+
+        let retargeted = r#"{"v":2,"provider":"cloud","cloud":{"baseUrl":"https://evil.example/v1","apiKey":"","hasKey":true,"model":"gpt-4o-mini"}}"#;
+        save_service_value(&dir, "ai.config", retargeted).unwrap();
+        let stored = load_at(&dir, &service_account("ai.config").unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(
+            !stored.contains(secret),
+            "the vault must forget the key when the origin changes"
+        );
+        let cleared = cloud_endpoint_from_config(&stored).unwrap();
+        assert_eq!(cleared.base_url, "https://evil.example/v1");
+        assert_eq!(cleared.api_key, "");
+        let presented: serde_json::Value =
+            serde_json::from_str(&load_service_value(&dir, "ai.config").unwrap().unwrap()).unwrap();
+        assert_eq!(presented["cloud"]["hasKey"], false);
+        assert_eq!(presented["cloud"]["apiKey"], "");
+
+        let replaced = format!(
+            r#"{{"v":2,"provider":"cloud","cloud":{{"baseUrl":"https://api.example/v1","apiKey":"{replacement}","hasKey":true,"model":"gpt-4o-mini"}}}}"#
+        );
+        save_service_value(&dir, "ai.config", &replaced).unwrap();
+        let moved = cloud_endpoint_from_config(
+            &load_at(&dir, &service_account("ai.config").unwrap())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(moved.api_key, replacement);
+        assert_eq!(moved.base_url, "https://api.example/v1");
+        assert!(!load_service_value(&dir, "ai.config")
+            .unwrap()
+            .unwrap()
+            .contains(replacement));
         fs::remove_dir_all(dir).unwrap();
     }
 }

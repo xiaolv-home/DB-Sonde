@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Play, Square, CircleCheck, Download, RefreshCw } from "lucide-react";
 import { inTauri } from "../../lib/mockBackend";
+import { cloudOrigin } from "./cloudProxy";
 import { useAi, type AiProvider } from "./aiStore";
 import { routingSummary } from "../agent/model/modelRouting";
 import { useAiStrings } from "./strings";
@@ -168,18 +169,24 @@ export default function AiSettings() {
   const close = useAi((s) => s.closeSettings);
   const configError = useAi((s) => s.configError);
   const [draftKey, setDraftKey] = useState("");
+  const [draftUrl, setDraftUrl] = useState(config.cloud.baseUrl);
+  const draftUrlRef = useRef(config.cloud.baseUrl);
   const clearingKey = useRef(false);
   const flushingKey = useRef<Promise<boolean> | null>(null);
   const hasKey = Boolean(config.cloud.hasKey || config.cloud.apiKey);
   // The saved key is never loaded back into this field. A non-empty draft replaces
   // it; leaving the field blank keeps the saved key. Desktop builds then drop the
   // draft from renderer state so later requests read the key only in Rust.
-  const persistKey = (next: string): Promise<boolean> => {
+  const persistKey = (next: string, baseUrl?: string): Promise<boolean> => {
     const trimmed = next.trim();
     if (!trimmed) return Promise.resolve(true);
     if (flushingKey.current) return flushingKey.current;
     const run = (async () => {
-      const saved = await updateCloud({ apiKey: trimmed, hasKey: true });
+      const saved = await updateCloud({
+        apiKey: trimmed,
+        hasKey: true,
+        ...(baseUrl !== undefined ? { baseUrl } : {}),
+      });
       if (saved === false) return false;
       if (inTauri) {
         const scrubbed = await updateCloud({ apiKey: "" });
@@ -201,9 +208,26 @@ export default function AiSettings() {
       clearingKey.current = false;
     });
   };
+  const setUrl = (value: string) => {
+    draftUrlRef.current = value;
+    setDraftUrl(value);
+  };
+  // Commit the address when editing finishes. A different origin drops the stored
+  // key unless this same save includes a new one; Rust enforces that again.
+  const commitUrl = (next: string, keyDraft = draftKey): Promise<boolean | void> => {
+    const previous = cloudOrigin(config.cloud.baseUrl);
+    const origin = cloudOrigin(next);
+    if (origin !== null && origin === previous) {
+      if (next === config.cloud.baseUrl) return Promise.resolve(true);
+      return Promise.resolve(updateCloud({ baseUrl: next }));
+    }
+    const trimmed = keyDraft.trim();
+    if (trimmed) return persistKey(trimmed, next);
+    return Promise.resolve(updateCloud({ baseUrl: next, apiKey: "", hasKey: false }));
+  };
   const requestClose = () => {
-    void persistKey(draftKey).then((ok) => {
-      if (ok) close();
+    void commitUrl(draftUrlRef.current).then((ok) => (ok === false ? false : persistKey(draftKey))).then((ok) => {
+      if (ok !== false) close();
     });
   };
 
@@ -291,9 +315,10 @@ export default function AiSettings() {
                 <label>{t("baseUrl")}</label>
                 <input
                   className="input"
-                  value={config.cloud.baseUrl}
+                  value={draftUrl}
                   spellCheck={false}
-                  onChange={(e) => updateCloud({ baseUrl: e.target.value })}
+                  onChange={(e) => setUrl(e.target.value)}
+                  onBlur={(e) => { void commitUrl(e.target.value); }}
                 />
               </div>
               <div className="form-row">

@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::Manager;
 
-/// Fixed loopback port for the built-in engine.
-const PORT: u16 = 8899;
+/// Fixed loopback port for the built-in engine. The model proxy only allows this port.
+pub const BUILTIN_PORT: u16 = 8899;
 
 #[derive(Default)]
 pub struct AiEngine {
@@ -129,8 +129,8 @@ fn status(child: &mut Option<Child>, resource: Option<&Path>) -> EngineStatus {
     let model = resolve_model();
     EngineStatus {
         running: is_running(child),
-        port: PORT,
-        base_url: format!("http://127.0.0.1:{PORT}/v1"),
+        port: BUILTIN_PORT,
+        base_url: format!("http://127.0.0.1:{BUILTIN_PORT}/v1"),
         binary: binary.map(|p| p.to_string_lossy().into_owned()),
         model_size: model.as_deref().and_then(size_of),
         model: model.map(|p| p.to_string_lossy().into_owned()),
@@ -172,7 +172,7 @@ pub fn ai_engine_start(
     let child = Command::new(&binary)
         .arg("-m")
         .arg(&model)
-        .args(["--host", "127.0.0.1", "--port", &PORT.to_string()])
+        .args(["--host", "127.0.0.1", "--port", &BUILTIN_PORT.to_string()])
         .args(["-c", "8192", "-ngl", "999", "--jinja"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
