@@ -97,7 +97,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
   const [, setVersions] = useDashboardVersions(document?.id);
   // 多级下钻路径(按 widgetId)。UI 态,不持久化。
   const [drillPaths, setDrillPaths] = useState<DrillPathMap>({});
-  const drillRuntime = useDrillRuntime(runtimeDocument, filterValues, drillPaths, runtimeRevision, t);
+  const drillRuntime = useDrillRuntime(runtimeDocument, filterValues, drillPaths, runtimeRevision, t, componentFilterValues);
   const componentRuntime = useComponentRuntime(runtimeDocument, filterValues, componentFilterValues, drillPaths, runtimeRevision, t);
   const comparisonRuntime = useComparisonRuntime(runtimeDocument, filterValues, componentFilterValues, runtimeRevision, t);
   const drillDown = (widgetId: string, value: string) => {

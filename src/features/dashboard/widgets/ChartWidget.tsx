@@ -1,6 +1,6 @@
 import { axisFont, barThickness, cartesianGrid, cartesianLegend, categoryAxis, pieFrame, placeZoom } from "../chartLayout";
 import { escapeHtml } from "../tooltipText";
-import { useChartBox } from "../useChartBox";
+import { useChartBox, usePaintGate } from "../useChartBox";
 import { useCallback, useEffect, useRef } from "react";
 import ReactECharts from "echarts-for-react";
 import { ChevronLeft } from "lucide-react";
@@ -36,6 +36,8 @@ interface Props {
   onDrill?: (filter: DashboardDrillFilter) => void;
   drillDimensions?: string[];
   drillPath?: { dimension: string; value: string }[];
+  /** 路径已经往下走、这一层的数据还没到。这期间忽略点击,免得用旧扇区又钻一层。 */
+  drillFrozen?: boolean;
   /** 维度字段 → 中文名,面包屑上标「按什么钻的」。 */
   dimensionLabels?: Record<string, string>;
   onDrillDown?: (value: string) => void;
@@ -44,11 +46,28 @@ interface Props {
 
 /** 折线 / 柱状 / 饼图:分组取数 → 构建系列 → 生成 ECharts option,支持双轴、TopN、系列维度、多级下钻。 */
 export default function ChartWidget(props: Props) {
-  const { widget, result, resolvedMetrics, secondaryMetrics, dimensionName, dimensionIndex, activeMeasure, onActiveMeasure, onDrill, drillDimensions, drillPath, onDrillDown, onDrillTo } = props;
+  const { widget, result, resolvedMetrics, secondaryMetrics, dimensionName, dimensionIndex, activeMeasure, onActiveMeasure, onDrill, drillDimensions, drillPath, drillFrozen, onDrillDown, onDrillTo } = props;
   const { t } = useI18n();
   // 订阅主题:切换深浅色时强制重渲,让 getComputedStyle 读到新的 CSS 变量。
   const theme = useApp((state) => state.theme);
   const { ref: boxRef, box } = useChartBox();
+  /* 下钻会让整张看板重渲染。option 每次都是新对象,里面的 formatter 也是新函数,
+     echarts-for-react 会当成图变了,notMerge 再画一遍。输入没变就跳过 setOption,
+     实例留在原地。点击处理读这份 ref,避免为了换闭包把事件重新绑一遍。 */
+  const shouldSetOption = usePaintGate([widget, result, resolvedMetrics, secondaryMetrics, dimensionName, activeMeasure, theme, box.width, box.height, !!props.staticRender]);
+  const clickRef = useRef({
+    metricComposition: false,
+    type: widget.type,
+    pieData: [] as { isOther?: boolean }[],
+    drillConfigured: false,
+    canDrillDeeper: false,
+    drillFrozen: false,
+    onDrillDown,
+    onDrill,
+    linkage: false,
+    datasetId: widget.datasetId,
+    xDimName: dimensionName,
+  });
 
   // 导出 PNG:把本组件的 ECharts 实例导出函数注册到全局表,供画布头部按钮调用。
   const chartRef = useRef<ReactECharts>(null);
@@ -480,17 +499,23 @@ export default function ChartWidget(props: Props) {
   const drillConfigured = (drillDimensions?.length ?? 0) > 0;
   // 链里有几层就能钻几层(第 0 层是当前维度,不占链里的位置)。
   const canDrillDeeper = drillConfigured && (drillPath?.length ?? 0) < drillDimensions!.length;
+  clickRef.current = {
+    metricComposition, type: widget.type, pieData, drillConfigured, canDrillDeeper, drillFrozen: !!drillFrozen,
+    onDrillDown, onDrill, linkage: widget.options.chart?.linkage === true, datasetId: widget.datasetId, xDimName,
+  };
   const onEvents = (onDrill || onDrillDown) ? {
     click: (params: { name?: string; dataIndex?: number }) => {
-      if (metricComposition) return;
-      if (widget.type === "pie" && params.dataIndex != null && pieData[params.dataIndex]?.isOther) return;
+      const d = clickRef.current;
+      if (d.drillFrozen) return;
+      if (d.metricComposition) return;
+      if (d.type === "pie" && params.dataIndex != null && d.pieData[params.dataIndex]?.isOther) return;
       if (params.name == null) return;
-      if (drillConfigured) {
-        if (canDrillDeeper) onDrillDown?.(params.name);
-      } else if (widget.options.chart?.linkage) {
+      if (d.drillConfigured) {
+        if (d.canDrillDeeper) d.onDrillDown?.(params.name);
+      } else if (d.linkage) {
         /* 联动是可选的。默认点一下只在本组件里下钻(配了层级的话),没配就什么也不做 ——
            而不是把整张看板都筛掉:那样一点就全变,还得去顶上找那个小标签才能变回来。 */
-        onDrill?.({ datasetId: widget.datasetId, field: xDimName, value: params.name });
+        d.onDrill?.({ datasetId: d.datasetId, field: d.xDimName, value: params.name });
       }
     },
   } : undefined;
@@ -517,7 +542,7 @@ export default function ChartWidget(props: Props) {
   }
   const echart = (
     <div ref={boxRef} className="dash-chart-box">
-      <ReactECharts ref={chartRef} option={option} onEvents={onEvents} onChartReady={attachCrosshair} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />
+      <ReactECharts ref={chartRef} option={option} onEvents={onEvents} onChartReady={attachCrosshair} shouldSetOption={shouldSetOption} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />
     </div>
   );
   const chart = pieDropped > 0
@@ -562,28 +587,29 @@ export default function ChartWidget(props: Props) {
       )
       : chart;
 
-  if (!drillPath?.length) return content;
-  /* 面包屑:返回上一层 + 全部 › 各层选中值,点任意一层回到那一层。
-     原来只有一排没有图标的小方块,钻进去之后第一反应是「怎么出去」—— 所以补一个
-     明确的返回箭头,每一层也标上它是哪个维度(光一个「咖啡」看不出是按什么钻的)。 */
+  /* 面包屑出现或消失时,图表节点必须还是同一个。换根节点会卸掉 ECharts,
+     库自己还会在 finished 里 dispose 再 new 一次,再叠上尺寸从 0 量起的
+     第二次 setOption,下钻就闪两下。chart-host 的 key 不跟路径走。 */
   const dimLabelOf = (name: string) => props.dimensionLabels?.[name] || name;
   return (
     <div className="dash-chart-drill">
-      <div className="dash-drill-crumbs">
-        <button className="back" {...iconName("返回上一层")} onClick={() => onDrillTo?.(drillPath.length - 1)}>
-          <ChevronLeft size={12} />返回
-        </button>
-        <button onClick={() => onDrillTo?.(0)}>全部</button>
-        {drillPath.map((item, index) => (
-          <span key={`${item.dimension}-${index}`}>
-            <span className="sep">›</span>
-            <button onClick={() => onDrillTo?.(index + 1)} title={`${dimLabelOf(item.dimension)}:${item.value}`}>
-              <small>{dimLabelOf(item.dimension)}</small>{item.value}
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="dash-drill-body">{content}</div>
+      {drillPath?.length ? (
+        <div className="dash-drill-crumbs">
+          <button className="back" {...iconName("返回上一层")} onClick={() => onDrillTo?.(drillPath.length - 1)}>
+            <ChevronLeft size={12} />返回
+          </button>
+          <button onClick={() => onDrillTo?.(0)}>全部</button>
+          {drillPath.map((item, index) => (
+            <span key={`${item.dimension}-${index}`}>
+              <span className="sep">›</span>
+              <button onClick={() => onDrillTo?.(index + 1)} title={`${dimLabelOf(item.dimension)}:${item.value}`}>
+                <small>{dimLabelOf(item.dimension)}</small>{item.value}
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div key="chart-host" className="dash-drill-body">{content}</div>
     </div>
   );
 }

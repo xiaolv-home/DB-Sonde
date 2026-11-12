@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useI18n } from "../../../hooks/useI18n";
 import type { DashboardDrillFilter, DashboardMetricDefinition, DashboardRuntimeData, DashboardWidget } from "../domain";
@@ -12,6 +12,7 @@ import { MORE_ECHART_TYPES, type MoreEchartType } from "../moreCharts";
 import KpiWidget from "../widgets/KpiWidget";
 import TableWidget from "../widgets/TableWidget";
 import ChartWidget from "../widgets/ChartWidget";
+import { nextShownPath, type DrillStep } from "../drillView";
 
 interface Props {
   staticRender?: boolean;
@@ -43,6 +44,7 @@ export default function WidgetRenderer({ staticRender, widget, runtime, metrics,
   const switchDefault = widget.type === "kpi" ? widget.options.kpi?.metricSwitchDefault : widget.options.chart?.metricSwitchDefault;
   const defaultMeasure = (switchDefault && validMeasureKeys.includes(switchDefault)) ? switchDefault : (validMeasureKeys[0] ?? "");
   const [activeMeasure, setActiveMeasure] = useState(defaultMeasure);
+  const shownDrillRef = useRef<DrillStep[]>([]);
   // 默认项变化(作者改了"默认显示",或指标集变化)→ 跟随默认。手动切换不改 defaultMeasure,故不受影响。
   useEffect(() => { setActiveMeasure(defaultMeasure); }, [defaultMeasure]);
   // 兜底:当前选中项失效(指标被删等)时回落到默认。
@@ -88,7 +90,16 @@ export default function WidgetRenderer({ staticRender, widget, runtime, metrics,
 
   // 下钻生效时,当前层级的维度 = drillDimensions[已钻层数];否则用绑定维度。
   const drillDims = widget.options.chart?.drillDimensions;
-  const drillLevel = drillPath?.length ?? 0;
+  /* 路径先变、查询还没回来时,结果里还没有下一层那一列。马上按新维度去找,
+     图表会被换成「请选择维度和指标」,查询回来再挂上 —— 就是下钻之后闪一下。
+     列对上之前继续画上一层,对上了才切,一次查询一次绘制。 */
+  const requested = drillPath ?? [];
+  const boundDim = widget.bindings.dimensions?.[0] ?? widget.bindings.dimension ?? "";
+  const shownPath = nextShownPath(shownDrillRef.current, requested, result.columns.map((c) => c.name), drillDims ?? [], boundDim);
+  shownDrillRef.current = shownPath;
+  const drillPending = requested.length !== shownPath.length
+    || requested.some((step, i) => step.dimension !== shownPath[i]?.dimension || step.value !== shownPath[i]?.value);
+  const drillLevel = shownPath.length;
   /* 下钻链是「从当前维度再往下钻到哪几层」,不包含当前这层。
      原来把链的第一项当成当前分组维度,于是要求它必须等于组件绑的那个维度 —— 可界面
      让你随便选。选了别的(比如图按大区分组、链却从主管开始),渲染层就去结果里找一个
@@ -147,7 +158,8 @@ export default function WidgetRenderer({ staticRender, widget, runtime, metrics,
       onActiveMeasure={setActiveMeasure}
       onDrill={onDrill}
       drillDimensions={drillDims}
-      drillPath={drillPath}
+      drillPath={shownPath}
+      drillFrozen={drillPending}
       dimensionLabels={dimensionLabels}
       onDrillDown={onDrillDown}
       onDrillTo={onDrillTo}

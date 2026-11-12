@@ -183,7 +183,7 @@ export interface DashboardChartOptions {
   pieOuterRadius?: number; // 20-95 外半径 %，与内半径之差决定环宽
   pieShowLabels?: boolean;
   pieLegendPosition?: "bottom" | "left" | "right";
-  // 多级下钻(对齐 v1 pie_drill):有序维度链,点一层按下一维度重新分组,面包屑可回退。作用于 bar/pie。
+  // 多级下钻(对齐 v1 pie_drill):有序维度链,点一层按下一维度重新分组,面包屑可回退。作用于折线/柱/饼/漏斗。
   drillDimensions?: string[];
   /** 点图形时联动整个看板(按这一格的值筛所有用同一数据集的组件)。默认关 ——
    *  点一下整张看板全变、还找不到怎么变回来,不该是默认行为。 */

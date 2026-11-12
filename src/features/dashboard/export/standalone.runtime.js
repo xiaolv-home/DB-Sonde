@@ -14,10 +14,9 @@
   var echarts = window.echarts;
   var ROW = 96; // 每个网格行的像素高度(近似在线画布)
   /* 图表实例不攒在数组里 —— 攒了就永远不释放。
-     每次下钻 / 切指标 / 改筛选都会重渲染,老的 DOM 被清掉、实例却还被数组拽着,
-     连同它的 canvas 和内部状态一起留在内存里。下钻二十次就是二十份。
-     改成用的时候从 DOM 现取(echarts 自己有 dom → 实例的映射),清容器前先 dispose。
-     数据量大时这是实打实的占用。 */
+     改筛选会清掉卡片重画,清容器前先 dispose,免得 canvas 留在内存里。
+     下钻和切指标不走这条:同一个节点上 getInstanceByDom,setOption 一次。
+     每次下钻都 dispose 再 init,图会先没再出现,像刷新了两遍。 */
   function liveCharts() {
     var out = [];
     var nodes = document.querySelectorAll(".dash-x-chart");
@@ -494,90 +493,112 @@
 
   // ---- 渲染一个图表组件(含切换器 + 面包屑) ----
   function renderChart(bw, body) {
-    clearNode(body);
     var view = computeChartView(bw);
-    if (!view || !view.displayMetrics.length) { body.appendChild(stateBox("暂无数据")); return; }
+    if (!view || !view.displayMetrics.length) { clearNode(body); body.appendChild(stateBox("暂无数据")); return; }
     var st = stateOf(bw.widget.id);
-
-    // 面包屑
-    if (st.path.length) {
+    /* 外壳只建一次。下钻只改面包屑和 option,不 clearNode —— 那会 dispose 实例,
+       下一帧再 init,图先消失再出现。 */
+    var shell = body._dashChartShell;
+    if (!shell || shell.parentNode !== body) {
+      clearNode(body);
+      shell = el("div", "dash-x-shell");
+      shell.style.cssText = "display:flex;flex-direction:column;flex:1;min-height:0;height:100%";
       var crumbs = el("div", "dash-x-crumbs");
-      crumbs.appendChild(btn("全部", function () { st.path = []; renderChart(bw, body); }));
-      st.path.forEach(function (item, idx) {
-        var sep = document.createElement("span"); sep.className = "sep"; sep.textContent = "›"; crumbs.appendChild(sep);
-        crumbs.appendChild(btn(item.value, function () { st.path = st.path.slice(0, idx + 1); renderChart(bw, body); }));
-      });
-      body.appendChild(crumbs);
+      var switcher = el("div", "dash-x-switch");
+      var holder = el("div", "dash-x-chart");
+      var note = el("div", "dash-x-note");
+      shell.appendChild(crumbs);
+      shell.appendChild(switcher);
+      shell.appendChild(holder);
+      shell.appendChild(note);
+      body.appendChild(shell);
+      body._dashChartShell = shell;
+      shell._crumbs = crumbs;
+      shell._switcher = switcher;
+      shell._holder = holder;
+      shell._note = note;
     }
-    // 切换器
+
+    shell._crumbs.innerHTML = "";
+    if (st.path.length) {
+      shell._crumbs.style.display = "";
+      shell._crumbs.appendChild(btn("全部", function () { st.path = []; renderChart(bw, body); }));
+      st.path.forEach(function (item, idx) {
+        var sep = document.createElement("span"); sep.className = "sep"; sep.textContent = "›"; shell._crumbs.appendChild(sep);
+        shell._crumbs.appendChild(btn(item.value, function () { st.path = st.path.slice(0, idx + 1); renderChart(bw, body); }));
+      });
+    } else shell._crumbs.style.display = "none";
+
     var chartOpt = bw.widget.options.chart || {};
+    shell._switcher.innerHTML = "";
     if (view.switching) {
-      var bar = el("div", "dash-x-switch");
-      if (chartOpt.metricSwitchTitle !== false) { var t = document.createElement("span"); t.textContent = "指标"; bar.appendChild(t); }
+      shell._switcher.style.display = "";
+      if (chartOpt.metricSwitchTitle !== false) { var t = document.createElement("span"); t.textContent = "指标"; shell._switcher.appendChild(t); }
       var sel = document.createElement("select");
       view.choices.forEach(function (c) { var o = document.createElement("option"); o.value = c.id; o.textContent = c.label; if (view.activeChoice && c.id === view.activeChoice.id) o.selected = true; sel.appendChild(o); });
       sel.onchange = function () { st.active = sel.value; renderChart(bw, body); };
-      bar.appendChild(sel); body.appendChild(bar);
+      shell._switcher.appendChild(sel);
     } else if (bw.widget.type === "pie" && bw.metrics.primary.length >= 2) {
-      var bar2 = el("div", "dash-x-switch");
+      shell._switcher.style.display = "";
       var sel2 = document.createElement("select");
       view.primaryAll.forEach(function (m) { var o = document.createElement("option"); o.value = m.key; o.textContent = metricLabel(m); if (m.key === st.active) o.selected = true; sel2.appendChild(o); });
       sel2.onchange = function () { st.active = sel2.value; renderChart(bw, body); };
-      bar2.appendChild(sel2); body.appendChild(bar2);
-    }
+      shell._switcher.appendChild(sel2);
+    } else shell._switcher.style.display = "none";
 
-    var option = buildChartOption(bw, view);
+    /* 先按百分比排一版,只为知道有没有扇区。真正的尺寸等下一帧量,而且只 setOption 一次。 */
+    var preview = buildChartOption(bw, view);
     if (bw.widget.type === "pie" || bw.widget.type === "funnel") {
-      /* 一个正数都不剩就别画空饼了,说清是哪种情况 —— 跟在线一套说法。 */
-      var slices = ((option.series || [])[0] || {}).data || [];
+      var slices = ((preview.series || [])[0] || {}).data || [];
       if (!slices.length) {
         var dropped = view.pieDropped || 0;
-        body.appendChild(stateBox(dropped
+        if (shell._holder._dashFrame) { cancelAnimationFrame(shell._holder._dashFrame); shell._holder._dashFrame = 0; }
+        shell._holder.style.display = "none";
+        shell._note.style.display = "";
+        shell._note.textContent = dropped
           ? dropped + " 个分组都不是正数,饼图表达不了 —— 换条形图看。"
-          : "这个范围里没有数据。"));
+          : "这个范围里没有数据。";
         return;
       }
     }
+    shell._holder.style.display = "";
+    if (bw.widget.type === "pie" && view.pieDropped) {
+      shell._note.style.display = "";
+      shell._note.textContent = "另有 " + view.pieDropped + " 个分组不是正数,未计入占比";
+    } else {
+      shell._note.style.display = "none";
+      shell._note.textContent = "";
+    }
 
-    // 下钻深度(点击处理要用,得在 init 之前算好)
     var drillDims = bw.drillDimensions || [];
     var canDeeper = drillDims.length > 0 && st.path.length < drillDims.length;
-
-    var holder = el("div", "dash-x-chart");
-    body.appendChild(holder);
-    /* **等卡片真的进了文档再初始化。**
-       renderWidget 是先把整张卡片在内存里拼好、返回之后才 appendChild 进网格的,
-       所以走到这儿时 holder 还是个游离节点,量出来 0×0。以前就在这儿直接 init:
-       ECharts 拿到零尺寸,入场动画在一块 0×0 的画布上播完了;下一帧的 resize()
-       才拿到真实尺寸,而 resize 是直接画最终状态、不重放入场动画 —— 于是导出的
-       网页里图表总是「啪」一下出现,而软件里饼图是从一点展开的。
-       下一帧再 init,尺寸已经对了,动画就跟软件里一样(参数本来就是同一组:
-       220ms linear),那句补救的 resize 也不需要了。 */
-    requestAnimationFrame(function () {
-      if (!holder.isConnected) return;   // 这一帧之前就被重渲染掉了,别再建实例
-      var inst = echarts.init(holder, null, { renderer: "canvas" });
+    var holder = shell._holder;
+    /* 面包屑改高度要等这一帧布局完再量。同一帧里多次进来(连点)只留最后一次。 */
+    holder._dashApply = function (inst) {
       holder._dashBuild = function () {
         return buildChartOption(bw, view, { width: holder.clientWidth, height: holder.clientHeight });
       };
-      inst.setOption(holder._dashBuild());
+      inst.setOption(holder._dashBuild(), true);
+      if (holder._dashCross) { try { holder._dashCross(); } catch (e) {} holder._dashCross = null; }
       if (bw.widget.type === "line" || bw.widget.type === "bar") {
-        installFreeCrosshair(inst, bw.widget.type === "bar" && (bw.widget.options.chart || {}).barOrientation === "horizontal");
+        holder._dashCross = installFreeCrosshair(inst, bw.widget.type === "bar" && (bw.widget.options.chart || {}).barOrientation === "horizontal");
       }
-      if (canDeeper) {
-        inst.on("click", function (params) {
-          if (params.name == null) return;
-          st.path = st.path.concat([{ dimension: view.xField, value: params.name }]);
-          renderChart(bw, body);
-        });
-      }
+      if (holder._dashClick) inst.off("click", holder._dashClick);
+      holder._dashClick = function (params) {
+        if (!canDeeper || params.name == null) return;
+        st.path = st.path.concat([{ dimension: view.xField, value: params.name }]);
+        renderChart(bw, body);
+      };
+      if (canDeeper) inst.on("click", holder._dashClick);
+    };
+    if (holder._dashFrame) return;
+    holder._dashFrame = requestAnimationFrame(function () {
+      holder._dashFrame = 0;
+      if (!holder.isConnected) return;
+      var inst = echarts.getInstanceByDom(holder);
+      if (!inst) inst = echarts.init(holder, null, { renderer: "canvas" });
+      if (holder._dashApply) holder._dashApply(inst);
     });
-    if (bw.widget.type === "pie" && view.pieDropped) {
-      var note = el("div", "dash-x-note");
-      note.textContent = "另有 " + view.pieDropped + " 个分组不是正数,未计入占比";
-      body.appendChild(note);
-    }
-
-
   }
 
   // ---- KPI ----
