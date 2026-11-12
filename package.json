@@ -83,7 +83,8 @@
     "test:dashboard-smart": "node scripts/test-dashboard-smart.mjs",
     "test:more-charts": "node scripts/test-more-charts.mjs",
     "test:widget-conditions": "node scripts/test-widget-conditions.mjs",
-    "test:table-export": "node scripts/test-table-export.mjs"
+    "test:table-export": "node scripts/test-table-export.mjs",
+    "test:sidebar-names": "node scripts/test-sidebar-names.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
