@@ -33,8 +33,12 @@ const ROLE_PREFERENCE: Record<NodeRole, AiProvider> = {
 };
 
 /** 这个 provider 配全了吗 —— 没配全就别往上路由。 */
+export function cloudKeyConfigured(cloud: { apiKey?: string; hasKey?: boolean }): boolean {
+  return Boolean(cloud.apiKey || cloud.hasKey);
+}
+
 function usable(provider: AiProvider, config: AiConfig): boolean {
-  if (provider === "cloud") return Boolean(config.cloud.baseUrl && config.cloud.apiKey && config.cloud.model);
+  if (provider === "cloud") return Boolean(config.cloud.baseUrl && cloudKeyConfigured(config.cloud) && config.cloud.model);
   if (provider === "local") return Boolean(config.local.baseUrl && config.local.model);
   return config.builtin.ready;
 }

@@ -167,6 +167,45 @@ export default function AiSettings() {
   const update = useAi((s) => s.update);
   const close = useAi((s) => s.closeSettings);
   const configError = useAi((s) => s.configError);
+  const [draftKey, setDraftKey] = useState("");
+  const clearingKey = useRef(false);
+  const flushingKey = useRef<Promise<boolean> | null>(null);
+  const hasKey = Boolean(config.cloud.hasKey || config.cloud.apiKey);
+  // The saved key is never loaded back into this field. A non-empty draft replaces
+  // it; leaving the field blank keeps the saved key. Desktop builds then drop the
+  // draft from renderer state so later requests read the key only in Rust.
+  const persistKey = (next: string): Promise<boolean> => {
+    const trimmed = next.trim();
+    if (!trimmed) return Promise.resolve(true);
+    if (flushingKey.current) return flushingKey.current;
+    const run = (async () => {
+      const saved = await updateCloud({ apiKey: trimmed, hasKey: true });
+      if (saved === false) return false;
+      if (inTauri) {
+        const scrubbed = await updateCloud({ apiKey: "" });
+        if (scrubbed === false) return false;
+      }
+      setDraftKey("");
+      return true;
+    })();
+    flushingKey.current = run;
+    void run.finally(() => {
+      if (flushingKey.current === run) flushingKey.current = null;
+    });
+    return run;
+  };
+  const clearKey = () => {
+    clearingKey.current = true;
+    setDraftKey("");
+    void Promise.resolve(updateCloud({ apiKey: "", hasKey: false })).finally(() => {
+      clearingKey.current = false;
+    });
+  };
+  const requestClose = () => {
+    void persistKey(draftKey).then((ok) => {
+      if (ok) close();
+    });
+  };
 
   const discovery = useModelDiscovery(config.provider === "local" ? { provider: "local", baseUrl: config.local.baseUrl } : null);
   const detectMsg = discovery.error ?? (discovery.loaded
@@ -180,7 +219,7 @@ export default function AiSettings() {
   ];
 
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
+    <div className="modal-backdrop" onMouseDown={requestClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{t("settings")}</h3>
@@ -262,11 +301,29 @@ export default function AiSettings() {
                 <input
                   className="input"
                   type="password"
-                  value={config.cloud.apiKey}
+                  value={draftKey}
                   spellCheck={false}
-                  onChange={(e) => updateCloud({ apiKey: e.target.value })}
+                  autoComplete="off"
+                  placeholder={hasKey ? t("apiKeySaved") : ""}
+                  onChange={(e) => setDraftKey(e.target.value)}
+                  onBlur={() => {
+                    if (!clearingKey.current) void persistKey(draftKey);
+                  }}
                 />
               </div>
+              {hasKey && (
+                <div className="form-row">
+                  <label />
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onMouseDown={() => { clearingKey.current = true; }}
+                    onClick={clearKey}
+                  >
+                    {t("apiKeyClear")}
+                  </button>
+                </div>
+              )}
               <div className="form-row">
                 <label>{t("model")}</label>
                 <input
@@ -332,7 +389,7 @@ export default function AiSettings() {
         </div>
         <div className="modal-foot">
           <div className="toolbar-spacer" />
-          <button className="btn primary" onClick={close}>
+          <button className="btn primary" onClick={requestClose}>
             {t("close")}
           </button>
         </div>

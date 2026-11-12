@@ -65,6 +65,7 @@
     "test:postgres": "node scripts/test-postgres-edit.mjs",
     "test:metadata": "node scripts/test-metadata-failure.mjs",
     "test:cloud-privacy": "node scripts/test-cloud-privacy.mjs",
+    "test:cloud-proxy": "node scripts/test-cloud-proxy.mjs",
     "test:ddl": "node scripts/test-ddl-format.mjs",
     "test:fit": "node scripts/test-viewport-fit.mjs",
     "test:pane": "node scripts/test-pane-sizes.mjs",

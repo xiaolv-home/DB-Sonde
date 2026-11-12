@@ -195,18 +195,138 @@ fn service_account(key: &str) -> AppResult<String> {
         _ => Err(AppError::msg("不支持的服务配置")),
     }
 }
+/// Cloud base URL and API key. Only the Rust proxy may read this; IPC uses
+/// [`present_service_config`], which replaces the key with `hasKey`.
+pub struct CloudEndpoint {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+pub fn cloud_endpoint(app: &AppHandle) -> AppResult<CloudEndpoint> {
+    let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
+    let raw = load_at(&directory(app)?, &service_account("ai.config")?)?;
+    cloud_endpoint_from_config(raw.as_deref().unwrap_or("{}"))
+}
+
+pub fn cloud_endpoint_from_config(raw: &str) -> AppResult<CloudEndpoint> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|_| AppError::msg("云端模型配置无效"))?;
+    let cloud = value.get("cloud");
+    let base_url = cloud
+        .and_then(|item| item.get("baseUrl"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if base_url.is_empty() {
+        return Err(AppError::msg("云端模型尚未配置接口地址"));
+    }
+    let api_key = clean_api_key(
+        cloud
+            .and_then(|item| item.get("apiKey"))
+            .and_then(|item| item.as_str())
+            .unwrap_or(""),
+    )?;
+    Ok(CloudEndpoint { base_url, api_key })
+}
+
+fn clean_api_key(key: &str) -> AppResult<String> {
+    let key = key.trim().to_string();
+    if key.contains(['\r', '\n', '\0']) {
+        return Err(AppError::msg("API Key 无效"));
+    }
+    Ok(key)
+}
+
+/// What `load_service_config` is allowed to send across IPC.
+pub fn present_service_config(key: &str, raw: &str) -> AppResult<String> {
+    if key != "ai.config" {
+        return Ok(raw.to_string());
+    }
+    let mut value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|_| AppError::msg("本地凭据文件损坏，未覆盖原文件"))?;
+    let has_key = value
+        .get("cloud")
+        .and_then(|item| item.get("apiKey"))
+        .and_then(|item| item.as_str())
+        .is_some_and(|secret| !secret.trim().is_empty());
+    if let Some(cloud) = value.get_mut("cloud").and_then(|item| item.as_object_mut()) {
+        cloud.insert("apiKey".into(), serde_json::Value::String(String::new()));
+        cloud.insert("hasKey".into(), serde_json::Value::Bool(has_key));
+    }
+    Ok(serde_json::to_string(&value)?)
+}
+
+/// Empty `apiKey` plus `hasKey: true` keeps the stored secret. A non-empty
+/// `apiKey` replaces it. `hasKey: false` clears it. The sealed record never
+/// stores the `hasKey` indicator.
+fn merge_ai_config(existing: Option<&str>, incoming: &str) -> AppResult<String> {
+    let mut value: serde_json::Value = serde_json::from_str(incoming)?;
+    let incoming_key = clean_api_key(
+        value
+            .get("cloud")
+            .and_then(|item| item.get("apiKey"))
+            .and_then(|item| item.as_str())
+            .unwrap_or(""),
+    )?;
+    let keep_existing = value
+        .get("cloud")
+        .and_then(|item| item.get("hasKey"))
+        .and_then(|item| item.as_bool())
+        .unwrap_or(false);
+    let stored_key = existing
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|saved| {
+            saved
+                .get("cloud")
+                .and_then(|item| item.get("apiKey"))
+                .and_then(|item| item.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    let stored_key = clean_api_key(&stored_key)?;
+    let final_key = if !incoming_key.is_empty() {
+        incoming_key
+    } else if keep_existing {
+        stored_key
+    } else {
+        String::new()
+    };
+    if let Some(cloud) = value.get_mut("cloud").and_then(|item| item.as_object_mut()) {
+        cloud.insert("apiKey".into(), serde_json::Value::String(final_key));
+        cloud.remove("hasKey");
+    }
+    Ok(serde_json::to_string(&value)?)
+}
+
+fn load_service_value(dir: &Path, key: &str) -> AppResult<Option<String>> {
+    let account = service_account(key)?;
+    match load_at(dir, &account)? {
+        Some(raw) => Ok(Some(present_service_config(key, &raw)?)),
+        None => Ok(None),
+    }
+}
+
+fn save_service_value(dir: &Path, key: &str, value: &str) -> AppResult<()> {
+    let account = service_account(key)?;
+    let _: serde_json::Value = serde_json::from_str(value)?;
+    let stored = if key == "ai.config" {
+        merge_ai_config(load_at(dir, &account)?.as_deref(), value)?
+    } else {
+        value.to_string()
+    };
+    save_at(dir, &account, &stored)
+}
+
 #[tauri::command]
 pub fn load_service_config(app: AppHandle, key: String) -> AppResult<Option<String>> {
-    let account = service_account(&key)?;
     let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
-    load_at(&directory(&app)?, &account)
+    load_service_value(&directory(&app)?, &key)
 }
 #[tauri::command]
 pub fn save_service_config(app: AppHandle, key: String, value: String) -> AppResult<()> {
-    let account = service_account(&key)?;
-    let _: serde_json::Value = serde_json::from_str(&value)?;
     let _lock = LOCK.lock().map_err(|_| AppError::msg("凭据存储不可用"))?;
-    save_at(&directory(&app)?, &account, &value)
+    save_service_value(&directory(&app)?, &key, &value)
 }
 
 #[cfg(test)]
@@ -233,8 +353,7 @@ mod tests {
     }
     #[test]
     fn encrypted_roundtrip_update_permissions_and_tamper() {
-        let dir =
-            std::env::temp_dir().join(format!("sonde-vault-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("sonde-vault-test-{}", uuid::Uuid::new_v4()));
         assert_eq!(load_at(&dir, "one").unwrap(), None);
         save_at(&dir, "one", "test-secret-123").unwrap();
         save_at(&dir, "two", "").unwrap();
@@ -269,6 +388,89 @@ mod tests {
         assert!(load_at(&dir, "one").is_err());
         fs::remove_file(dir.join("local.key")).unwrap();
         assert!(save_at(&dir, "three", "new").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn load_service_config_does_not_return_the_api_key() {
+        let secret = "sk-test-UNIQUE-9f3a-not-a-url";
+        let replacement = "sk-replacement-UNIQUE-77c1";
+        let dir = std::env::temp_dir().join(format!("sonde-ai-key-{}", uuid::Uuid::new_v4()));
+        let incoming = format!(
+            r#"{{"v":2,"provider":"cloud","cloud":{{"baseUrl":"https://api.openai.com/v1","apiKey":"{secret}","model":"gpt-4o-mini"}}}}"#
+        );
+        save_service_value(&dir, "ai.config", &incoming).unwrap();
+        let sealed = std::fs::read_to_string(dir.join("credentials.json")).unwrap();
+        assert!(!sealed.contains(secret), "the vault file stays encrypted");
+        let loaded = load_service_value(&dir, "ai.config").unwrap().unwrap();
+        assert!(
+            !loaded.contains(secret),
+            "IPC payload leaked the API key: {loaded}"
+        );
+        let presented: serde_json::Value = serde_json::from_str(&loaded).unwrap();
+        assert_eq!(presented["cloud"]["apiKey"], "");
+        assert_eq!(presented["cloud"]["hasKey"], true);
+        assert_eq!(presented["cloud"]["model"], "gpt-4o-mini");
+        assert_eq!(presented["provider"], "cloud");
+
+        let kept = r#"{"v":2,"provider":"cloud","cloud":{"baseUrl":"https://api.openai.com/v1","apiKey":"","hasKey":true,"model":"gpt-4o"}}"#;
+        save_service_value(&dir, "ai.config", kept).unwrap();
+        let after_keep = load_service_value(&dir, "ai.config").unwrap().unwrap();
+        assert!(!after_keep.contains(secret));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&after_keep).unwrap()["cloud"]["model"],
+            "gpt-4o"
+        );
+        let endpoint = cloud_endpoint_from_config(
+            &load_at(&dir, &service_account("ai.config").unwrap())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            endpoint.api_key, secret,
+            "an empty save must keep the stored key"
+        );
+
+        let replaced = format!(
+            r#"{{"v":2,"provider":"cloud","cloud":{{"baseUrl":"https://api.openai.com/v1","apiKey":"{replacement}","hasKey":true,"model":"gpt-4o"}}}}"#
+        );
+        save_service_value(&dir, "ai.config", &replaced).unwrap();
+        let after_replace = load_service_value(&dir, "ai.config").unwrap().unwrap();
+        assert!(!after_replace.contains(secret));
+        assert!(!after_replace.contains(replacement));
+        assert_eq!(
+            cloud_endpoint_from_config(
+                &load_at(&dir, &service_account("ai.config").unwrap())
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap()
+            .api_key,
+            replacement
+        );
+
+        let cleared = r#"{"v":2,"provider":"cloud","cloud":{"baseUrl":"https://api.openai.com/v1","apiKey":"","hasKey":false,"model":"gpt-4o"}}"#;
+        save_service_value(&dir, "ai.config", cleared).unwrap();
+        let after_clear = load_service_value(&dir, "ai.config").unwrap().unwrap();
+        assert!(!after_clear.contains(replacement));
+        let cleared_value: serde_json::Value = serde_json::from_str(&after_clear).unwrap();
+        assert_eq!(cleared_value["cloud"]["hasKey"], false);
+        assert_eq!(
+            cloud_endpoint_from_config(
+                &load_at(&dir, &service_account("ai.config").unwrap())
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap()
+            .api_key,
+            ""
+        );
+
+        let numeric = r#"{"cloud":{"baseUrl":"https://api.openai.com/v1","apiKey":123456789}}"#;
+        let redacted = present_service_config("ai.config", numeric).unwrap();
+        assert!(!redacted.contains("123456789"));
+        assert!(present_service_config("ai.config", "{").is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 }

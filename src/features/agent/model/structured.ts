@@ -1,5 +1,7 @@
+import { inTauri } from "../../../lib/mockBackend";
 import { createHttpRetry, ModelHttpError } from "./httpRetry";
 import { providerFor as routeProvider, bindingFor as routeBinding, routingSummary as describeRouting, type NodeRole, type ModelBinding } from "./modelRouting";
+import { cloudModelRequest, proxyResponse } from "../../ai/cloudProxy";
 import { structuredRequestPolicy } from "../../ai/providers/requestPolicy";
 import { useAi, type AiConfig, type AiProvider } from "../../ai/aiStore";
 import { validate, type JsonSchema } from "../jsonSchema";
@@ -121,14 +123,27 @@ async function once(
   }
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  // Desktop cloud calls attach the vault key in Rust. Browser previews and tests
+  // still send a key that was placed on the in-memory config.
+  if (!inTauri && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const payload = JSON.stringify(body);
 
   const timeout = AbortSignal.timeout(policy.timeoutMs);
   const signal = call.signal ? AbortSignal.any([call.signal, timeout]) : timeout;
   const res = await request(() => {
     onAttempt();
+    if (inTauri && binding.provider === "cloud") {
+      return cloudModelRequest({
+        baseUrl: url,
+        path: "chat/completions",
+        method: "POST",
+        body: payload,
+        timeoutMs: policy.timeoutMs,
+        signal,
+      }).then(proxyResponse);
+    }
     return fetch(`${url.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST", headers, body: JSON.stringify(body), signal,
+      method: "POST", headers, body: payload, signal,
     });
   }, signal);
   const json = await res.json();
