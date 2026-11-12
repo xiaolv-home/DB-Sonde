@@ -12,6 +12,8 @@ import presetsCss from "../presets.css?inline-min";
 import filterControlsCss from "../filterControls.css?inline-min";
 /* 饼图的几何(半径 + 标签排版)跟看板共用同一份实现,原样内联。 */
 import pieGeometrySource from "../pieGeometry.runtime.js?inline-min";
+/* 超宽 / 超高卡片的半径、绘图区和内容宽度,跟看板共用同一份。 */
+import chartLayoutSource from "../chartLayout.runtime.js?inline-min";
 import tooltipTextSource from "../tooltipText.runtime.js?inline-min";
 /* 散点 / 雷达 / 热力 / 矩形树 / 瀑布 / 排行榜的配置,跟看板共用同一份。 */
 import moreChartsSource from "../moreCharts.runtime.js?inline-min";
@@ -162,6 +164,7 @@ export async function buildDashboardHtml(baked: BakedDashboard, source?: CssSour
 <script>${xlsxSource}</script>
 <script>${labelOrderSource}</script>
 <script>${pieGeometrySource}</script>
+<script>${chartLayoutSource}</script>
 <script>${tooltipTextSource}</script>
 <script>${moreChartsSource}</script>
 <script>window.__DASH__=${json};</script>

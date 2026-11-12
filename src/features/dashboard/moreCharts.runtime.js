@@ -46,12 +46,31 @@
     var n = Math.round(a * 255).toString(16);
     return hex + (n.length < 2 ? "0" + n : n);
   }
-  function valueAxis(input, name) {
+  function layoutApi() { return globalThis.__DASH_LAYOUT__ || null; }
+  /** 没量到卡片、或布局脚本还没载入时，边距和字号跟原来一字不差。 */
+  function gridOf(input, pad) {
+    var api = layoutApi();
+    var box = input.box || {};
+    if (!api) return { left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom, containLabel: true, plotWidth: 0, plotHeight: 0 };
+    return api.cartesianGrid({ width: box.width || 0, height: box.height || 0, left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom });
+  }
+  function eGrid(g) { return { left: g.left, right: g.right, top: g.top, bottom: g.bottom, containLabel: true }; }
+  function legendAnchor(g, pad) {
+    var api = layoutApi();
+    if (!api) return { top: 0, right: 8 };
+    return api.cartesianLegend(g, pad);
+  }
+  function axisLook(span, count) {
+    var api = layoutApi();
+    if (!api) return { interval: 0, hideOverlap: true, fontSize: 10 };
+    return api.categoryAxis({ span: span || 0, count: count || 0 });
+  }
+  function valueAxis(input, name, fontSize) {
     var t = input.theme;
     return {
       type: "value", scale: true, name: name, nameLocation: "middle", nameGap: 30,
       nameTextStyle: { color: t.muted, fontSize: 10 },
-      axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true },
+      axisLabel: { color: t.muted, fontSize: fontSize || 10, hideOverlap: true },
       splitNumber: 4,
       axisLine: { show: false }, axisTick: { show: false },
       splitLine: { lineStyle: { color: t.border, type: "dashed", opacity: 0.6 } },
@@ -96,10 +115,14 @@
         data: [{ xAxis: avg(allX) }, { yAxis: avg(allY) }],
       };
     }
+    var scatterPad = { left: 16, right: 20, top: groups.length > 1 ? 30 : 14, bottom: 26 };
+    var scatterGrid = gridOf(input, scatterPad);
+    var scatterLegend = legendAnchor(scatterGrid, scatterPad);
+    var scatterFont = axisLook(scatterGrid.plotWidth, 0).fontSize;
     return Object.assign(anim(input), {
       color: input.palette,
-      legend: groups.length > 1 && input.opts.showLegend !== false ? { top: 0, right: 8, textStyle: { color: t.muted }, itemWidth: 10, itemHeight: 10 } : undefined,
-      grid: { left: 16, right: 20, top: groups.length > 1 ? 30 : 14, bottom: 26, containLabel: true },
+      legend: groups.length > 1 && input.opts.showLegend !== false ? { top: scatterLegend.top, right: scatterLegend.right, textStyle: { color: t.muted }, itemWidth: 10, itemHeight: 10 } : undefined,
+      grid: eGrid(scatterGrid),
       tooltip: {
         trigger: "item",
         formatter: function (p) {
@@ -109,8 +132,8 @@
           return lines.join("<br/>");
         },
       },
-      xAxis: valueAxis(input, m[0].name),
-      yAxis: Object.assign(valueAxis(input, m[1].name), { nameLocation: "end", nameGap: 8 }),
+      xAxis: valueAxis(input, m[0].name, scatterFont),
+      yAxis: Object.assign(valueAxis(input, m[1].name, scatterFont), { nameLocation: "end", nameGap: 8 }),
       series: series,
     });
   }
@@ -132,9 +155,14 @@
       for (var k = 0; k < scored.length; k++) if (scored[k].vals[i] > max) max = scored[k].vals[i];
       return { name: mm.name, max: max > 0 ? max * 1.12 : 1 };
     });
+    var hasRadarLegend = scored.length > 1 && input.opts.showLegend !== false;
+    var radarBox = input.box || {};
+    var radar = layoutApi()
+      ? layoutApi().radarFrame({ width: radarBox.width || 0, height: radarBox.height || 0, hasLegend: hasRadarLegend })
+      : { radius: "58%", center: ["50%", hasRadarLegend ? "56%" : "52%"], legendTop: 0 };
     return Object.assign(anim(input), {
       color: input.palette,
-      legend: scored.length > 1 && input.opts.showLegend !== false ? { top: 0, textStyle: { color: t.muted }, itemWidth: 10, itemHeight: 6, type: "scroll" } : undefined,
+      legend: hasRadarLegend ? { top: radar.legendTop || 0, textStyle: { color: t.muted }, itemWidth: 10, itemHeight: 6, type: "scroll" } : undefined,
       tooltip: {
         trigger: "item",
         formatter: function (p) {
@@ -145,8 +173,8 @@
       },
       radar: {
         indicator: indicator, shape: ro.shape === "circle" ? "circle" : "polygon",
-        radius: "58%", center: ["50%", scored.length > 1 ? "56%" : "52%"],
-        axisName: { color: t.muted, fontSize: 11 },
+        radius: radar.radius, center: radar.center,
+        axisName: { color: t.muted, fontSize: radar.fontSize || 11 },
         splitLine: { lineStyle: { color: t.border } },
         splitArea: { show: false },
         axisLine: { lineStyle: { color: t.border } },
@@ -186,9 +214,14 @@
     var base = ho.color || input.palette[0] || t.accent;
     /* 格子多了(按天 × 几百天)每格只剩一两个像素,再描 2px 的缝就整片看不见了。 */
     var dense = xs.length > 40 || ys.length > 30;
-    var cat = function (list) {
-      return { type: "category", data: list, splitArea: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true } };
+    var heatPad = { left: 8, right: 12, top: 8, bottom: 46 };
+    var heatGrid = gridOf(input, heatPad);
+    var xLook = axisLook(heatGrid.plotWidth, xs.length);
+    var yLook = axisLook(heatGrid.plotHeight, ys.length);
+    var cat = function (list, look) {
+      return { type: "category", data: list, splitArea: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: t.muted, fontSize: look.fontSize, hideOverlap: true, interval: look.interval } };
     };
+    var bandBottom = layoutApi() ? layoutApi().plotStick(heatGrid, heatPad, "bottom", 0, 40) : 0;
     return Object.assign(anim(input), {
       tooltip: {
         trigger: "item",
@@ -197,12 +230,12 @@
           return esc(xs[v[0]]) + " · " + esc(ys[v[1]]) + "<br/>" + esc(input.measures[0].name) + ": <b>" + esc(input.fmt(0, v[2])) + "</b>";
         },
       },
-      grid: { left: 8, right: 12, top: 8, bottom: 46, containLabel: true },
-      xAxis: cat(xs),
-      yAxis: Object.assign(cat(ys), { inverse: true }),
+      grid: eGrid(heatGrid),
+      xAxis: cat(xs, xLook),
+      yAxis: Object.assign(cat(ys, yLook), { inverse: true }),
       visualMap: {
-        min: min === max ? min - 1 : min, max: max, calculable: true, orient: "horizontal", left: "center", bottom: 0,
-        itemHeight: 140, itemWidth: 10, textStyle: { color: t.muted, fontSize: 10 },
+        min: min === max ? min - 1 : min, max: max, calculable: true, orient: "horizontal", left: "center", bottom: bandBottom,
+        itemHeight: 140, itemWidth: 10, textStyle: { color: t.muted, fontSize: xLook.fontSize },
         formatter: function (v) { return input.fmt(0, v); },
         inRange: { color: [alpha(base, 0.08), alpha(base, 0.55), base] },
       },
@@ -233,6 +266,10 @@
     if (!top.length) return { empty: "没有正数可以画 —— 矩形树图的面积表达不了 0 和负数。" };
     var nested = input.dims.length > 1;
     var pct = function (v) { return total > 0 ? (v / total * 100).toFixed(input.opts.percentDecimals == null ? 1 : input.opts.percentDecimals) + "%" : ""; };
+    var treeBox = input.box || {};
+    var tree = layoutApi()
+      ? layoutApi().treemapFrame({ width: treeBox.width || 0, height: treeBox.height || 0, breadcrumb: nested })
+      : { left: 0, top: 0, right: 0, bottom: nested ? 24 : 0, breadcrumbBottom: 0 };
     return Object.assign(anim(input), {
       tooltip: {
         formatter: function (p) {
@@ -241,9 +278,9 @@
         },
       },
       series: [{
-        type: "treemap", data: top, roam: false, top: 0, left: 0, right: 0, bottom: nested ? 24 : 0,
+        type: "treemap", data: top, roam: false, top: tree.top, left: tree.left, right: tree.right, bottom: tree.bottom,
         nodeClick: nested ? "zoomToNode" : false,
-        breadcrumb: { show: nested, bottom: 0, height: 18, itemStyle: { color: t.surface, borderColor: t.border, textStyle: { color: t.muted } } },
+        breadcrumb: { show: nested, bottom: tree.breadcrumbBottom || 0, height: 18, itemStyle: { color: t.surface, borderColor: t.border, textStyle: { color: t.muted } } },
         label: { show: true, color: "#fff", fontSize: 12, overflow: "truncate", formatter: function (p) { return p.name + "\n" + input.fmt(0, p.value) + "  " + pct(p.value); } },
         upperLabel: { show: nested, height: 20, color: "#fff", fontSize: 11 },
         levels: [
@@ -274,6 +311,10 @@
       base.push(Math.min(0, cum));
       bars.push({ value: Math.abs(cum), delta: cum, total: true, itemStyle: { color: sum, borderRadius: 3 } });
     }
+    var fallPad = { left: 12, right: 16, top: 22, bottom: 8 };
+    var fallGrid = gridOf(input, fallPad);
+    var fallLook = axisLook(fallGrid.plotWidth, names.length);
+    var fallThick = Math.max(36, layoutApi() ? layoutApi().barThickness(fallGrid.plotWidth, names.length) : 36);
     return Object.assign(anim(input), {
       tooltip: {
         trigger: "axis", axisPointer: { type: "shadow" },
@@ -284,16 +325,16 @@
           return "<b>" + esc(p.name) + "</b><br/>" + (p.data.total ? "合计 " : (d >= 0 ? "增加 " : "减少 ")) + "<b>" + esc(input.fmt(0, p.data.total ? d : Math.abs(d))) + "</b>";
         },
       },
-      grid: { left: 12, right: 16, top: 22, bottom: 8, containLabel: true },
-      xAxis: { type: "category", data: names, axisLine: { lineStyle: { color: t.border } }, axisTick: { show: false }, axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true } },
-      yAxis: Object.assign(valueAxis(input, ""), { scale: false }),
+      grid: eGrid(fallGrid),
+      xAxis: { type: "category", data: names, axisLine: { lineStyle: { color: t.border } }, axisTick: { show: false }, axisLabel: { color: t.muted, fontSize: fallLook.fontSize, hideOverlap: true, interval: fallLook.interval } },
+      yAxis: Object.assign(valueAxis(input, "", fallLook.fontSize), { scale: false }),
       series: [
-        { type: "bar", stack: "w", silent: true, itemStyle: { color: "transparent" }, emphasis: { disabled: true }, data: base, barMaxWidth: 36 },
+        { type: "bar", stack: "w", silent: true, itemStyle: { color: "transparent" }, emphasis: { disabled: true }, data: base, barMaxWidth: fallThick },
         {
-          type: "bar", stack: "w", data: bars, barMaxWidth: 36,
+          type: "bar", stack: "w", data: bars, barMaxWidth: fallThick,
           labelLayout: { hideOverlap: true },
           label: {
-            show: wo.showValues !== false, position: "top", color: t.muted, fontSize: 10,
+            show: wo.showValues !== false, position: "top", color: t.muted, fontSize: fallLook.fontSize,
             formatter: function (p) { var d = p.data.delta; return p.data.total ? input.fmt(0, d) : (d >= 0 ? "+" : "−") + input.fmt(0, Math.abs(d)); },
           },
         },

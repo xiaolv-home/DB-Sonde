@@ -226,8 +226,10 @@
   function uniq(arr) { var o = {}, r = []; arr.forEach(function (x) { if (x != null && !o[x]) { o[x] = 1; r.push(x); } }); return r; }
 
   // ---- ECharts option 构建(对齐 ChartWidget) ----
-  function buildChartOption(bw, view) {
+  function buildChartOption(bw, view, box) {
     var w = bw.widget, co = w.options.chart || {}, type = w.type;
+    box = box || { width: 0, height: 0 };
+    var lay = globalThis.__DASH_LAYOUT__;
     var muted = cssVar("--text-3");
     var border = cssVar("--border");
     var surface = cssVar("--surface");
@@ -356,12 +358,15 @@
       var pieData = pieAll.filter(function (d) { return isFinite(d.value) && d.value > 0; });
       view.pieDropped = pieAll.length - pieData.length;
       var legendPos = co.pieLegendPosition;
-      /* 半径和标签排版都走 pieGeometry.runtime.js —— 跟看板同一份实现,
-         不在这儿另算。以前这儿内联抄了一份,收外圈时不管内圈,环被压成一条线。 */
-      var pie = globalThis.__DASH_PIE__;
-      var PL = pie.PIE_LABEL;
+      /* 半径和标签排版走 chartLayout(里面再用 pieGeometry)。
+         宽卡片把标签收回饼旁边,窄卡片仍是原来的贴边排法。 */
       var showLabels = co.pieShowLabels === true;
-      var radii = pie.pieRadii(co.pieHole, co.pieOuterRadius, showLabels);
+      var frame = lay.pieFrame({
+        width: box.width, height: box.height,
+        hole: co.pieHole, outer: co.pieOuterRadius,
+        showLabels: showLabels, showLegend: w.options.showLegend !== false,
+        legendPosition: legendPos,
+      });
       return {
         animationDuration: 220, animationEasing: "linear", color: palette,
         tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: "item", formatter: function (p) {
@@ -371,17 +376,15 @@
             + (p.percent != null ? " <span style='opacity:.6'>" + esc(p.percent) + "%</span>" : "");
           return extra ? head + "<br/><span style='opacity:.6'>" + extra + "</span>" : head;
         } },
-        legend: legendPos === "left" ? { show: w.options.showLegend, left: 0, top: "middle", orient: "vertical", textStyle: { color: muted } }
-          : legendPos === "right" ? { show: w.options.showLegend, right: 0, top: "middle", orient: "vertical", textStyle: { color: muted } }
-            : { show: w.options.showLegend, bottom: 0, textStyle: { color: muted } },
+        legend: Object.assign({ show: w.options.showLegend, textStyle: { color: muted } }, frame.legend),
         series: [{
           name: metricLabel(activePie), type: "pie",
-          radius: [radii[0] + "%", radii[1] + "%"],
-          center: legendPos === "left" ? ["62%", "50%"] : legendPos === "right" ? ["40%", "50%"] : ["50%", "44%"],
+          radius: frame.radius,
+          center: frame.center,
           avoidLabelOverlap: true, percentPrecision: w.options.percentDecimals == null ? 1 : w.options.percentDecimals,
-          label: Object.assign({ show: showLabels, color: muted, formatter: "{b}\n{d}%" }, PL.label),
-          labelLine: PL.labelLine,
-          labelLayout: PL.labelLayout,
+          label: Object.assign({ show: showLabels, color: muted, formatter: "{b}\n{d}%" }, frame.label),
+          labelLine: frame.labelLine,
+          labelLayout: frame.labelLayout,
           itemStyle: { borderColor: surface, borderWidth: 3, borderRadius: 4 },
           data: pieData,
         }],
@@ -462,17 +465,29 @@
       }) };
     }
     var dense = co.dataZoom || labels.length > 24;
+    var gridPad = { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: dense ? 34 : 8 };
+    var grid = lay.cartesianGrid({ left: gridPad.left, right: gridPad.right, top: gridPad.top, bottom: gridPad.bottom, width: box.width, height: box.height });
+    var catSpan = horizontal ? grid.plotHeight : grid.plotWidth;
+    var catLook = lay.categoryAxis({ span: catSpan, count: labels.length });
+    var valueFont = lay.axisFont(grid.plotWidth);
+    var thick = lay.barThickness(catSpan, labels.length);
+    series.forEach(function (item) { if (item.type === "bar") item.barMaxWidth = thick; });
+    catAxis.axisLabel.fontSize = catLook.fontSize;
+    catAxis.axisLabel.interval = catLook.interval;
+    valAxis.axisLabel.fontSize = valueFont;
+    var legendAt = lay.cartesianLegend(grid, gridPad);
+    var zoomAt = lay.placeZoom(grid, gridPad, horizontal ? "y" : "x");
     return {
       animationDuration: 220, animationDurationUpdate: 220, animationEasing: "linear", animationEasingUpdate: "linear",
       color: palette,
       // 十字线交给 freeCrosshair(跟手、不吸附刻度),这里把 ECharts 自带的隐掉,免得两条。
       tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: (co.tooltip && co.tooltip.mode === "item") ? "item" : "axis", formatter: tooltipFormatter, axisPointer: { type: "cross", snap: false, lineStyle: { color: "transparent", width: 0, opacity: 0 }, crossStyle: { color: "transparent", width: 0, opacity: 0 }, label: { show: false } } },
       // 窄屏(手机)上图例换行会压进绘图区,用可滚动单行避免。
-      legend: (series.length > 1 && w.options.showLegend) ? { show: true, type: "scroll", top: 0, right: 8, left: 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
-      grid: { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: dense ? 34 : 8, containLabel: true },
+      legend: (series.length > 1 && w.options.showLegend) ? { show: true, type: "scroll", top: legendAt.top, right: legendAt.right, left: grid.left > gridPad.left + 1 ? Math.round(grid.left) : 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
+      grid: { left: grid.left, right: grid.right, top: grid.top, bottom: grid.bottom, containLabel: true },
       xAxis: horizontal ? valAxis : catAxis,
       yAxis: horizontal ? catAxis : valAxis,
-      dataZoom: dense ? [Object.assign({ type: "slider", start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: cssVar("--accent-soft"), backgroundColor: cssVar("--surface-2"), showDetail: false }, horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 })] : undefined,
+      dataZoom: dense ? [Object.assign({ type: "slider", start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: zoomAt.bottom == null ? 4 : zoomAt.bottom, borderColor: "transparent", fillerColor: cssVar("--accent-soft"), backgroundColor: cssVar("--surface-2"), showDetail: false }, horizontal ? { yAxisIndex: 0, width: 10, right: zoomAt.right == null ? 2 : zoomAt.right } : { xAxisIndex: 0 })] : undefined,
       series: series,
     };
   }
@@ -541,7 +556,10 @@
     requestAnimationFrame(function () {
       if (!holder.isConnected) return;   // 这一帧之前就被重渲染掉了,别再建实例
       var inst = echarts.init(holder, null, { renderer: "canvas" });
-      inst.setOption(option);
+      holder._dashBuild = function () {
+        return buildChartOption(bw, view, { width: holder.clientWidth, height: holder.clientHeight });
+      };
+      inst.setOption(holder._dashBuild());
       if (bw.widget.type === "line" || bw.widget.type === "bar") {
         installFreeCrosshair(inst, bw.widget.type === "bar" && (bw.widget.options.chart || {}).barOrientation === "horizontal");
       }
@@ -627,11 +645,17 @@
       sel.onchange = function () { st.active = sel.value; renderKpi(bw, body); };
       bar.appendChild(sel); body.appendChild(bar);
       var grid = el("div", "dash-kpi-grid count-" + Math.min(active.metrics.length, 6));
+      grid.setAttribute("data-flow", "kpi");
+      grid.setAttribute("data-flow-count", String(active.metrics.length));
       active.metrics.forEach(function (m) { grid.appendChild(card(m)); }); body.appendChild(grid);
+      requestAnimationFrame(layoutFlows);
       return;
     }
     var grid2 = el("div", "dash-kpi-grid count-" + Math.min(primary.length, 6));
+    grid2.setAttribute("data-flow", "kpi");
+    grid2.setAttribute("data-flow-count", String(primary.length));
     primary.forEach(function (m) { grid2.appendChild(card(m)); }); body.appendChild(grid2);
+    requestAnimationFrame(layoutFlows);
   }
 
   // ---- 明细表(v1 简版:维度列 + 指标列,数字格式化 + 表头样式) ----
@@ -910,7 +934,9 @@
       var data = api.ranking(input);
       if (data.empty) { body.appendChild(stateBox(data.empty)); return; }
       var list = el("div", null);
-      list.style.cssText = "height:100%;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:2px";
+      list.setAttribute("data-flow", "ranking");
+      list.setAttribute("data-flow-count", String(data.items.length));
+      list.style.cssText = "height:100%;width:100%;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:2px";
       var medal = [cssVar("--medal-1"), cssVar("--medal-2"), cssVar("--medal-3")], barColor = (w.options.ranking || {}).barColor || cssVar("--accent");
       data.items.forEach(function (it) {
         var row = el("div", null); row.style.cssText = "display:flex;gap:10px;align-items:flex-start";
@@ -929,14 +955,21 @@
         row.appendChild(no); row.appendChild(main); list.appendChild(row);
       });
       body.appendChild(list);
+      requestAnimationFrame(layoutFlows);
       return;
     }
-    var option = api[w.type](input);
-    if (option.empty) { body.appendChild(stateBox(option.empty)); return; }
+    var preview = api[w.type](input);
+    if (preview.empty) { body.appendChild(stateBox(preview.empty)); return; }
     var holder = el("div", "dash-x-chart");
     body.appendChild(holder);
     requestAnimationFrame(function () {
       if (!holder.isConnected) return;
+      holder._dashBuild = function () {
+        input.box = { width: holder.clientWidth, height: holder.clientHeight };
+        return api[w.type](input);
+      };
+      var option = holder._dashBuild();
+      if (option.empty) return;
       echarts.init(holder, null, { renderer: "canvas" }).setOption(option);
     });
   }
@@ -1250,10 +1283,48 @@
     root.appendChild(grid);
   }
 
+  /** KPI / 排行榜按卡片尺寸收宽度。图表则按量到的尺寸重算 option。 */
+  function layoutFlows() {
+    var api = globalThis.__DASH_LAYOUT__;
+    if (!api) return;
+    var nodes = document.querySelectorAll("[data-flow]");
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var parent = el.parentElement;
+      if (!parent) continue;
+      var frame = api.flowFrame({
+        kind: el.getAttribute("data-flow"),
+        count: Number(el.getAttribute("data-flow-count")) || 1,
+        width: parent.clientWidth,
+        height: parent.clientHeight,
+      });
+      el.style.maxWidth = frame.maxWidth ? frame.maxWidth + "px" : "";
+      el.style.marginLeft = frame.centerX ? "auto" : "";
+      el.style.marginRight = frame.centerX ? "auto" : "";
+      if (frame.centerY && frame.maxHeight) {
+        el.style.maxHeight = frame.maxHeight + "px";
+        el.style.height = "auto";
+        el.style.flex = "0 0 auto";
+        el.style.marginTop = "auto";
+        el.style.marginBottom = "auto";
+      }
+    }
+  }
+  function relayoutCharts() {
+    layoutFlows();
+    liveCharts().forEach(function (c) {
+      var dom = c.getDom();
+      if (dom && dom._dashBuild) {
+        try { c.setOption(dom._dashBuild(), true); } catch (e) {}
+      }
+      try { c.resize(); } catch (e2) {}
+    });
+  }
+
   var resizeTimer = null;
   window.addEventListener("resize", function () {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function () { liveCharts().forEach(function (c) { try { c.resize(); } catch (e) {} }); }, 120);
+    resizeTimer = setTimeout(relayoutCharts, 120);
   });
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);

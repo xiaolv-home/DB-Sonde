@@ -1,5 +1,6 @@
-import { PIE_LABEL, pieRadii } from "../pieGeometry";
+import { axisFont, barThickness, cartesianGrid, cartesianLegend, categoryAxis, pieFrame, placeZoom } from "../chartLayout";
 import { escapeHtml } from "../tooltipText";
+import { useChartBox } from "../useChartBox";
 import { useCallback, useEffect, useRef } from "react";
 import ReactECharts from "echarts-for-react";
 import { ChevronLeft } from "lucide-react";
@@ -47,6 +48,7 @@ export default function ChartWidget(props: Props) {
   const { t } = useI18n();
   // 订阅主题:切换深浅色时强制重渲,让 getComputedStyle 读到新的 CSS 变量。
   const theme = useApp((state) => state.theme);
+  const { ref: boxRef, box } = useChartBox();
 
   // 导出 PNG:把本组件的 ECharts 实例导出函数注册到全局表,供画布头部按钮调用。
   const chartRef = useRef<ReactECharts>(null);
@@ -245,7 +247,7 @@ export default function ChartWidget(props: Props) {
         smoothMonotone: !isBar ? ("x" as const) : undefined,
         yAxisIndex,
         stack: stackId,
-        barMaxWidth: 30,
+        barMaxWidth: 30, // 真正的宽度在系列拼完、知道绘图区之后再改
         showSymbol: co.linePoints !== false,
         symbol: labels.length > 24 || co.linePoints === false ? "none" : "circle",
         symbolSize: 4,
@@ -328,11 +330,23 @@ export default function ChartWidget(props: Props) {
   };
 
   const ax = co.axis ?? {};
+  /* 超宽封顶绘图区宽度、超高封顶高度，多出来的边距左右/上下均分，图就停在中间。
+     还没量到容器时宽高是 0，算出来的边距和以前一样。 */
+  const zoomOn = !!(co.dataZoom || labels.length > 24);
+  const gridPad = { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: zoomOn ? 34 : 8 };
+  const grid = cartesianGrid({ ...gridPad, width: box.width, height: box.height });
+  const catSpan = horizontal ? grid.plotHeight : grid.plotWidth;
+  const catLook = categoryAxis({ span: catSpan, count: labels.length });
+  const valueFont = axisFont(grid.plotWidth);
+  const thick = barThickness(catSpan, labels.length);
+  for (const item of series) if (item.type === "bar") item.barMaxWidth = thick;
+  const legendAnchor = cartesianLegend(grid, gridPad);
+  const zoomAt = placeZoom(grid, gridPad, horizontal ? "y" : "x");
   const catAxis = {
     type: "category" as const, data: labels,
     name: ax.xTitle || undefined, nameLocation: "middle" as const, nameGap: 26,
     nameTextStyle: { color: muted, fontSize: 10 },
-    axisLabel: { color: muted, hideOverlap: true, fontSize: 10 },
+    axisLabel: { color: muted, hideOverlap: true, fontSize: catLook.fontSize, interval: catLook.interval },
     axisLine: { lineStyle: { color: border } }, axisTick: { show: false },
   };
   /* 数值轴:默认无网格线(用户当初要求去掉密集横线),但现在可以按需打开;
@@ -343,7 +357,7 @@ export default function ChartWidget(props: Props) {
     name: ax.yTitle || axisUnit(displayMetrics),
     ...(ax.yMin != null ? { min: ax.yMin } : {}),
     ...(ax.yMax != null ? { max: ax.yMax } : {}),
-    axisLabel: { color: muted, fontSize: 10, formatter: (v: number) => formatNumber(v / scaleDiv, nf?.scale && nf.scale !== "none" ? 1 : 0, grouping) },
+    axisLabel: { color: muted, fontSize: valueFont, formatter: (v: number) => formatNumber(v / scaleDiv, nf?.scale && nf.scale !== "none" ? 1 : 0, grouping) },
     axisLine: { show: false }, axisTick: { show: false },
     splitLine: { show: ax.splitLine === true, lineStyle: { color: border, type: "dashed" as const, opacity: .6 } },
   };
@@ -403,26 +417,34 @@ export default function ChartWidget(props: Props) {
       data: funnelData,
     }],
   };
+  const pieLayout = pieFrame({
+    width: box.width, height: box.height,
+    hole: co.pieHole, outer: co.pieOuterRadius,
+    showLabels: showPieLabels, showLegend: widget.options.showLegend,
+    legendPosition: co.pieLegendPosition, manySlices,
+  });
   const option = widget.type === "funnel" ? funnelOption : widget.type === "pie"
     ? {
         ...anim,
         color: palette,
         tooltip: { ...tip, trigger: "item", formatter: pieTooltipFormatter },
-        legend: manySlices ? { data: pieLegendData, show: widget.options.showLegend, type: "scroll" as const, orient: "vertical" as const, right: 0, top: 8, bottom: 8, width: "28%", textStyle: { color: muted, width: 100, overflow: "truncate" }, pageTextStyle: { color: muted } } : co.pieLegendPosition === "left"
-          ? { data: pieLegendData, show: widget.options.showLegend, left: 0, top: "middle", orient: "vertical" as const, textStyle: { color: muted } }
-          : co.pieLegendPosition === "right"
-            ? { data: pieLegendData, show: widget.options.showLegend, right: 0, top: "middle", orient: "vertical" as const, textStyle: { color: muted } }
-            : { data: pieLegendData, show: widget.options.showLegend, bottom: 0, textStyle: { color: muted } },
+        legend: {
+          data: pieLegendData,
+          show: widget.options.showLegend,
+          textStyle: { color: muted, ...(manySlices ? { width: 100, overflow: "truncate" as const } : {}) },
+          ...(manySlices ? { pageTextStyle: { color: muted } } : {}),
+          ...pieLayout.legend,
+        },
         series: [{
           name: metricLabel(activePieMetric),
           type: "pie",
-          radius: pieRadii(co.pieHole, co.pieOuterRadius, showPieLabels).map(n => `${n}%`),
-          center: manySlices ? ["36%", "50%"] : co.pieLegendPosition === "left" ? ["62%", "50%"] : co.pieLegendPosition === "right" ? ["40%", "50%"] : ["50%", "44%"],
+          radius: pieLayout.radius,
+          center: pieLayout.center,
           avoidLabelOverlap: true,
           percentPrecision: widget.options.percentDecimals ?? 1,
-          label: { show: showPieLabels, color: muted, formatter: "{b}\n{d}%", ...PIE_LABEL.label },
-          labelLine: PIE_LABEL.labelLine,
-          labelLayout: PIE_LABEL.labelLayout,
+          label: { show: showPieLabels, color: muted, formatter: "{b}\n{d}%", ...pieLayout.label },
+          labelLine: pieLayout.labelLine,
+          labelLayout: pieLayout.labelLayout,
           itemStyle: { borderColor: surface, borderWidth: 3, borderRadius: 4 },
           data: coloredPieData,
         }],
@@ -443,15 +465,15 @@ export default function ChartWidget(props: Props) {
             label: { show: false },
           },
         },
-        legend: series.length > 1 && widget.options.showLegend ? { show: true, top: 0, right: 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
-        grid: { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: (co.dataZoom || labels.length > 24) ? 34 : 8, containLabel: true },
+        legend: series.length > 1 && widget.options.showLegend ? { show: true, top: legendAnchor.top, right: legendAnchor.right, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
+        grid: { left: grid.left, right: grid.right, top: grid.top, bottom: grid.bottom, containLabel: true as const },
         xAxis: horizontal ? valAxis : catAxis,
         yAxis: horizontal ? { ...catAxis, inverse: true } : dualAxis ? [valAxis, {
           ...valAxis, name: axisUnit(displaySecondary), min: undefined, max: undefined, position: "right",
-          axisLabel: { color: muted, fontSize: 10, formatter: (v: number) => formatNumber(v, displaySecondary[0]?.decimals ?? 0, grouping) },
+          axisLabel: { color: muted, fontSize: valueFont, formatter: (v: number) => formatNumber(v, displaySecondary[0]?.decimals ?? 0, grouping) },
           splitLine: { show: false },
         }] : valAxis,
-        dataZoom: (co.dataZoom || labels.length > 24) ? [{ type: "slider" as const, start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: chrome.accentSoft, backgroundColor: chrome.surface2, showDetail: false, ...(horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 }) }] : undefined,
+        dataZoom: zoomOn ? [{ type: "slider" as const, start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: zoomAt.bottom ?? 4, borderColor: "transparent", fillerColor: chrome.accentSoft, backgroundColor: chrome.surface2, showDetail: false, ...(horizontal ? { yAxisIndex: 0, width: 10, right: zoomAt.right ?? 2 } : { xAxisIndex: 0 }) }] : undefined,
         series,
       };
   // 点击行为:配了下钻维度且未到最深 → 下钻;否则回退到普通点击(联动全局筛选)。
@@ -493,7 +515,11 @@ export default function ChartWidget(props: Props) {
       </div>
     );
   }
-  const echart = <ReactECharts ref={chartRef} option={option} onEvents={onEvents} onChartReady={attachCrosshair} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />;
+  const echart = (
+    <div ref={boxRef} className="dash-chart-box">
+      <ReactECharts ref={chartRef} option={option} onEvents={onEvents} onChartReady={attachCrosshair} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />
+    </div>
+  );
   const chart = pieDropped > 0
     ? (
       <div className="dash-pie-with-note">

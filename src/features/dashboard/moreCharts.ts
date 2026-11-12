@@ -16,6 +16,8 @@ export interface MoreChartInput {
   theme: { muted: string; border: string; surface: string; text: string; accent: string; red?: string };
   opts: Record<string, unknown> & { topN: number; showLegend?: boolean; percentDecimals?: number };
   animation?: boolean;
+  /** 图表区域的像素。不传就按普通卡片排，不封顶。 */
+  box?: { width: number; height: number };
 }
 
 export interface RankingItem { rank: number; name: string; text: string; ratio: number; extra: string }

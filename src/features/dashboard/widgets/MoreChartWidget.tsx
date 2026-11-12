@@ -7,6 +7,7 @@ import { chartChrome, chartPalette } from "../../../lib/themeColors";
 import { type DashboardWidget } from "../domain";
 import type { ResolvedDashboardMetric } from "../metrics";
 import { moreCharts, type MoreChartInput, type MoreEchartType } from "../moreCharts";
+import { useChartBox } from "../useChartBox";
 import { aggregate, metricValue } from "./metricUtils";
 
 /** 把查询结果整理成 moreCharts 要的样子 —— 列下标、取值、格式化、主题色。排行榜也用它。 */
@@ -39,6 +40,7 @@ export default function MoreChartWidget({ widget, result, metrics, staticRender 
 }) {
   const theme = useApp((s) => s.theme);
   const chartRef = useRef<ReactECharts>(null);
+  const { ref: boxRef, box } = useChartBox();
   useEffect(() => registerChartExporter(widget.id, () => {
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
@@ -50,7 +52,11 @@ export default function MoreChartWidget({ widget, result, metrics, staticRender 
   }), [widget.id, widget.title, widget.type]);
 
   void theme; // 换主题时重读 CSS 变量
-  const option = moreCharts()[widget.type](moreChartInput(widget, result, metrics, staticRender));
+  const option = moreCharts()[widget.type]({ ...moreChartInput(widget, result, metrics, staticRender), box });
   if (option.empty) return <div className="dash-widget-state">{option.empty}</div>;
-  return <ReactECharts ref={chartRef} option={option} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div ref={boxRef} className="dash-chart-box">
+      <ReactECharts ref={chartRef} option={option} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />
+    </div>
+  );
 }
