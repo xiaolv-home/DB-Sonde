@@ -46,7 +46,37 @@ try {
     const code = readFileSync(`src/features/${from}.tsx`, 'utf8');
     assert(/if \(!(\w+\.)?open\) return null;/.test(code), `${view} 没选中时没有 return null,会和别的中心摞在一起`);
   }
-  console.log('monitor: 地址校验 / 存取往返 / 坏数据拒收 全部通过');
+  // 工具条纯图标按钮:aria-label 和已有 title 是同一句中文
+  const center = readFileSync('src/features/monitor/MonitorCenter.tsx', 'utf8');
+  assert.match(center, /function iconName\(label: string\) \{\s*return \{ title: label, "aria-label": label \};/);
+  const bar = center.slice(center.indexOf('<div className="mon-bar">'), center.indexOf('<div className="mon-stage"'));
+  const labels = [...bar.matchAll(/iconName\("([^"]*)"\)/g)].map((x) => x[1]);
+  assert.deepEqual(labels, [
+    '页面列表(鼠标碰左边缘也会出来)',
+    '重新载入(回到首页)',
+    '在独立窗口打开',
+    '在浏览器里打开',
+    '退出全屏 (Esc)',
+    '全屏',
+  ]);
+  assert.equal([...bar.matchAll(/<button\b/g)].length, labels.length);
+
+  assert.match(readFileSync('index.html', 'utf8'), /<html lang="zh-CN">/);
+
+  // iframe 只放开监控页实际要用的权限,不能把本窗口领走
+  const tokens = m.MONITOR_FRAME_SANDBOX.split(/\s+/);
+  assert.deepEqual(tokens, ['allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-popups']);
+  for (const banned of ['allow-top-navigation', 'allow-top-navigation-by-user-activation', 'allow-top-navigation-to-custom-protocols', 'allow-popups-to-escape-sandbox']) {
+    assert.equal(tokens.includes(banned), false, banned);
+  }
+  const iframe = center.match(/<iframe\b[^>]*\/>/)?.[0];
+  assert.ok(iframe, '找不到监控 iframe');
+  assert.match(iframe, /title=\{active\.name\}/);
+  assert.match(iframe, /src=\{active\.url\}/);
+  assert.match(iframe, /sandbox=\{MONITOR_FRAME_SANDBOX\}/);
+  assert.doesNotMatch(iframe, /allow-top-navigation/);
+
+  console.log('monitor: 地址校验 / 存取往返 / 坏数据拒收 / 工具条名称 / sandbox 全部通过');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

@@ -11,6 +11,17 @@ export const KIND_INFO: Record<MonitorKind, { label: string; hint: string }> = {
   web: { label: "网页", hint: "把监控页面原样嵌进来,登录、点击、筛选和在浏览器里一样" },
 };
 
+/**
+ * 嵌进来的监控页实际要用的 iframe 权限,多一个都不给。
+ * - allow-scripts:图表、点击、筛选都是页面自己的脚本
+ * - allow-same-origin:留住页面自己的源,登录 Cookie、本地存储和打回自己的接口才走得通
+ * - allow-forms:在页面上登录、有些筛选是表单提交
+ * - allow-popups:页面里 window.open / 新窗口链接;弹窗仍带着这套限制
+ * 不要加 allow-top-navigation 及其变体,也不要 allow-popups-to-escape-sandbox:
+ * 嵌进来的页面不能把本软件的窗口领走,弹出的窗口也不能卸掉这层限制。
+ */
+export const MONITOR_FRAME_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups";
+
 export interface MonitorSource {
   id: string;
   name: string;

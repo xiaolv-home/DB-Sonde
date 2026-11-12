@@ -15,7 +15,7 @@ import { useConfirm } from "../../components/useConfirm";
 import { api } from "../../lib/api";
 import { inTauri } from "../../lib/mockBackend";
 import { useApp } from "../../store/appStore";
-import { checkUrl, defaultName, KIND_INFO, newSource, type MonitorSource } from "./monitorModel";
+import { checkUrl, defaultName, KIND_INFO, MONITOR_FRAME_SANDBOX, newSource, type MonitorSource } from "./monitorModel";
 import { monitorRepository } from "./monitorRepository";
 import { useMonitor } from "./monitorStore";
 import "./monitor.css";
@@ -200,7 +200,7 @@ export default function MonitorCenter() {
                     <button className="btn primary" onClick={() => openWindow(active)}><AppWindow size={14} /> 在独立窗口打开</button>
                   </div>
                 ) : probe?.url === active.url && probe.state === "embed" ? (
-                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={active.url} />
+                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={active.url} sandbox={MONITOR_FRAME_SANDBOX} />
                 ) : null}
               </div>
             </>
