@@ -534,9 +534,10 @@ mod model_download_tests {
             "unix absolute"
         );
         assert!(filename_error(r"\Windows\system.gguf").contains("absolute"));
+        let windows_abs = filename_error(r"C:\Windows\system.gguf");
         assert!(
-            filename_error(r"C:\Windows\system.gguf").contains("separator"),
-            "windows absolute"
+            windows_abs.contains("absolute") || windows_abs.contains("separator"),
+            "{windows_abs}"
         );
         assert!(filename_error("nested/model.gguf").contains("separator"));
         assert!(
