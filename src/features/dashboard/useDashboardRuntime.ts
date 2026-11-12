@@ -112,7 +112,7 @@ export function useDatasetRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- querySignature 才是查询身份;centralMetrics 只作刷新触发,document 与 t 不能列进去
   }, [querySignature, centralMetrics, runtimeRevision]);
   return [runtime, setRuntime];
 }
@@ -152,7 +152,7 @@ export function useFilteredRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 数据集用 querySignature,筛选用 document.filters;整个 document 变了不重查
   }, [querySignature, document?.filters, filterValues, drill, runtimeRevision, t]);
   return [filteredRuntime, setFilteredRuntime];
 }
@@ -233,7 +233,7 @@ export function useDrillRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature 已序列化数据集、筛选和下钻路径
   }, [signature, t]);
   return map;
 }
@@ -297,7 +297,7 @@ export function useComponentRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature 已序列化组件筛选和下钻,避免整份 document 触发重查
   }, [signature, t]);
   return map;
 }
@@ -399,7 +399,7 @@ export function useComparisonRuntime(
       }
     }, 300);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- compareSignature 与 querySignature 是对比查询的身份,document 对象不单独触发
   }, [compareSignature, querySignature, globalValues, runtimeRevision, t]);
   return map;
 }

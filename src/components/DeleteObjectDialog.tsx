@@ -28,7 +28,7 @@ export default function DeleteObjectDialog({ node, onClose }: { node: TreeNode; 
     return () => { cancelled = true; };
     /* request 是每次渲染现拼的对象字面量,列进依赖就是每次渲染重发一次预览请求。
        它的内容全部来自 node,而 node.key 就是 node 的身份。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- request 每次渲染都是新对象,身份是 node.key
   }, [node.key]);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => { if (e.key === "Escape" && !inFlight.current) onClose(); };

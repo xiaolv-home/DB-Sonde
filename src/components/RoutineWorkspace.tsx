@@ -25,7 +25,7 @@ export default function RoutineWorkspace({ tab }: { tab: RoutineTab }) {
     /* tab.id 就是身份:一个标签页盯哪个存储过程是创建时定死的,换一个就是新标签页。
        把 tab.connId/database/schema/routineName 逐个列进去不会更安全,
        只会在重命名之类的场景下重新加载一遍已经加载好的东西。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 标签身份是 tab.id,running 等字段不该重新加载
   }, [tab.id]);
   useEffect(() => {
     if (!tab.running) return;

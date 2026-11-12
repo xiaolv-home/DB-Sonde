@@ -84,8 +84,7 @@ export default function DerivedDrawer({ dataset, kind, mode, editing, onSave, on
       .then((got) => { if (live) setValues({ list: got.values, loading: false, truncated: got.truncated }); })
       .catch(() => { if (live) setValues({ list: [], loading: false, truncated: false }); });
     return () => { live = false; };
-    // 只在换依据字段时重查
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在换依据字段时重查,dataset 每次渲染都是新对象
   }, [mode, grouping.source]);
 
   const assigned = new Map<string, number>();

@@ -55,7 +55,7 @@ export default function ChartView({ result, chartX, chartY, onChange }: Props) {
       .slice(0, 3)
       .map((c) => c.name);
     onChange({ chartX: x, chartY: y.length ? y : [] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在列变化时补默认 X;chartX 只是守卫,onChange 每次渲染都是新函数
   }, [columns, numericCols]);
 
   const css = (name: string) =>
@@ -119,7 +119,7 @@ export default function ChartView({ result, chartX, chartY, onChange }: Props) {
       },
       series,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- css 每次渲染都是新函数;theme 用来在换主题时重读 CSS 变量
   }, [columns, rows, chartX, chartY, theme]);
 
   const toggleY = (name: string) => {
