@@ -24,6 +24,11 @@ type Draft = { id: string | null; name: string; url: string; error?: string };
 /** checking: 还在看响应头;embed: 可以嵌;blocked: 对方不让嵌 */
 type Probe = { url: string; state: "checking" | "embed" | "blocked"; reason?: string | null };
 
+/** 工具条只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
+
 function openExternal(url: string) {
   void import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url)).catch(() => window.open(url, "_blank"));
 }
@@ -175,15 +180,15 @@ export default function MonitorCenter() {
           {active ? (
             <>
               <div className="mon-bar">
-                <button className={`icon-btn ${listShown ? "on" : ""}`} title="页面列表(鼠标碰左边缘也会出来)" onClick={() => setListShown((v) => !v)}><PanelLeft size={14} /></button>
-                <button className="icon-btn" title="重新载入(回到首页)" onClick={() => setFrameKey((k) => k + 1)}><RotateCw size={14} /></button>
+                <button className={`icon-btn ${listShown ? "on" : ""}`} {...iconName("页面列表(鼠标碰左边缘也会出来)")} onClick={() => setListShown((v) => !v)}><PanelLeft size={14} /></button>
+                <button className="icon-btn" {...iconName("重新载入(回到首页)")} onClick={() => setFrameKey((k) => k + 1)}><RotateCw size={14} /></button>
                 <span className="mon-name">{active.name}</span>
                 <span className="mon-url" title={active.url}>{active.url}</span>
-                <button className="icon-btn" title="在独立窗口打开" onClick={() => openWindow(active)}><AppWindow size={14} /></button>
-                <button className="icon-btn" title="在浏览器里打开" onClick={() => openExternal(active.url)}><ExternalLink size={14} /></button>
+                <button className="icon-btn" {...iconName("在独立窗口打开")} onClick={() => openWindow(active)}><AppWindow size={14} /></button>
+                <button className="icon-btn" {...iconName("在浏览器里打开")} onClick={() => openExternal(active.url)}><ExternalLink size={14} /></button>
                 {full
-                  ? <button className="icon-btn" title="退出全屏 (Esc)" onClick={exitFull}><Minimize2 size={14} /></button>
-                  : <button className="icon-btn" title="全屏" onClick={enterFull}><Maximize2 size={14} /></button>}
+                  ? <button className="icon-btn" {...iconName("退出全屏 (Esc)")} onClick={exitFull}><Minimize2 size={14} /></button>
+                  : <button className="icon-btn" {...iconName("全屏")} onClick={enterFull}><Maximize2 size={14} /></button>}
               </div>
               {/* 鼠标一下甩进页面(没从列表上经过,收不到「离开列表」)时也收回列表 */}
               <div className="mon-stage" onMouseEnter={() => setListShown(false)}>
