@@ -127,11 +127,11 @@ pub fn authorized_cloud_url(
 }
 
 fn is_loopback_host(url: &reqwest::Url) -> bool {
-    match url.host_str() {
-        Some(host) => match host.parse::<std::net::IpAddr>() {
-            Ok(ip) => ip.is_loopback(),
-            Err(_) => host.eq_ignore_ascii_case("localhost"),
-        },
+    // host_str() brackets IPv6 (`[::1]`), which does not parse as an IpAddr.
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
         None => false,
     }
 }
@@ -831,5 +831,20 @@ mod tests {
             resolve_proxy_target(&config, "builtin", "https://127.0.0.1:8899/v1", "models")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn ipv6_loopback_is_allowed_and_other_ipv6_is_rejected() {
+        let config = r#"{"local":{"baseUrl":"http://[::1]:1234/v1"}}"#;
+        let (url, key) =
+            resolve_proxy_target(config, "local", "http://[::1]:1234/v1", "models").unwrap();
+        assert!(key.is_empty());
+        assert_eq!(url, "http://[::1]:1234/v1/models");
+
+        let public = r#"{"local":{"baseUrl":"http://[2001:db8::1]:1234/v1"}}"#;
+        let rejected =
+            resolve_proxy_target(public, "local", "http://[2001:db8::1]:1234/v1", "models")
+                .unwrap_err();
+        assert_eq!(rejected.to_string(), "非本机地址必须使用 https");
     }
 }
