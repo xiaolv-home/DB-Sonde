@@ -7,7 +7,8 @@ import type { ECharts } from "echarts";
 import { useI18n } from "../../../hooks/useI18n";
 import type { Cell, QueryResult } from "../../../types";
 import { useApp } from "../../../store/appStore";
-import { DEFAULT_DASHBOARD_PALETTE, type DashboardDrillFilter, type DashboardWidget } from "../domain";
+import { chartChrome, chartPalette, cssSource, readVar } from "../../../lib/themeColors";
+import { type DashboardDrillFilter, type DashboardWidget } from "../domain";
 import { isTimeField } from "../../datasets/domain";
 import type { ResolvedDashboardMetric } from "../metrics";
 import { registerChartExporter } from "../chartExport";
@@ -49,7 +50,7 @@ export default function ChartWidget(props: Props) {
   useEffect(() => registerChartExporter(widget.id, () => {
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
-    const bg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#ffffff";
+    const bg = readVar("--surface");
     const url = inst.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: bg });
     const a = document.createElement("a");
     a.href = url;
@@ -64,17 +65,17 @@ export default function ChartWidget(props: Props) {
     crosshairCleanupRef.current?.();
     crosshairCleanupRef.current = null;
     if (widget.type !== "line" && widget.type !== "bar") return;
-    const style = getComputedStyle(chart.getDom().closest(".dash-widget") ?? document.documentElement);
+    const chrome = chartChrome(cssSource(chart.getDom().closest(".dash-widget")));
     crosshairCleanupRef.current = installFreeCrosshair(chart, {
       formatValue: (value) => {
         const nf = widget.options.numberFormat;
         return scaledText(value, widget.options.decimals, "", nf, widget.options.chart?.grouping === true);
       },
       horizontalValueAxis: widget.type === "bar" && widget.options.chart?.barOrientation === "horizontal",
-      lineColor: style.getPropertyValue("--text-3").trim() || "rgba(151, 170, 203, 0.55)",
-      labelColor: style.getPropertyValue("--text").trim() || "#e8edf6",
-      labelBackground: style.getPropertyValue("--surface-3").trim() || "#1a2230",
-      labelBorder: style.getPropertyValue("--border-2").trim() || "rgba(151, 170, 203, 0.24)",
+      lineColor: chrome.muted,
+      labelColor: chrome.text,
+      labelBackground: chrome.surface3,
+      labelBorder: chrome.border2,
     });
   /* theme 不是多余依赖:这个回调用 getPropertyValue 现读 CSS 变量的值,换主题时
      那些值会变,而 eslint 看不出来。去掉它,换主题图表就不重画。 */
@@ -204,7 +205,10 @@ export default function ChartWidget(props: Props) {
   // Always give ECharts a concrete palette. Passing an explicit undefined
   // color/style suppresses series painting in the Tauri WebView even though
   // axes and legends still render.
-  const palette = co.palette && co.palette.length ? co.palette : [...DEFAULT_DASHBOARD_PALETTE];
+  const style = cssSource(chartRef.current?.getEchartsInstance()?.getDom().closest(".dash-widget"));
+  const chrome = chartChrome(style);
+  // 用户在这张图上设过的配色原样用;没设过才跟当前主题的系列色。
+  const palette = co.palette && co.palette.length ? co.palette : chartPalette(style);
   const colorOf = (name: string) => co.dimensionColors?.[name];
   const grouping = co.grouping === true;
   // 数字显示格式(万/亿换算 + 前后缀):轴刻度、数据标签、tooltip 都要跟着走,
@@ -213,11 +217,11 @@ export default function ChartWidget(props: Props) {
   const scaleDiv = nf?.scale === "wan" ? 1e4 : nf?.scale === "yi" ? 1e8 : 1;
   const showValues = co.showLabels === true || co.barShowValues === true;
   const horizontal = widget.type === "bar" && co.barOrientation === "horizontal";
-  const style = getComputedStyle(chartRef.current?.getEchartsInstance()?.getDom().closest(".dash-widget") ?? document.documentElement);
-  const muted = style.getPropertyValue("--text-3").trim();
-  const border = style.getPropertyValue("--border").trim();
-  const surface = style.getPropertyValue("--surface").trim() || "#ffffff";
-  const accent = style.getPropertyValue("--accent").trim() || "#4d8dff";
+  const muted = chrome.muted;
+  const border = chrome.border;
+  const surface = chrome.surface;
+  const accent = chrome.accent;
+  const tip = { backgroundColor: chrome.surface3, borderColor: chrome.border2, textStyle: { color: chrome.text } };
   const gradient = (from: string, to: string, vertical: boolean) => ({ type: "linear" as const, x: 0, y: 0, x2: vertical ? 0 : 1, y2: vertical ? 1 : 0, colorStops: [{ offset: 0, color: from }, { offset: 1, color: to }] });
 
   const buildSeries = (selected: ResolvedDashboardMetric[], yAxisIndex: number, single: boolean, seriesType: "bar" | "line", stackId?: string) => selected.flatMap((metric) => {
@@ -252,8 +256,8 @@ export default function ChartWidget(props: Props) {
            多条的颜色交给 ECharts 跟线走。 */
         areaStyle: isBar ? undefined
           : co.lineArea === true
-            ? (single ? { opacity: 0.32, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : { opacity: 0.28, ...(custom ? { color: custom } : {}) })
-            : single && co.lineArea !== false ? { opacity: 0.18, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
+            ? (single ? { opacity: 0.32, color: gradient(custom || palette?.[0] || accent, "transparent", true) } : { opacity: 0.28, ...(custom ? { color: custom } : {}) })
+            : single && co.lineArea !== false ? { opacity: 0.18, color: gradient(custom || palette?.[0] || accent, "transparent", true) } : undefined,
         tooltip: { valueFormatter: (value: number) => metricValue(metric, numberValue(value), yAxisIndex === 1 ? undefined : nf) },
       };
     });
@@ -305,7 +309,7 @@ export default function ChartWidget(props: Props) {
     : 0;
   const coloredPieData = pieData.map((slice, index) => {
     const metric = metricComposition ? displayMetrics.find(m => metricLabel(m) === slice.name) : undefined;
-    const color = slice.isOther ? "#8C99A8" : colorOf(slice.name) || (metric && (colorOf(metric.key) || colorOf(metric.name))) || palette[index % palette.length];
+    const color = slice.isOther ? muted : colorOf(slice.name) || (metric && (colorOf(metric.key) || colorOf(metric.name))) || palette[index % palette.length];
     return { ...slice, itemStyle: { color } };
   });
   const pieLegendData = coloredPieData.map(slice => ({ name: slice.name, itemStyle: { color: slice.itemStyle.color } }));
@@ -346,7 +350,7 @@ export default function ChartWidget(props: Props) {
       silent: true, symbol: "none" as const,
       data: markLine.map((m) => ({
         yAxis: m.value,
-        lineStyle: { color: m.color ?? "var(--amber, #ffb547)", type: "dashed" as const, width: 1.5 },
+        lineStyle: { color: m.color ?? chrome.amber, type: "dashed" as const, width: 1.5 },
         label: { show: !!m.label, formatter: m.label ?? "", color: muted, fontSize: 10, position: "insideEndTop" as const },
       })),
     };
@@ -370,6 +374,7 @@ export default function ChartWidget(props: Props) {
     ...anim,
     color: palette,
     tooltip: {
+      ...tip,
       trigger: "item",
       formatter: (p: TipParam) => `${p.marker ?? ""} ${escapeHtml(String(p.name ?? ""))}: <b>${escapeHtml(metricValue(activePieMetric, numberValue(p.value), nf))}</b> <span style="opacity:.6">占第一层 ${funnelRate(numberValue(p.value))}</span>`,
     },
@@ -397,7 +402,7 @@ export default function ChartWidget(props: Props) {
     ? {
         ...anim,
         color: palette,
-        tooltip: { trigger: "item", formatter: pieTooltipFormatter },
+        tooltip: { ...tip, trigger: "item", formatter: pieTooltipFormatter },
         legend: manySlices ? { data: pieLegendData, show: widget.options.showLegend, type: "scroll" as const, orient: "vertical" as const, right: 0, top: 8, bottom: 8, width: "28%", textStyle: { color: muted, width: 100, overflow: "truncate" }, pageTextStyle: { color: muted } } : co.pieLegendPosition === "left"
           ? { data: pieLegendData, show: widget.options.showLegend, left: 0, top: "middle", orient: "vertical" as const, textStyle: { color: muted } }
           : co.pieLegendPosition === "right"
@@ -421,6 +426,7 @@ export default function ChartWidget(props: Props) {
         ...anim,
         color: palette,
         tooltip: {
+          ...tip,
           // 趋势图默认一次看同一 x 的所有系列;改成 item 就只看当前那根。
           trigger: co.tooltip?.mode === "item" ? "item" : "axis",
           formatter: tooltipFormatter,
@@ -440,7 +446,7 @@ export default function ChartWidget(props: Props) {
           axisLabel: { color: muted, fontSize: 10, formatter: (v: number) => formatNumber(v, displaySecondary[0]?.decimals ?? 0, grouping) },
           splitLine: { show: false },
         }] : valAxis,
-        dataZoom: (co.dataZoom || labels.length > 24) ? [{ type: "slider" as const, start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: "rgba(132,145,255,.18)", backgroundColor: "rgba(255,255,255,.03)", showDetail: false, ...(horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 }) }] : undefined,
+        dataZoom: (co.dataZoom || labels.length > 24) ? [{ type: "slider" as const, start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: chrome.accentSoft, backgroundColor: chrome.surface2, showDetail: false, ...(horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 }) }] : undefined,
         series,
       };
   // 点击行为:配了下钻维度且未到最深 → 下钻;否则回退到普通点击(联动全局筛选)。

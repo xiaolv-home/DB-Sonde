@@ -3,6 +3,7 @@ import ReactECharts from "echarts-for-react";
 import { useI18n } from "../../../hooks/useI18n";
 import type { Cell } from "../../../types";
 import { useApp } from "../../../store/appStore";
+import { chartChrome, readVar } from "../../../lib/themeColors";
 import { appearanceBackground, readableColor } from "../cardReadability";
 import { registerChartExporter } from "../chartExport";
 import type { DashboardWidget } from "../domain";
@@ -17,8 +18,8 @@ export function niceMax(value: number): number {
   return 10 * p;
 }
 
-/** 完成率配色:不到六成红、不到十成黄、达标绿。 */
-const progressColor = (ratio: number) => (ratio < 0.6 ? "#ef5d6f" : ratio < 1 ? "#f2a93b" : "#2ebf8a");
+/** 完成率配色:不到六成红、不到十成黄、达标绿。三个色都是当前主题的语义色。 */
+const progressColor = (ratio: number, red: string, amber: string, green: string) => (ratio < 0.6 ? red : ratio < 1 ? amber : green);
 
 /**
  * 仪表盘 / 进度环:一个数值对着满刻度或目标看完成度。
@@ -36,7 +37,7 @@ export default function GaugeWidget({ widget, rows, metric, staticRender }: {
   useEffect(() => registerChartExporter(widget.id, () => {
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
-    const bg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#ffffff";
+    const bg = readVar("--surface");
     const a = document.createElement("a");
     a.href = inst.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: bg });
     a.download = `${widget.title || "gauge"}.png`;
@@ -51,11 +52,11 @@ export default function GaugeWidget({ widget, rows, metric, staticRender }: {
   const target = go.target != null && Number.isFinite(go.target) && go.target > 0 ? go.target : undefined;
   const max = go.max != null && go.max > 0 ? go.max : target ?? niceMax(value);
   const ratio = target ? value / target : value / max;
-  const style = getComputedStyle(document.documentElement);
+  const chrome = chartChrome();
   void theme; // 换主题时重读 CSS 变量
-  const accent = style.getPropertyValue("--accent").trim() || "#4d8dff";
-  const track = style.getPropertyValue("--surface-3").trim() || "rgba(127,127,127,.15)";
-  const color = go.colorByProgress ? progressColor(ratio) : go.color || accent;
+  const accent = chrome.accent;
+  const track = chrome.surface3;
+  const color = go.colorByProgress ? progressColor(ratio, chrome.red, chrome.amber, chrome.green) : go.color || accent;
   const nf = widget.options.numberFormat;
   const text = scaledText(value, metric.decimals, metric.unit, nf);
   const pct = `${(ratio * 100).toFixed(widget.options.percentDecimals ?? 1)}%`;
@@ -89,7 +90,7 @@ export default function GaugeWidget({ widget, rows, metric, staticRender }: {
       ...base,
       axisLine: { show: false },
       progress: { show: false },
-      pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: style.getPropertyValue("--text-2").trim() || "#888" } },
+      pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: chrome.text2 } },
       data: [{ value: target }],
       silent: true,
     });

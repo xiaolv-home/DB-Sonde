@@ -260,7 +260,7 @@
     if (!input.dims.length || !input.measures.length) return { empty: "瀑布图要一个维度(每一步)和一个数值(这一步的增减)。" };
     var steps = groupBy(input.rows, [input.dims[0]]).map(function (g) { return { name: g.name, value: input.agg(g.rows, 0) }; });
     if (!steps.length) return { empty: "这个范围里没有数据。" };
-    var up = wo.upColor || input.palette[0] || t.accent, down = wo.downColor || "#ef5d6f", sum = wo.totalColor || "#8c99a8";
+    var up = wo.upColor || input.palette[0] || t.accent, down = wo.downColor || t.red || t.accent, sum = wo.totalColor || t.muted;
     var names = [], base = [], bars = [], cum = 0;
     for (var i = 0; i < steps.length; i++) {
       var d = steps[i].value, next = cum + d;

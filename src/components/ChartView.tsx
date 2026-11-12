@@ -6,10 +6,9 @@ import { GridComponent, LegendComponent, TooltipComponent } from "echarts/compon
 import { CanvasRenderer } from "echarts/renderers";
 import type { Cell, QueryResult } from "../types";
 import { useApp } from "../store/appStore";
+import { chartChrome, chartPalette } from "../lib/themeColors";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
-
-const PALETTE = ["#7c9cff", "#4ec9a5", "#f7b267", "#c586c0", "#56b6c2", "#ff8fa3", "#e5c07b"];
 
 function toNum(v: Cell): number | null {
   if (typeof v === "number") return v;
@@ -58,10 +57,9 @@ export default function ChartView({ result, chartX, chartY, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在列变化时补默认 X;chartX 只是守卫,onChange 每次渲染都是新函数
   }, [columns, numericCols]);
 
-  const css = (name: string) =>
-    getComputedStyle(document.documentElement).getPropertyValue(name).trim() || undefined;
-
   const option = useMemo(() => {
+    const chrome = chartChrome();
+    const palette = chartPalette();
     const xIdx = columns.findIndex((c) => c.name === chartX);
     const xData = rows.map((r) => {
       const v = xIdx >= 0 ? r[xIdx] : "";
@@ -70,7 +68,7 @@ export default function ChartView({ result, chartX, chartY, onChange }: Props) {
     const yNames = chartY ?? [];
     const series = yNames.map((name, si) => {
       const ci = columns.findIndex((c) => c.name === name);
-      const color = PALETTE[si % PALETTE.length];
+      const color = palette.length ? palette[si % palette.length] : undefined;
       return {
         name,
         type: "line",
@@ -85,20 +83,20 @@ export default function ChartView({ result, chartX, chartY, onChange }: Props) {
       };
     });
 
-    const axis = css("--text-3");
-    const grid = css("--border");
-    const text = css("--text-2");
+    const axis = chrome.muted;
+    const grid = chrome.border;
+    const text = chrome.text2;
 
     return {
-      color: PALETTE,
+      color: palette,
       backgroundColor: "transparent",
       textStyle: { color: text, fontFamily: "inherit" },
       grid: { left: 56, right: 24, top: 34, bottom: 46 },
       tooltip: {
         trigger: "axis",
-        backgroundColor: css("--surface-3"),
-        borderColor: css("--border-2"),
-        textStyle: { color: css("--text") },
+        backgroundColor: chrome.surface3,
+        borderColor: chrome.border2,
+        textStyle: { color: chrome.text },
       },
       legend: {
         top: 6,
@@ -119,7 +117,7 @@ export default function ChartView({ result, chartX, chartY, onChange }: Props) {
       },
       series,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- css 每次渲染都是新函数;theme 用来在换主题时重读 CSS 变量
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chartChrome / chartPalette 读的是 CSS 变量,静态分析看不到;theme 一变就要重读并重画
   }, [columns, rows, chartX, chartY, theme]);
 
   const toggleY = (name: string) => {
