@@ -29,14 +29,13 @@ jobs:
       matrix:
         include:
           - label: macOS (Apple Silicon)
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
-          # 不用 macos-13:GitHub 的 Intel runner 正在淘汰,极度稀缺 ——
-          # 实测排队 30 分钟都分不到机器。改成在 arm64 runner 上交叉编译到
-          # x86_64,苹果自家的交叉编译一向可靠(本机验证过,产出的是真正的
-          # Mach-O x86_64)。
+          # macos-14 已下线:配置 macos-14-arm64-us-default 不再受支持,job 一秒就被取消。
+          # 现在的 arm64 镜像是 macos-15。Intel 包仍在这台 arm64 runner 上交叉编译到
+          # x86_64-apple-darwin,不用 macos-15-intel(那是原生 Intel 机,排队久且不必)。
           - label: macOS (Intel)
-            os: macos-14
+            os: macos-15
             target: x86_64-apple-darwin
           - label: Windows (x64)
             os: windows-latest
