@@ -56,3 +56,28 @@ export function expandRange(mode: RangeMode, a: string, b: string): [string, str
   if (mode === "year") return [`${s.getFullYear()}-01-01`, `${e.getFullYear()}-12-31`];
   return [lo, hi];
 }
+
+export type DateKeyAction =
+  | { type: "move"; date: string; year: number; month: number; paged: boolean }
+  | { type: "select" }
+  | { type: "close" }
+  | { type: "none" };
+
+const ARROW_DAYS: Record<string, number> = {
+  ArrowLeft: -1,
+  ArrowRight: 1,
+  ArrowUp: -7,
+  ArrowDown: 7,
+};
+
+/** 日网格上的键。左右一天,上下一周;走出当前显示的月就翻页。Enter / 空格选定,Esc 关闭。 */
+export function dateKeyAction(key: string, cursor: string, viewYear: number, viewMonth: number): DateKeyAction {
+  if (key === "Escape") return { type: "close" };
+  if (key === "Enter" || key === " ") return { type: "select" };
+  const delta = ARROW_DAYS[key];
+  if (delta == null) return { type: "none" };
+  const next = addDays(parseYmd(cursor), delta);
+  const year = next.getFullYear();
+  const month = next.getMonth();
+  return { type: "move", date: ymd(next), year, month, paged: year !== viewYear || month !== viewMonth };
+}

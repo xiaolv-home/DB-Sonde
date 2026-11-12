@@ -33,6 +33,7 @@ await build({
   logLevel: 'silent',
 });
 const cal = createRequire(import.meta.url)(outfile);
+const runtimeSource = readFileSync(join(root, 'src/features/dashboard/export/filterControls.runtime.js'), 'utf8');
 
 /* 离线脚本是个 IIFE。造一个只够把它跑起来的 document,拿出它挂出来的日历函数。 */
 function loadRuntimeCalendar() {
@@ -74,7 +75,7 @@ function loadRuntimeCalendar() {
   sandbox.window.window = sandbox.window;
   sandbox.window.document = document;
   vm.createContext(sandbox);
-  vm.runInContext(readFileSync(join(root, 'src/features/dashboard/export/filterControls.runtime.js'), 'utf8'), sandbox);
+  vm.runInContext(runtimeSource, sandbox);
   return sandbox.window.__DASH_CONTROLS__.calendar;
 }
 
@@ -162,10 +163,232 @@ try {
         assert.deepEqual(copy(runtime.expandRange(mode, pair[0], pair[1])), expandRange(mode, pair[0], pair[1]));
       }
     }
-    const src = readFileSync(join(root, 'src/features/dashboard/export/filterControls.runtime.js'), 'utf8');
-    assert.ok(!/1 - first\.getDay\(\)/.test(src), '离线网格不能再按周日对齐');
-    assert.ok(!/-s\.getDay\(\)/.test(src), '离线周选区不能再从周日算');
+    assert.ok(!/1 - first\.getDay\(\)/.test(runtimeSource), '离线网格不能再按周日对齐');
+    assert.ok(!/-s\.getDay\(\)/.test(runtimeSource), '离线周选区不能再从周日算');
     ok('离线页的网格和周界与组件同一套');
+  }
+
+  {
+    const { dateKeyAction } = cal;
+    const runtime = loadRuntimeCalendar();
+    const copy = (value) => JSON.parse(JSON.stringify(value));
+    const same = (key, cursor, year, month) => {
+      assert.deepEqual(
+        copy(runtime.dateKeyAction(key, cursor, year, month)),
+        dateKeyAction(key, cursor, year, month),
+        `${key} @ ${cursor}`,
+      );
+    };
+    // 2026-11-12 周四,还在 11 月里。
+    assert.deepEqual(dateKeyAction('ArrowLeft', '2026-11-12', 2026, 10), { type: 'move', date: '2026-11-11', year: 2026, month: 10, paged: false });
+    assert.deepEqual(dateKeyAction('ArrowRight', '2026-11-12', 2026, 10), { type: 'move', date: '2026-11-13', year: 2026, month: 10, paged: false });
+    assert.deepEqual(dateKeyAction('ArrowUp', '2026-11-12', 2026, 10), { type: 'move', date: '2026-11-05', year: 2026, month: 10, paged: false });
+    assert.deepEqual(dateKeyAction('ArrowDown', '2026-11-12', 2026, 10), { type: 'move', date: '2026-11-19', year: 2026, month: 10, paged: false });
+    // 11 月 1 日是周日,在最后一列。向左走出本月,要翻到 10 月。
+    assert.deepEqual(dateKeyAction('ArrowLeft', '2026-11-01', 2026, 10), { type: 'move', date: '2026-10-31', year: 2026, month: 9, paged: true });
+    assert.deepEqual(dateKeyAction('ArrowUp', '2026-11-01', 2026, 10), { type: 'move', date: '2026-10-25', year: 2026, month: 9, paged: true });
+    // 向右、向下跨进 12 月。
+    assert.deepEqual(dateKeyAction('ArrowRight', '2026-11-30', 2026, 10), { type: 'move', date: '2026-12-01', year: 2026, month: 11, paged: true });
+    assert.deepEqual(dateKeyAction('ArrowDown', '2026-11-26', 2026, 10), { type: 'move', date: '2026-12-03', year: 2026, month: 11, paged: true });
+    // 跨年。
+    assert.deepEqual(dateKeyAction('ArrowLeft', '2026-01-01', 2026, 0), { type: 'move', date: '2025-12-31', year: 2025, month: 11, paged: true });
+    assert.deepEqual(dateKeyAction('ArrowDown', '2026-12-31', 2026, 11), { type: 'move', date: '2027-01-07', year: 2027, month: 0, paged: true });
+    assert.deepEqual(dateKeyAction('Enter', '2026-11-12', 2026, 10), { type: 'select' });
+    assert.deepEqual(dateKeyAction(' ', '2026-11-12', 2026, 10), { type: 'select' });
+    assert.deepEqual(dateKeyAction('Escape', '2026-11-12', 2026, 10), { type: 'close' });
+    assert.deepEqual(dateKeyAction('Tab', '2026-11-12', 2026, 10), { type: 'none' });
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' ', 'Escape', 'Tab']) {
+      same(key, '2026-11-01', 2026, 10);
+      same(key, '2026-01-01', 2026, 0);
+    }
+    ok('方向键左右一天、上下一周,跨月翻页;Enter/空格选定,Esc 关闭');
+  }
+
+  {
+    /* 离线页没有 React,但键和弹层语义是在真 DOM 节点上接的。
+       这里用一个只够把控件跑起来的 document,按用户的方式点开、按键。 */
+    const driver = `
+      var active = null;
+      function walk(el, visit) {
+        visit(el);
+        for (var i = 0; i < el.children.length; i++) walk(el.children[i], visit);
+      }
+      function node(tag) {
+        var el = {
+          tag: tag, children: [], attrs: {}, className: "", textContent: "", style: {}, id: "", tabIndex: 0,
+          parentNode: null, onclick: null, onkeydown: null, onmouseenter: null, onmouseleave: null,
+          appendChild: function (child) { child.parentNode = el; el.children.push(child); return child; },
+          setAttribute: function (k, v) { el.attrs[k] = String(v); if (k === "id") el.id = String(v); },
+          getAttribute: function (k) { return Object.prototype.hasOwnProperty.call(el.attrs, k) ? el.attrs[k] : null; },
+          remove: function () {
+            if (!el.parentNode) return;
+            el.parentNode.children = el.parentNode.children.filter(function (c) { return c !== el; });
+            el.parentNode = null;
+          },
+          contains: function (target) {
+            if (target === el) return true;
+            for (var i = 0; i < el.children.length; i++) if (el.children[i].contains(target)) return true;
+            return false;
+          },
+          getBoundingClientRect: function () { return { top: 100, left: 80, bottom: 126, right: 220, width: 140, height: 26 }; },
+          querySelectorAll: function (sel) {
+            var found = [];
+            walk(el, function (n) { if (sel === "button" && n.tag === "button") found.push(n); });
+            return found;
+          },
+          focus: function () { active = el; }
+        };
+        Object.defineProperty(el, "innerHTML", { set: function (v) { if (v === "") el.children = []; }, get: function () { return ""; } });
+        return el;
+      }
+      var document = {
+        createElement: function (tag) { return node(tag); },
+        createElementNS: function () { return node("svg"); },
+        body: node("body"),
+        addEventListener: function () {},
+        removeEventListener: function () {}
+      };
+      var window = {
+        innerWidth: 1280, innerHeight: 800,
+        addEventListener: function () {}, removeEventListener: function () {},
+        document: document
+      };
+      window.window = window;
+      function press(el, key) {
+        var e = { key: key, preventDefault: function () {}, target: el };
+        var n = el;
+        while (n) { if (n.onkeydown) n.onkeydown(e); n = n.parentNode; }
+      }
+      function focusedDate() { return active && active.getAttribute("data-date"); }
+      function title() {
+        var text = "";
+        walk(document.body, function (n) { if (n.tag === "strong") text = n.textContent; });
+        return text;
+      }
+      function weekdays() {
+        var labels = [];
+        walk(document.body, function (n) {
+          if (n.className === "dash-cal-grid dash-cal-weekdays") {
+            for (var i = 0; i < n.children.length; i++) labels.push(n.children[i].textContent);
+          }
+        });
+        return labels;
+      }
+      function firstDate() {
+        var date = "";
+        walk(document.body, function (n) {
+          if (!date && n.tag === "button" && n.getAttribute("data-date")) date = n.getAttribute("data-date");
+        });
+        return date;
+      }
+      function pressUntil(date) {
+        for (var i = 0; i < 40 && focusedDate() !== date; i++) press(active, "ArrowLeft");
+        if (focusedDate() !== date) throw new Error("没有走到 " + date + ",停在 " + focusedDate());
+      }
+      var changes = [];
+      var root = window.__DASH_CONTROLS__.dateRange({
+        start: "2026-11-01", end: "2026-11-12",
+        onChange: function (s, e) { changes.push([s, e]); }
+      });
+      var trigger = root.children[0];
+      var before = {
+        expanded: trigger.getAttribute("aria-expanded"),
+        haspopup: trigger.getAttribute("aria-haspopup")
+      };
+      trigger.onclick();
+      var pop = document.body.children[document.body.children.length - 1];
+      var opened = {
+        expanded: trigger.getAttribute("aria-expanded"),
+        role: pop.getAttribute("role"),
+        label: pop.getAttribute("aria-label"),
+        controls: trigger.getAttribute("aria-controls") === pop.id,
+        weekdays: weekdays(),
+        firstDate: firstDate(),
+        focus: focusedDate()
+      };
+      press(active, "ArrowLeft");
+      var afterLeft = { focus: focusedDate(), title: title() };
+      // 走到 11 月 1 日(周日,最后一列),再向左应该翻到 10 月 31 日。
+      pressUntil("2026-11-01");
+      press(active, "ArrowLeft");
+      var crossed = { focus: focusedDate(), title: title() };
+      press(active, "ArrowRight");
+      var back = { focus: focusedDate(), title: title() };
+      press(active, "ArrowDown");
+      press(active, "ArrowDown");
+      press(active, "ArrowDown");
+      press(active, "ArrowDown");
+      var down = { focus: focusedDate(), title: title() };
+      // 回到 11 月 12 日再选:第一下只定起点,第二下才提交并关掉。
+      pressUntil("2026-11-12");
+      press(active, "Enter");
+      var pendingFoot = "";
+      walk(document.body, function (n) { if (n.className === "dash-cal-foot") pendingFoot = n.textContent; });
+      var afterFirstEnter = { changes: changes.length, foot: pendingFoot, expanded: trigger.getAttribute("aria-expanded") };
+      press(active, "Enter");
+      var afterSecondEnter = {
+        changes: changes.slice(),
+        expanded: trigger.getAttribute("aria-expanded"),
+        focusTrigger: active === trigger,
+        popGone: document.body.children.indexOf(pop) < 0
+      };
+      trigger.onclick();
+      var reopened = trigger.getAttribute("aria-expanded");
+      press(active, "Escape");
+      var afterEsc = {
+        expanded: trigger.getAttribute("aria-expanded"),
+        focusTrigger: active === trigger,
+        changes: changes.length
+      };
+      output = JSON.stringify({ before: before, opened: opened, afterLeft: afterLeft, crossed: crossed, back: back, down: down, afterFirstEnter: afterFirstEnter, afterSecondEnter: afterSecondEnter, reopened: reopened, afterEsc: afterEsc });
+    `;
+    const sandbox = { output: "" };
+    vm.createContext(sandbox);
+    // 先装上 document/window,再跑控件脚本(它立刻要写 window.__DASH_CONTROLS__),最后才点开弹层。
+    const setupEnd = driver.indexOf("var changes = [];");
+    vm.runInContext(driver.slice(0, setupEnd) + "\n" + runtimeSource + "\n" + driver.slice(setupEnd), sandbox);
+    const r = JSON.parse(sandbox.output);
+    assert.equal(r.before.expanded, "false");
+    assert.equal(r.before.haspopup, "dialog");
+    assert.equal(r.opened.expanded, "true");
+    assert.equal(r.opened.role, "dialog");
+    assert.equal(r.opened.label, "选择日期范围");
+    assert.equal(r.opened.controls, true);
+    assert.deepEqual(r.opened.weekdays, ["一", "二", "三", "四", "五", "六", "日"]);
+    assert.equal(r.opened.firstDate, "2026-10-26", "网格第一格是周一");
+    assert.equal(r.opened.focus, "2026-11-12", "打开后焦点在已选的结束日");
+    assert.equal(r.afterLeft.focus, "2026-11-11");
+    assert.match(r.afterLeft.title, /11 月/);
+    assert.equal(r.crossed.focus, "2026-10-31");
+    assert.match(r.crossed.title, /10 月/, "向左跨月要翻到 10 月");
+    assert.equal(r.back.focus, "2026-11-01");
+    assert.match(r.back.title, /11 月/);
+    assert.equal(r.down.focus, "2026-11-29");
+    assert.match(r.down.title, /11 月/);
+    assert.equal(r.afterFirstEnter.changes, 0, "第一下 Enter 只定起点");
+    assert.match(r.afterFirstEnter.foot, /终点/);
+    assert.equal(r.afterFirstEnter.expanded, "true");
+    assert.deepEqual(r.afterSecondEnter.changes, [["2026-11-12", "2026-11-12"]]);
+    assert.equal(r.afterSecondEnter.expanded, "false");
+    assert.equal(r.afterSecondEnter.focusTrigger, true, "选完把焦点还给触发按钮");
+    assert.equal(r.afterSecondEnter.popGone, true);
+    assert.equal(r.reopened, "true");
+    assert.equal(r.afterEsc.expanded, "false");
+    assert.equal(r.afterEsc.focusTrigger, true, "Esc 关闭后焦点回到触发按钮");
+    assert.equal(r.afterEsc.changes, 1, "Esc 不改已经选好的区间");
+    ok("离线弹层:dialog、aria-expanded、方向键翻页、Enter 选定、Esc 还焦");
+  }
+
+  {
+    const tsx = readFileSync(join(root, "src/features/dashboard/components/DateRangePicker.tsx"), "utf8");
+    assert.match(tsx, /role="dialog"/);
+    assert.match(tsx, /aria-label="选择日期范围"/);
+    assert.match(tsx, /aria-expanded=\{open\}/);
+    assert.match(tsx, /aria-haspopup="dialog"/);
+    assert.match(tsx, /dateKeyAction\(/);
+    assert.match(tsx, /triggerRef\.current\?\.focus\(\)/);
+    assert.match(tsx, /button\[data-date=/);
+    ok("组件弹层是 dialog,触发按钮带展开状态,方向键走 dateKeyAction,Esc 还焦");
   }
 } finally {
   rmSync(dir, { recursive: true, force: true });
