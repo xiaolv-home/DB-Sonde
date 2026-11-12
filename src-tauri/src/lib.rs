@@ -32,7 +32,7 @@ fn with_app_menu(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
 pub fn run() {
     with_app_menu(tauri::Builder::default())
         .plugin(tauri_plugin_opener::init())
-        // 主窗口不许把整个界面导航到远程网页;监控 iframe 在各平台的处理见 navigation.rs。
+        // 带权限的窗口不许整页跳到远程网页;监控窗口和 iframe 的例外见 navigation.rs。
         .plugin(navigation::init())
         .plugin(tauri_plugin_dialog::init())
         // 剪贴板:WKWebView 里 navigator.clipboard.readText() 会被拒,读剪贴板必须走原生插件。
