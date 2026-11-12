@@ -37,22 +37,9 @@ export interface DownloadProgress {
   error: string | null;
 }
 
-/** The default built-in model: Qwen2.5-Coder-7B-Instruct Q4_K_M (~4.7 GB).
- *  Downloaded from ModelScope (Alibaba) — it serves the file directly and is
- *  fast/reachable in mainland China, unlike HuggingFace which redirects large
- *  files to an AWS CDN that is commonly blocked or stalls there. */
-export const BUILTIN_MODEL = {
-  filename: "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
-  total: 4_683_073_344,
-  url: "https://modelscope.cn/models/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/master/qwen2.5-coder-7b-instruct-q4_k_m.gguf",
-};
-
-export async function modelDownload(
-  url = BUILTIN_MODEL.url,
-  filename = BUILTIN_MODEL.filename,
-  total = BUILTIN_MODEL.total,
-): Promise<void> {
-  return invoke("ai_model_download", { url, filename, total });
+/** Start the built-in GGUF download. Repository path and SHA-256 are pinned in Rust. */
+export async function modelDownload(): Promise<void> {
+  return invoke("ai_model_download");
 }
 
 export async function modelProgress(): Promise<DownloadProgress | null> {

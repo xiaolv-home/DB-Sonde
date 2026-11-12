@@ -19,14 +19,15 @@ pub mod workspace;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Child;
 use std::sync::{Arc, Mutex};
 
 use assist::JediProc;
 
 #[derive(Default)]
 pub struct PyRuntime {
-    /// run_id -> child pid, for stop().
-    procs: Mutex<HashMap<String, u32>>,
+    /// run_id -> 子进程。停止时拿这个句柄，按平台结束进程，不调用 `kill`。
+    procs: Mutex<HashMap<String, Arc<Mutex<Child>>>>,
     extracting: Arc<Mutex<bool>>,
     /// 下载进度 0-100。None = 没在下载。
     progress: Arc<Mutex<Option<u8>>>,
@@ -97,8 +98,24 @@ def show(fig=None, dpi=120):
     print("⟦SONDE_IMG⟧" + p + "⟦/IMG⟧", flush=True)
 "#;
 
+/// 用户主目录。不要读 `HOME`：Windows 上通常没有这个变量，读了就落到盘符根目录。
+/// `dirs::home_dir()` 在 Windows 用的是用户配置里的 Profile；那个接口失败时再看 `USERPROFILE`。
 fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    if let Some(dir) = dirs::home_dir().filter(|dir| !dir.as_os_str().is_empty()) {
+        return dir;
+    }
+    #[cfg(windows)]
+    if let Some(dir) = std::env::var_os("USERPROFILE").filter(|dir| !dir.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::new()
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/")
+    }
 }
 fn runtime_root() -> PathBuf {
     home().join(".db-sonde/runtime")

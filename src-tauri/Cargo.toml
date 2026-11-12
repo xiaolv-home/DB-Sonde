@@ -49,6 +49,8 @@ oracle = "0.6"
 tauri-plugin-clipboard-manager = "2.5.0"
 ring = "0.17.14"
 libc = "0.2"
+# 用户主目录。Windows 上没有 HOME，不能自己读那个环境变量。
+dirs = "6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS:wry 的导航回调分不出主框架和 iframe。改 WKWebView 的策略方法,

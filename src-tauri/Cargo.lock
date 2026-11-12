@@ -1011,6 +1011,7 @@ dependencies = [
  "base64 0.22.1",
  "bigdecimal",
  "chrono",
+ "dirs",
  "futures-util",
  "libc",
  "objc2",

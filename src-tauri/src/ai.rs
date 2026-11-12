@@ -1,7 +1,8 @@
 //! Built-in AI engine: manages a local `llama-server` (llama.cpp) child process
 //! that speaks the OpenAI-compatible API on 127.0.0.1. Self-contained — the
 //! server binary + dylibs ship in the app's resources (see scripts/bundle-llama.sh);
-//! the model is downloaded on first use.
+//! the model is downloaded on first use. The repository path and SHA-256 are
+//! pinned below; the download is checked before it is treated as done.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -59,6 +60,26 @@ impl Download {
 /// this registrable domain are the same source, not an open redirect.
 const MODEL_HOST: &str = "modelscope.cn";
 const MAX_MODEL_REDIRECTS: usize = 10;
+
+/// 内置模型。仓库路径和 SHA-256 写死在这里，不从界面或下载响应里拿。
+/// 文件是 Qwen 官方 GGUF（Q4_K_M，4,683,073,344 字节），从 ModelScope 拉，
+/// 哈希与 Hugging Face 上同一文件的 SHA-256 一致。
+const BUILTIN_MODEL_REPO: &str = "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF";
+const BUILTIN_MODEL_FILE: &str = "qwen2.5-coder-7b-instruct-q4_k_m.gguf";
+const BUILTIN_MODEL_FILENAME: &str = "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf";
+const BUILTIN_MODEL_SHA256: &str =
+    "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c";
+const BUILTIN_MODEL_SIZE: u64 = 4_683_073_344;
+
+/// 空闲读超时。blocking 客户端的 `timeout` 包在每一次 `Read::read` 外面，
+/// 这次读完、下次再计。不要写成 `.timeout(24h)`，也不要注释成
+/// 「24 小时只是为了停住卡住的连接」——24 小时没有数据才失败，等于发现不了卡死。
+/// 异步客户端的 `timeout` 是另一回事：那是整次请求的总期限。
+const MODEL_IDLE_READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn builtin_model_url() -> String {
+    format!("https://modelscope.cn/models/{BUILTIN_MODEL_REPO}/resolve/master/{BUILTIN_MODEL_FILE}")
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -184,13 +205,15 @@ fn model_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
-fn model_http_client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
+fn model_http_client(idle: Duration, direct: bool) -> Result<reqwest::blocking::Client, String> {
+    let mut builder = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(20))
-        // A 4.7GB model can take hours on a slow link. This only stops a stalled
-        // socket; the partial file is resumed on the next attempt.
-        .timeout(Duration::from_secs(24 * 60 * 60))
-        .redirect(model_redirect_policy())
+        .timeout(idle)
+        .redirect(model_redirect_policy());
+    if direct {
+        builder = builder.no_proxy();
+    }
+    builder
         .build()
         .map_err(|e| format!("failed to start download: {e}"))
 }
@@ -225,9 +248,39 @@ fn error_detail(err: &dyn std::error::Error) -> String {
     detail
 }
 
-fn download_model_file(url: &str, dest: &Path) -> Result<(), String> {
-    let client = model_http_client()?;
-    let existing = fs::metadata(dest).map(|meta| meta.len()).unwrap_or(0);
+fn download_builtin_model(url: &str, dest: &Path) -> Result<(), String> {
+    let client = model_http_client(MODEL_IDLE_READ_TIMEOUT, false)?;
+    download_model_file(
+        &client,
+        url,
+        dest,
+        BUILTIN_MODEL_SHA256,
+        MODEL_IDLE_READ_TIMEOUT,
+    )
+}
+
+fn download_model_file(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    dest: &Path,
+    expect_sha: &str,
+    idle: Duration,
+) -> Result<(), String> {
+    fetch_model(client, url, dest, idle)?;
+    verify_sha256_file(dest, expect_sha)
+}
+
+fn fetch_model(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    dest: &Path,
+    idle: Duration,
+) -> Result<(), String> {
+    let existing = fs::metadata(dest)
+        .ok()
+        .filter(|meta| meta.is_file())
+        .map(|meta| meta.len())
+        .unwrap_or(0);
     let mut request = client.get(url);
     if existing > 0 {
         request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
@@ -237,7 +290,25 @@ fn download_model_file(url: &str, dest: &Path) -> Result<(), String> {
         .map_err(|e| format!("download failed: {}", error_detail(&e)))?;
     let status = response.status();
     if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-        return Err("download failed: server rejected the resume range".into());
+        let header = response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        return match classify_416(existing, header.as_deref()) {
+            RangeOutcome::Complete => Ok(()),
+            RangeOutcome::Mismatch { local, total } => {
+                let _ = fs::remove_file(dest);
+                Err(match total {
+                    Some(total) => format!(
+                        "断点续传被拒绝(HTTP 416):本地 {local} 字节,服务器总大小 {total} 字节,已删除未完成文件"
+                    ),
+                    None => format!(
+                        "断点续传被拒绝(HTTP 416):本地 {local} 字节,服务器没有给出总大小,已删除未完成文件"
+                    ),
+                })
+            }
+        };
     }
     let append = if status == reqwest::StatusCode::PARTIAL_CONTENT {
         if existing == 0 {
@@ -249,21 +320,106 @@ fn download_model_file(url: &str, dest: &Path) -> Result<(), String> {
     } else {
         return Err(format!("download failed: HTTP {status}"));
     };
+    copy_body(&mut response, dest, append, idle)
+}
+
+/// 416 的 `Content-Range` 形如 `bytes */1234`（或 `bytes 0-0/1234`）。
+/// 本地大小和 total 相等，说明文件已经下完，接下来再做 SHA-256。
+fn classify_416(local_len: u64, content_range: Option<&str>) -> RangeOutcome {
+    match content_range.and_then(content_range_total) {
+        Some(total) if total == local_len && local_len > 0 => RangeOutcome::Complete,
+        total => RangeOutcome::Mismatch {
+            local: local_len,
+            total,
+        },
+    }
+}
+
+enum RangeOutcome {
+    Complete,
+    Mismatch { local: u64, total: Option<u64> },
+}
+
+fn content_range_total(header: &str) -> Option<u64> {
+    let spec = header.split_whitespace().nth(1)?;
+    let total = spec.rsplit_once('/')?.1;
+    if total == "*" {
+        return None;
+    }
+    total.parse().ok()
+}
+
+fn copy_body(
+    response: &mut impl Read,
+    dest: &Path,
+    append: bool,
+    idle: Duration,
+) -> Result<(), String> {
     let mut file = open_model_file(dest, append)?;
     let mut buf = vec![0_u8; 256 * 1024];
     loop {
-        let n = response
-            .read(&mut buf)
-            .map_err(|e| format!("download failed: {e}"))?;
-        if n == 0 {
-            break;
-        }
+        let n = match response.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => return Err(read_error(&e, idle)),
+        };
         file.write_all(&buf[..n])
             .map_err(|e| format!("download failed: {e}"))?;
     }
     file.sync_all()
         .map_err(|e| format!("download failed: {e}"))?;
     Ok(())
+}
+
+fn read_error(err: &std::io::Error, idle: Duration) -> String {
+    let detail = error_detail(err);
+    let lower = detail.to_ascii_lowercase();
+    if err.kind() == std::io::ErrorKind::TimedOut
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+    {
+        format!("下载卡住:连续 {} 秒没有收到数据", idle.as_secs().max(1))
+    } else {
+        format!("download failed: {detail}")
+    }
+}
+
+fn verify_sha256_file(path: &Path, expect: &str) -> Result<(), String> {
+    if expect.len() != 64 || !expect.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let _ = fs::remove_file(path);
+        return Err("内置模型没有配置合法的 SHA-256,已删除下载文件".into());
+    }
+    let got = sha256_file(path)?;
+    if !got.eq_ignore_ascii_case(expect) {
+        let _ = fs::remove_file(path);
+        return Err(format!(
+            "模型校验和不符,已删除文件。期望 {expect},实际 {got}"
+        ));
+    }
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|e| format!("读取模型失败:{e}"))?;
+    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+    let mut buf = vec![0_u8; 256 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("读取模型失败:{e}"))?;
+        if n == 0 {
+            break;
+        }
+        sha2::Digest::update(&mut hasher, &buf[..n]);
+    }
+    Ok(format!("{:x}", sha2::Digest::finalize(hasher)))
+}
+
+#[cfg(test)]
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+    sha2::Digest::update(&mut hasher, bytes);
+    format!("{:x}", sha2::Digest::finalize(hasher))
 }
 
 #[derive(Serialize)]
@@ -287,8 +443,24 @@ pub struct DownloadProgress {
     error: Option<String>,
 }
 
+/// 用户主目录。不要读 `HOME`：Windows 上通常没有这个变量。
+/// `dirs::home_dir()` 在 Windows 用的是用户配置里的 Profile；那个接口失败时再看 `USERPROFILE`。
 fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+    if let Some(dir) = dirs::home_dir().filter(|dir| !dir.as_os_str().is_empty()) {
+        return dir;
+    }
+    #[cfg(windows)]
+    if let Some(dir) = std::env::var_os("USERPROFILE").filter(|dir| !dir.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::new()
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/")
+    }
 }
 
 /// Where the built-in model(s) live.
@@ -345,7 +517,11 @@ fn resolve_model() -> Option<PathBuf> {
             Some(n) => n.to_string_lossy().to_lowercase(),
             None => continue,
         };
-        if !name.ends_with(".gguf") || name.contains("bge") || name.contains("embed") || name.contains("rerank") {
+        if !name.ends_with(".gguf")
+            || name.contains("bge")
+            || name.contains("embed")
+            || name.contains("rerank")
+        {
             continue;
         }
         if name.contains("qwen") && name.contains("coder") {
@@ -434,35 +610,32 @@ pub fn ai_engine_stop(app: tauri::AppHandle, engine: tauri::State<'_, AiEngine>)
     status(&mut guard, resource_dir(&app).as_deref())
 }
 
-/// Download a GGUF into the models dir (resumable). Returns once the download
-/// has started; poll `ai_model_progress` for status. The filename must be a
-/// single `.gguf` component and the URL must be https on ModelScope (including
-/// the CDN host its redirect uses).
+/// Download the pinned GGUF (resumable). Returns once the download has started;
+/// poll `ai_model_progress`. The filename and URL still go through the ModelScope
+/// allowlist (single `.gguf`, no symlink, https only, redirect hops checked).
 #[tauri::command]
-pub fn ai_model_download(
-    engine: tauri::State<'_, AiEngine>,
-    url: String,
-    filename: String,
-    total: u64,
-) -> Result<(), String> {
-    let dest = model_destination(&models_dir(), &filename)?;
-    let url = validate_model_url(&url)?.to_string();
+pub fn ai_model_download(engine: tauri::State<'_, AiEngine>) -> Result<(), String> {
+    let dest = model_destination(&models_dir(), BUILTIN_MODEL_FILENAME)?;
+    let url = validate_model_url(&builtin_model_url())?.to_string();
     let mut guard = engine.download.lock().unwrap();
-    if guard.as_ref().is_some_and(|dl| dl.still_running()) {
-        return Ok(());
+    if let Some(current) = guard.as_mut() {
+        if current.still_running() {
+            return Ok(());
+        }
+        let _ = current.finish();
     }
     let error = Arc::new(Mutex::new(None));
     let error_slot = Arc::clone(&error);
     let path = dest.clone();
     let worker = std::thread::spawn(move || {
-        if let Err(msg) = download_model_file(&url, &path) {
+        if let Err(msg) = download_builtin_model(&url, &path) {
             *error_slot.lock().unwrap() = Some(msg);
         }
     });
     *guard = Some(Download {
         worker: Some(worker),
         dest,
-        total,
+        total: BUILTIN_MODEL_SIZE,
         error,
     });
     Ok(())
@@ -480,8 +653,8 @@ pub fn ai_model_progress(engine: tauri::State<'_, AiEngine>) -> DownloadProgress
             error: None,
         };
     };
-    let bytes = size_of(&dl.dest).unwrap_or(0);
     if dl.still_running() {
+        let bytes = size_of(&dl.dest).unwrap_or(0);
         return DownloadProgress {
             downloading: true,
             bytes,
@@ -491,6 +664,8 @@ pub fn ai_model_progress(engine: tauri::State<'_, AiEngine>) -> DownloadProgress
         };
     }
     let error = dl.finish();
+    // SHA mismatch deletes the file, so measure again after the worker finishes.
+    let bytes = size_of(&dl.dest).unwrap_or(0);
     DownloadProgress {
         downloading: false,
         bytes,
@@ -503,11 +678,18 @@ pub fn ai_model_progress(engine: tauri::State<'_, AiEngine>) -> DownloadProgress
 #[cfg(test)]
 mod model_download_tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
 
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> Self {
-            let path = std::env::temp_dir().join(format!("sonde-model-{}", uuid::Uuid::new_v4()));
+            let path = std::env::temp_dir().join(format!(
+                "sonde-model-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
             fs::create_dir_all(&path).unwrap();
             Self(path)
         }
@@ -516,6 +698,10 @@ mod model_download_tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn client() -> reqwest::blocking::Client {
+        model_http_client(Duration::from_secs(5), true).unwrap()
     }
 
     fn filename_error(name: &str) -> String {
@@ -612,8 +798,8 @@ mod model_download_tests {
             validate_model_url("https://user:pass@modelscope.cn/a.gguf").unwrap_err(),
             "model URL must not include credentials",
         );
-        let builtin = "https://modelscope.cn/models/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/master/qwen2.5-coder-7b-instruct-q4_k_m.gguf";
-        assert_eq!(validate_model_url(builtin).unwrap().as_str(), builtin);
+        let builtin = builtin_model_url();
+        assert_eq!(validate_model_url(&builtin).unwrap().as_str(), builtin);
         assert!(validate_model_url(
             "https://cdn-lfs-cn-1.modelscope.cn/prod/lfs-objects/abc?filename=q.gguf&auth_key=1"
         )
@@ -622,23 +808,16 @@ mod model_download_tests {
     }
 
     #[test]
-    fn builtin_frontend_model_still_validates() {
-        let src = include_str!("../../src/features/ai/engine.ts");
-        let filename = quoted_field(src, "filename:");
-        let url = quoted_field(src, "url:");
+    fn builtin_pinned_model_passes_the_allowlist() {
         let dir = TempDir::new();
-        assert!(model_destination(&dir.0, &filename).is_ok(), "{filename}");
+        assert!(
+            model_destination(&dir.0, BUILTIN_MODEL_FILENAME).is_ok(),
+            "{}",
+            BUILTIN_MODEL_FILENAME
+        );
+        let url = builtin_model_url();
         assert!(validate_model_url(&url).is_ok(), "{url}");
-    }
-
-    fn quoted_field(src: &str, key: &str) -> String {
-        let line = src
-            .lines()
-            .find(|line| line.contains(key))
-            .unwrap_or_else(|| panic!("missing {key}"));
-        let start = line.find('"').expect("opening quote") + 1;
-        let end = line[start..].find('"').expect("closing quote") + start;
-        line[start..end].to_string()
+        assert_eq!(BUILTIN_MODEL_SHA256.len(), 64);
     }
 
     #[test]
@@ -667,9 +846,24 @@ mod model_download_tests {
         let dir = TempDir::new();
         let dest = dir.0.join("model.gguf");
         let url = format!("http://{addr}/model.gguf");
-        download_model_file(&url, &dest).unwrap();
+        let http = client();
+        download_model_file(
+            &http,
+            &url,
+            &dest,
+            &sha256_bytes(b"hello"),
+            Duration::from_secs(5),
+        )
+        .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), b"hello");
-        download_model_file(&url, &dest).unwrap();
+        download_model_file(
+            &http,
+            &url,
+            &dest,
+            &sha256_bytes(b"helloWORLD"),
+            Duration::from_secs(5),
+        )
+        .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), b"helloWORLD");
     }
 
@@ -708,5 +902,162 @@ mod model_download_tests {
     fn redirect_to_http_on_allowlisted_host_is_rejected() {
         let err = redirect_error("http://cdn-lfs-cn-1.modelscope.cn/prod/object");
         assert!(err.contains("https"), "{err}");
+    }
+
+    #[test]
+    fn home_comes_from_dirs() {
+        let expected = dirs::home_dir().expect("this machine has a home directory");
+        assert_eq!(home(), expected);
+    }
+
+    #[test]
+    fn sha256_mismatch_deletes_the_downloaded_file() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits2 = Arc::clone(&hits);
+        std::thread::spawn(move || {
+            if let Ok(Some(req)) = server.recv_timeout(Duration::from_secs(5)) {
+                hits2.fetch_add(1, Ordering::SeqCst);
+                let _ = req.respond(tiny_http::Response::from_string("not-the-model"));
+            }
+        });
+        let dir = TempDir::new();
+        let dest = dir.0.join("model.gguf");
+        let err = download_model_file(
+            &client(),
+            &format!("http://{addr}/model.gguf"),
+            &dest,
+            &sha256_bytes(b"the-model"),
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        assert!(err.contains("校验和不符"), "{err}");
+        assert!(!dest.exists(), "校验失败必须删掉文件");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn http_416_with_matching_size_is_complete_and_keeps_a_matching_sha256() {
+        let body = b"hello-model";
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits2 = Arc::clone(&hits);
+        std::thread::spawn(move || {
+            if let Ok(Some(req)) = server.recv_timeout(Duration::from_secs(5)) {
+                hits2.fetch_add(1, Ordering::SeqCst);
+                let value = format!("bytes */{}", body.len());
+                let header =
+                    tiny_http::Header::from_bytes(&b"Content-Range"[..], value.as_bytes()).unwrap();
+                let _ = req.respond(tiny_http::Response::empty(416).with_header(header));
+            }
+        });
+        let dir = TempDir::new();
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, body).unwrap();
+        download_model_file(
+            &client(),
+            &format!("http://{addr}/model.gguf"),
+            &dest,
+            &sha256_bytes(body),
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(&dest).unwrap(),
+            body,
+            "大小一致时应保留已完成的文件"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 1, "已完成的文件不应该再拉一次");
+    }
+
+    #[test]
+    fn http_416_matching_size_still_rejects_a_bad_sha256_and_deletes_the_file() {
+        let body = b"hello-model";
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        std::thread::spawn(move || {
+            if let Ok(Some(req)) = server.recv_timeout(Duration::from_secs(5)) {
+                let value = format!("bytes */{}", body.len());
+                let header =
+                    tiny_http::Header::from_bytes(&b"Content-Range"[..], value.as_bytes()).unwrap();
+                let _ = req.respond(tiny_http::Response::empty(416).with_header(header));
+            }
+        });
+        let dir = TempDir::new();
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, body).unwrap();
+        let err = download_model_file(
+            &client(),
+            &format!("http://{addr}/model.gguf"),
+            &dest,
+            &sha256_bytes(b"other-bytes"),
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        assert!(err.contains("校验和不符"), "{err}");
+        assert!(!dest.exists(), "416 视为完成之后仍要校验,不符必须删掉");
+    }
+
+    #[test]
+    fn http_416_with_a_different_size_errors_and_deletes_the_partial() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        std::thread::spawn(move || {
+            if let Ok(Some(req)) = server.recv_timeout(Duration::from_secs(5)) {
+                let header =
+                    tiny_http::Header::from_bytes(&b"Content-Range"[..], &b"bytes */3"[..])
+                        .unwrap();
+                let _ = req.respond(tiny_http::Response::empty(416).with_header(header));
+            }
+        });
+        let dir = TempDir::new();
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, b"hello").unwrap();
+        let err = download_model_file(
+            &client(),
+            &format!("http://{addr}/model.gguf"),
+            &dest,
+            &sha256_bytes(b"hello"),
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        assert!(err.contains("416"), "{err}");
+        assert!(err.contains("5") && err.contains("3"), "{err}");
+        assert!(!dest.exists(), "大小对不上必须删掉半截文件,下次才能重下");
+    }
+
+    #[test]
+    fn stalled_body_fails_on_the_idle_read_timeout() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0_u8; 2048];
+            let _ = sock.read(&mut buf);
+            let _ = sock
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\n");
+            std::thread::sleep(Duration::from_secs(3));
+        });
+        let dir = TempDir::new();
+        let dest = dir.0.join("model.gguf");
+        let idle = Duration::from_millis(400);
+        let http = model_http_client(idle, true).unwrap();
+        let started = Instant::now();
+        let err = download_model_file(
+            &http,
+            &format!("http://{addr}/model.gguf"),
+            &dest,
+            &sha256_bytes(b"x"),
+            idle,
+        )
+        .unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "空闲超时应该很快失败,实际 {:?}",
+            started.elapsed()
+        );
+        assert!(err.contains("下载卡住"), "{err}");
     }
 }
