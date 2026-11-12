@@ -15,7 +15,7 @@ import { useConfirm } from "../../components/useConfirm";
 import { api } from "../../lib/api";
 import { inTauri } from "../../lib/mockBackend";
 import { useApp } from "../../store/appStore";
-import { checkUrl, defaultName, KIND_INFO, newSource, type MonitorSource } from "./monitorModel";
+import { checkUrl, defaultName, KIND_INFO, MONITOR_FRAME_SANDBOX, monitorFrameSrc, newSource, type MonitorSource } from "./monitorModel";
 import { monitorRepository } from "./monitorRepository";
 import { useMonitor } from "./monitorStore";
 import "./monitor.css";
@@ -23,6 +23,11 @@ import "./monitor.css";
 type Draft = { id: string | null; name: string; url: string; error?: string };
 /** checking: 还在看响应头;embed: 可以嵌;blocked: 对方不让嵌 */
 type Probe = { url: string; state: "checking" | "embed" | "blocked"; reason?: string | null };
+
+/** 工具条只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
+function iconName(label: string) {
+  return { title: label, "aria-label": label };
+}
 
 function openExternal(url: string) {
   void import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url)).catch(() => window.open(url, "_blank"));
@@ -64,6 +69,8 @@ export default function MonitorCenter() {
   const enteredNative = useRef(false);
   const active = sources.find((s) => s.id === activeId) ?? null;
   const activeUrl = active?.url ?? null;
+  /** 再过一遍地址校验:存过的坏地址、或指回本应用的地址,都不能进 iframe src。 */
+  const embedSrc = active ? monitorFrameSrc(active.url) : null;
 
   // 切到一个页面(或改了地址)时看一眼它让不让嵌
   useEffect(() => {
@@ -175,15 +182,15 @@ export default function MonitorCenter() {
           {active ? (
             <>
               <div className="mon-bar">
-                <button className={`icon-btn ${listShown ? "on" : ""}`} title="页面列表(鼠标碰左边缘也会出来)" onClick={() => setListShown((v) => !v)}><PanelLeft size={14} /></button>
-                <button className="icon-btn" title="重新载入(回到首页)" onClick={() => setFrameKey((k) => k + 1)}><RotateCw size={14} /></button>
+                <button className={`icon-btn ${listShown ? "on" : ""}`} {...iconName("页面列表(鼠标碰左边缘也会出来)")} onClick={() => setListShown((v) => !v)}><PanelLeft size={14} /></button>
+                <button className="icon-btn" {...iconName("重新载入(回到首页)")} onClick={() => setFrameKey((k) => k + 1)}><RotateCw size={14} /></button>
                 <span className="mon-name">{active.name}</span>
                 <span className="mon-url" title={active.url}>{active.url}</span>
-                <button className="icon-btn" title="在独立窗口打开" onClick={() => openWindow(active)}><AppWindow size={14} /></button>
-                <button className="icon-btn" title="在浏览器里打开" onClick={() => openExternal(active.url)}><ExternalLink size={14} /></button>
+                <button className="icon-btn" {...iconName("在独立窗口打开")} onClick={() => openWindow(active)}><AppWindow size={14} /></button>
+                <button className="icon-btn" {...iconName("在浏览器里打开")} onClick={() => openExternal(active.url)}><ExternalLink size={14} /></button>
                 {full
-                  ? <button className="icon-btn" title="退出全屏 (Esc)" onClick={exitFull}><Minimize2 size={14} /></button>
-                  : <button className="icon-btn" title="全屏" onClick={enterFull}><Maximize2 size={14} /></button>}
+                  ? <button className="icon-btn" {...iconName("退出全屏 (Esc)")} onClick={exitFull}><Minimize2 size={14} /></button>
+                  : <button className="icon-btn" {...iconName("全屏")} onClick={enterFull}><Maximize2 size={14} /></button>}
               </div>
               {/* 鼠标一下甩进页面(没从列表上经过,收不到「离开列表」)时也收回列表 */}
               <div className="mon-stage" onMouseEnter={() => setListShown(false)}>
@@ -194,8 +201,8 @@ export default function MonitorCenter() {
                     <span>{probe.reason ?? "对方设置了禁止嵌入"}。在独立窗口里打开,登录、点击、筛选都和浏览器里一样。</span>
                     <button className="btn primary" onClick={() => openWindow(active)}><AppWindow size={14} /> 在独立窗口打开</button>
                   </div>
-                ) : probe?.url === active.url && probe.state === "embed" ? (
-                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={active.url} />
+                ) : probe?.url === active.url && probe.state === "embed" && embedSrc ? (
+                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={embedSrc} sandbox={MONITOR_FRAME_SANDBOX} />
                 ) : null}
               </div>
             </>
