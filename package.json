@@ -85,6 +85,7 @@
     "test:widget-conditions": "node scripts/test-widget-conditions.mjs",
     "test:table-export": "node scripts/test-table-export.mjs",
     "test:sidebar-names": "node scripts/test-sidebar-names.mjs",
+    "test:dashboard-names": "node scripts/test-dashboard-names.mjs",
     "test:cloud-key-hint": "node scripts/test-cloud-key-hint.mjs"
   },
   "dependencies": {
