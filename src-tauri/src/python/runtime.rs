@@ -194,8 +194,8 @@ fn download_and_extract(
         std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| format!("写盘失败:{e}"))?;
         sha2::Digest::update(&mut hasher, &buf[..n]);
         done += n as u64;
-        if total > 0 {
-            *progress.lock().unwrap() = Some(((done * 100 / total) as u8).min(100));
+        if let Some(percent) = (done * 100).checked_div(total) {
+            *progress.lock().unwrap() = Some((percent as u8).min(100));
         }
     }
     drop(file);

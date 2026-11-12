@@ -6,10 +6,34 @@ export interface SecureStoragePort {
   load(key: string): Promise<string | null>;
   save(key: string, value: string): Promise<void>;
 }
+
+/** Drop a cloud API key before it can enter renderer state. Rust already does
+ *  this; repeating it here keeps a leaked field out of the settings cache. */
+export function presentServiceConfig(key: string, raw: string): string {
+  if (key !== "ai.config") return raw;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return raw;
+    const cloud = (value as { cloud?: unknown }).cloud;
+    if (!cloud || typeof cloud !== "object" || Array.isArray(cloud)) return raw;
+    const endpoint = cloud as { apiKey?: unknown; hasKey?: unknown };
+    const apiKey = typeof endpoint.apiKey === "string" ? endpoint.apiKey.trim() : "";
+    endpoint.hasKey = endpoint.hasKey === true || apiKey.length > 0;
+    endpoint.apiKey = "";
+    return JSON.stringify(value);
+  } catch {
+    return raw;
+  }
+}
+
 // Browser previews keep settings in memory only. Never substitute localStorage
 // for the native encrypted vault when credentials are involved.
 const native: SecureStoragePort = {
-  load: key => isTauri() ? invoke("load_service_config", { key }) : Promise.resolve(null),
+  load: async key => {
+    if (!isTauri()) return null;
+    const raw = await invoke<string | null>("load_service_config", { key });
+    return typeof raw === "string" ? presentServiceConfig(key, raw) : raw;
+  },
   save: (key, value) => isTauri() ? invoke("save_service_config", { key, value }) : Promise.resolve(),
 };
 const initializers: (() => Promise<void>)[] = [];
@@ -43,7 +67,11 @@ export function secureRepository<T>(
           // A stale plaintext record cannot replace an already-encrypted record.
           if (saved === null && previous !== null) await port.save(key, JSON.stringify(value));
           if (previous !== null) legacy.removeItem(key);
-          cache = value;
+          // Plaintext AI settings may still hold the cloud key. The vault keeps
+          // it; renderer state only keeps the masked form.
+          cache = saved === null && previous !== null && key === "ai.config"
+            ? decode(presentServiceConfig(key, JSON.stringify(value)))
+            : value;
           ready = true;
           clearStorageProblem(key);
         } catch {
@@ -59,7 +87,8 @@ export function secureRepository<T>(
       const write = writes.then(async () => {
         try {
           await port.save(key, JSON.stringify(snapshot));
-          cache = snapshot;
+          cache = key === "ai.config" && port === native
+            ? decode(presentServiceConfig(key, JSON.stringify(snapshot))) : snapshot;
           clearStorageProblem(key);
         } catch {
           reportStorageProblem(key, "write", `配置 ${key} 加密保存失败，本次修改未保存。`);

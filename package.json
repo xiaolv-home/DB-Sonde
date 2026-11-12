@@ -1,7 +1,7 @@
 {
   "name": "db-sonde",
   "private": true,
-  "version": "0.52.3",
+  "version": "0.52.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -80,7 +80,10 @@
     "test:more-charts": "node scripts/test-more-charts.mjs",
     "test:widget-conditions": "node scripts/test-widget-conditions.mjs",
     "test:table-export": "node scripts/test-table-export.mjs",
-    "test:startup-webkit": "node scripts/test-startup-webkit.mjs"
+    "test:startup-webkit": "node scripts/test-startup-webkit.mjs",
+    "test:cloud-proxy": "node scripts/test-cloud-proxy.mjs",
+    "test:hardening": "node scripts/test-hardening-boundaries.mjs",
+    "test:hardening-webkit": "node scripts/test-hardening-webkit.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -93,10 +96,10 @@
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@tanstack/react-table": "^9.2.4",
     "@tanstack/react-virtual": "^3.14.10",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-clipboard-manager": "^2.3.3",
-    "@tauri-apps/plugin-dialog": "^2.7.3",
-    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-clipboard-manager": "2.5.0",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-opener": "2.7.3",
     "@uiw/react-codemirror": "^4.25.11",
     "@xyflow/react": "^12.12.0",
     "echarts": "^6.1.0",
@@ -113,7 +116,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "2.12.4",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
@@ -122,7 +125,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.70.0",
-    "vite": "^7.0.4"
+    "vite": "^7.3.8"
   },
   "license": "MIT"
 }

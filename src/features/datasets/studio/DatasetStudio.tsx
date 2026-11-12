@@ -1,3 +1,4 @@
+import { readOnlyAnalysisProblem } from "../../../lib/databaseDialect";
 /**
  * 数据集工作台(铺满窗口)。
  *
@@ -47,7 +48,7 @@ export default function DatasetStudio({ startId, usage, onClose }: {
   const datasets = useDatasets((s) => s.datasets);
   const connections = useApp((s) => s.connections);
   const { askConfirm, confirmDialog } = useConfirm();
-  const fresh = useCallback(() => createDataset("未命名数据集", connections[0]?.id ?? "", connections[0]?.database || undefined), [connections]);
+  const fresh = useCallback(() => createDataset("未命名数据集", connections.find(c => !readOnlyAnalysisProblem(c.kind))?.id ?? "", connections.find(c => !readOnlyAnalysisProblem(c.kind))?.database || undefined), [connections]);
   const [draft, setDraft] = useState<Dataset>(() => datasets.find((d) => d.id === startId) ?? fresh());
   const [pristine, setPristine] = useState(() => contentOf(draft));
   const [listQuery, setListQuery] = useState("");
@@ -211,7 +212,7 @@ export default function DatasetStudio({ startId, usage, onClose }: {
           <Database size={12} />
           <select value={draft.connectionId} onChange={(e) => patch({ connectionId: e.target.value, database: undefined, fields: [] })}>
             <option value="">选连接</option>
-            {connections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {connections.map((c) => <option key={c.id} value={c.id} disabled={Boolean(readOnlyAnalysisProblem(c.kind))}>{c.name}{readOnlyAnalysisProblem(c.kind) ? "（暂不支持只读分析）" : ""}</option>)}
           </select>
           {databases.length > 0 && <>
             <ChevronRight size={12} />
@@ -231,6 +232,7 @@ export default function DatasetStudio({ startId, usage, onClose }: {
         </button>
       </header>
 
+      {readOnlyAnalysisProblem(kind) && <div className="ai-note" role="status">{readOnlyAnalysisProblem(kind)}</div>}
       <div className="dst-body">
         <aside className="dst-list">
           <label className="st-search"><Search size={13} /><input value={listQuery} placeholder="找数据集" onChange={(e) => setListQuery(e.target.value)} /></label>

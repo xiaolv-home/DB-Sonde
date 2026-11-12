@@ -75,3 +75,14 @@ export const DATABASE_CAPABILITIES: Record<DbKind, DatabaseCapabilities> = {
     oracle: { manualTransactions: false, readOnlyTransactions: false, routineExecution: false },
     clickhouse: { manualTransactions: false, readOnlyTransactions: false, routineExecution: false },
 };
+
+/** One capability decision shared by dataset, dashboard and analysis entry points. */
+export function readOnlyAnalysisProblem(kind: DbKind | undefined): string | null {
+    return kind && !DATABASE_CAPABILITIES[kind].readOnlyTransactions
+        ? `${kind === "oracle" ? "Oracle" : "ClickHouse"} 暂不支持安全的只读分析，可在 SQL 编辑器中查询；看板和 AI 取数请选择其他连接。`
+        : null;
+}
+export function requireReadOnlyAnalysis(kind: DbKind | undefined): void {
+    const problem = readOnlyAnalysisProblem(kind);
+    if (problem) throw new Error(problem);
+}

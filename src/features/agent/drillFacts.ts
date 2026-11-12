@@ -5,8 +5,9 @@
  * 配一个对比期。要回答的永远是同一类问题:**变化在哪、集中在哪、有多大**。
  *
  *   有对比期 + 按分组拆   每组变了多少、占总变化的几成(贡献度),按影响排序
- *   按时间拆              逐期走势;按日时找偏离「同星期几均值」最多的天;
- *                         有对比期时逐期对齐(第 n 天对第 n 天),找掉得最多的几期
+ *   按时间拆              逐期走势;按日时找偏离「同星期几均值」最多的天
+ *                         (均值去掉的是当前这一行,不是所有相同数值);
+ *                         有对比期时按日期键对齐,缺一天或对比期多一天不会把后面错位
  *   没有对比期            各组份额、头尾,和明显偏离平均的组
  *
  * 不可加的指标(比率、均值、去重数)不算贡献度 —— 它们不能拆成各组之和 ——
@@ -33,6 +34,8 @@ export interface DrillFactInput {
 
 const additive = (c: Column) => c.rollup === "sum" || c.rollup === "count";
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+import { alignByDateKey, type TimePoint } from "./drillTimeAlignment";
 
 /** 一组行按某一列分组,保持出现顺序。 */
 function groupRows(result: QueryResult, index: number): Map<string, Cell[][]> {
@@ -98,22 +101,24 @@ export function drillFacts(input: DrillFactInput): Fact[] {
         text: `${label}按${dimName}看${column.name}:${series.map((p) => `${p.key} ${fmtNum(p.value, column.unit)}`).join("、")}`,
         rows: series.map((p) => [p.key, p.value]), columns: [dimName, column.name], computedBy: `drill_series(${column.field} by ${breakdown})`,
       });
-      // 按日:跟「同星期几」的平均比 —— 周末本来就高,直接跟全月平均比会把每个周末都标成异常
+      // 按日:跟「同星期几」的平均比 —— 周末本来就高,直接跟全月平均比会把每个周末都标成异常。
+      // 只摘掉当前这一行。按值摘会把「恰好同值」的其他天也丢掉,两天一样反常时均值就算偏了。
       if (breakdown === "day" && series.length >= 10) {
         const weekday = (key: string) => new Date(`${key.slice(0, 10)}T00:00:00`).getDay();
-        const byWeekday = new Map<number, number[]>();
-        for (const p of series) {
-          const w = weekday(p.key);
+        const byWeekday = new Map<number, { index: number; value: number }[]>();
+        for (const [index, point] of series.entries()) {
+          const w = weekday(point.key);
           if (Number.isNaN(w)) continue;
           const bucket = byWeekday.get(w);
-          if (bucket) bucket.push(p.value); else byWeekday.set(w, [p.value]);
+          const item = { index, value: point.value };
+          if (bucket) bucket.push(item); else byWeekday.set(w, [item]);
         }
-        const deviations = series.flatMap((p) => {
-          const w = weekday(p.key);
-          const peers = (byWeekday.get(w) ?? []).filter((v) => v !== p.value);
+        const deviations = series.flatMap((point, index) => {
+          const w = weekday(point.key);
+          const peers = (byWeekday.get(w) ?? []).filter((item) => item.index !== index).map((item) => item.value);
           if (peers.length < 2) return [];
-          const mean = peers.reduce((a, b) => a + b, 0) / peers.length;
-          return mean ? [{ ...p, w, mean, dev: ((p.value - mean) / Math.abs(mean)) * 100 }] : [];
+          const mean = peers.reduce((sum, value) => sum + value, 0) / peers.length;
+          return mean ? [{ ...point, w, mean, dev: ((point.value - mean) / Math.abs(mean)) * 100 }] : [];
         }).sort((a, b) => Math.abs(b.dev) - Math.abs(a.dev)).filter((d) => Math.abs(d.dev) >= 15).slice(0, 5);
         if (deviations.length) {
           add({
@@ -124,16 +129,18 @@ export function drillFacts(input: DrillFactInput): Fact[] {
           });
         }
       }
-      // 有对比期:逐期对齐(本期第 n 个 vs 对比期第 n 个),找掉得 / 涨得最多的
+      // 有对比期:按日期键对齐(不是第 n 行对第 n 行),找掉得 / 涨得最多的。
+      // 无法识别的时间键不参与比较，不能按结果行号猜对应期。
       if (compareGroups && cmpColumn) {
         const before = [...compareGroups.entries()].map(([key, rows]) => ({ key, value: cmpValueOf(rows) }))
-          .filter((p): p is { key: string; value: number } => p.value !== null).sort((a, b) => compareText(a.key, b.key));
-        const pairs = series.slice(0, before.length).map((p, i) => ({ now: p, then: before[i], delta: p.value - before[i].value }));
+          .filter((p): p is TimePoint => p.value !== null).sort((a, b) => compareText(a.key, b.key));
+        const keyed = alignByDateKey(series, before, breakdown, current.shape.dateRange, compare?.shape.dateRange);
+        const pairs = keyed ?? [];
         if (pairs.length >= 2) {
           const ranked = [...pairs].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 4);
           add({
             kind: "anomaly",
-            text: `${label}${column.name}逐期对比${vs}(按顺序对齐),变化最大的:${ranked.map((p) => `${p.now.key} ${fmtNum(p.now.value, column.unit)} vs ${p.then.key} ${fmtNum(p.then.value, column.unit)}(${p.delta >= 0 ? "+" : ""}${fmtNum(p.delta, column.unit)}${p.then.value ? `,${pct((p.delta / Math.abs(p.then.value)) * 100)}` : ""})`).join(";")}`,
+            text: `${label}${column.name}逐期对比${vs}(按日期对齐),变化最大的:${ranked.map((p) => `${p.now.key} ${fmtNum(p.now.value, column.unit)} vs ${p.then.key} ${fmtNum(p.then.value, column.unit)}(${p.delta >= 0 ? "+" : ""}${fmtNum(p.delta, column.unit)}${p.then.value ? `,${pct((p.delta / Math.abs(p.then.value)) * 100)}` : ""})`).join(";")}`,
             rows: ranked.map((p) => [p.now.key, p.now.value, p.then.key, p.then.value, p.delta]), columns: [dimName, "本期", `${vs}对应期`, "对比期值", "差值"],
             computedBy: `aligned_periods(${column.field} by ${breakdown})`,
           });

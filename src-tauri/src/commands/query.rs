@@ -19,6 +19,7 @@ pub async fn run_query(
     sql: String,
     max_rows: Option<usize>,
     run_id: Option<String>,
+    timeout_secs: Option<u64>,
 ) -> AppResult<QueryResult> {
     // 带上编号标记,「停止」按钮才能在服务器的运行列表里找到这一条。
     // 只给能按标记取消的库加(MySQL / MariaDB / PostgreSQL):别的库用不上,
@@ -36,7 +37,7 @@ pub async fn run_query(
         return db::run_query_on_tx(tx, &sql, max_rows).await;
     }
     let (_kind, pool) = pool_for_database(&state, &conn_id, database.as_deref()).await?;
-    db::run_query(&pool, &sql, max_rows).await
+    db::run_query_with_context(&pool, &sql, max_rows, run_id.as_deref(), timeout_secs).await
 }
 
 /// 停止编辑器里正在跑的那条语句(run_query 时带的 run_id)。

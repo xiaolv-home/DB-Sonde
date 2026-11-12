@@ -99,7 +99,7 @@ export const api = {
       ? invoke<string>("get_object_ddl", { connId, database, schema, table, objectKind })
       : mockApi.getObjectDdl(table, objectKind),
 
-  runQuery: (connId: string, database: string | undefined, sql: string, maxRows?: number, runId?: string) =>
+  runQuery: (connId: string, database: string | undefined, sql: string, maxRows?: number, runId?: string, timeoutSecs?: number) =>
     inTauri
       ? invoke<QueryResult>("run_query", {
           connId,
@@ -107,6 +107,7 @@ export const api = {
           sql,
           maxRows: maxRows ?? null,
           runId: runId ?? null,
+          timeoutSecs: timeoutSecs ?? null,
         })
       : mockApi.runQuery(connId, sql),
   /** 停止编辑器里正在跑的语句。true = 数据库已取消;false = 没找到(已跑完)或这种库不支持服务器端取消。 */

@@ -15,7 +15,7 @@ import { useConfirm } from "../../components/useConfirm";
 import { api } from "../../lib/api";
 import { inTauri } from "../../lib/mockBackend";
 import { useApp } from "../../store/appStore";
-import { checkUrl, defaultName, KIND_INFO, newSource, type MonitorSource } from "./monitorModel";
+import { checkUrl, defaultName, KIND_INFO, MONITOR_FRAME_SANDBOX, monitorFrameSrc, newSource, type MonitorSource } from "./monitorModel";
 import { monitorRepository } from "./monitorRepository";
 import { useMonitor } from "./monitorStore";
 import "./monitor.css";
@@ -64,6 +64,7 @@ export default function MonitorCenter() {
   const enteredNative = useRef(false);
   const active = sources.find((s) => s.id === activeId) ?? null;
   const activeUrl = active?.url ?? null;
+  const embedSrc = active ? monitorFrameSrc(active.url) : null;
 
   // 切到一个页面(或改了地址)时看一眼它让不让嵌
   useEffect(() => {
@@ -194,8 +195,8 @@ export default function MonitorCenter() {
                     <span>{probe.reason ?? "对方设置了禁止嵌入"}。在独立窗口里打开,登录、点击、筛选都和浏览器里一样。</span>
                     <button className="btn primary" onClick={() => openWindow(active)}><AppWindow size={14} /> 在独立窗口打开</button>
                   </div>
-                ) : probe?.url === active.url && probe.state === "embed" ? (
-                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={active.url} />
+                ) : probe?.url === active.url && probe.state === "embed" && embedSrc ? (
+                  <iframe key={`${active.id}:${frameKey}`} title={active.name} src={embedSrc} sandbox={MONITOR_FRAME_SANDBOX} />
                 ) : null}
               </div>
             </>

@@ -4,6 +4,9 @@ mod canvas_window;
 mod monitor;
 mod commands;
 mod credentials;
+mod ipc_access;
+mod cloud_proxy;
+mod paths;
 mod workspace_lifecycle;
 mod dashboard_store;
 mod dataset_store;
@@ -47,10 +50,15 @@ pub fn run() {
             }
         })
         .manage(ai::AiEngine::default())
+        .manage(cloud_proxy::CloudProxy::default())
         .manage(python::PyRuntime::default())
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
             credentials::load_service_config,
             credentials::save_service_config,
+            cloud_proxy::cloud_model_request,
+            cloud_proxy::cloud_chat_stream,
+            cloud_proxy::cloud_model_cancel,
             workspace_lifecycle::enable_workspace_exit_guard,
             workspace_lifecycle::finish_workspace_exit,
             ai::ai_engine_status,
@@ -121,7 +129,16 @@ pub fn run() {
             dataset_store::save_dataset,
             dataset_store::delete_dataset,
             export::save_export,
-        ])
+            ];
+            move |invoke: tauri::ipc::Invoke| {
+                if ipc_access::application_window(invoke.message.webview_ref().label()) {
+                    commands(invoke)
+                } else {
+                    invoke.resolver.reject("这个窗口不能调用应用命令");
+                    true
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
@@ -156,8 +173,9 @@ mod main_thread_guard {
             ("commands/objects.rs", include_str!("commands/objects.rs")),
             ("commands/query.rs", include_str!("commands/query.rs")),
             ("export.rs", include_str!("export.rs")),
-            ("ai.rs", include_str!("ai.rs")),
+            ("ai/mod.rs", include_str!("ai/mod.rs")),
             ("credentials.rs", include_str!("credentials.rs")),
+            ("cloud_proxy/mod.rs", include_str!("cloud_proxy/mod.rs")),
             ("dashboard_store.rs", include_str!("dashboard_store.rs")),
             ("dataset_store.rs", include_str!("dataset_store.rs")),
             ("monitor.rs", include_str!("monitor.rs")),

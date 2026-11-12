@@ -1,3 +1,4 @@
+import { requireReadOnlyAnalysis } from "../../lib/databaseDialect";
 /**
  * 数据集的存取与字段探测。
  *
@@ -12,6 +13,7 @@ import type { Dataset, DatasetField } from "./domain";
 import { buildDatasetSql, inferRole, normalizeDataset } from "./domain";
 
 function datasetReadSql(dataset: Dataset, kind: DbKind | undefined): string {
+  requireReadOnlyAnalysis(kind);
   const sql = buildDatasetSql(dataset, kind);
   const statements = splitSqlStatements(sql, kind).filter(part => stripLeadingComments(part).trim());
   if (statements.length !== 1) throw new Error("数据集需要一条只读查询 SQL");

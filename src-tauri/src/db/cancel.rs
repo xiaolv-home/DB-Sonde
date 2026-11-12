@@ -63,7 +63,8 @@ pub async fn cancel_marked_query(pool: &DbPool, marker: &str) -> AppResult<u64> 
             side.close().await;
             Ok(n.max(0) as u64)
         }
-        // SQLite 在本机、Oracle / ClickHouse 走各自驱动:暂不支持服务器端取消,界面只停止等待
+        DbPool::ClickHouse(handle) => handle.cancel(marker).await,
+        // SQLite 在本机、Oracle 走各自驱动:暂不支持服务器端取消,界面只停止等待
         _ => Ok(0),
     }
 }

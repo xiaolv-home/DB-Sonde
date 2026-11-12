@@ -28,6 +28,11 @@ pub fn page_url(raw: &str) -> Result<tauri::Url, String> {
     if !url.username().is_empty() || url.password().is_some() {
         return Err("不要把账号密码写在网址里,打开页面后在页面上登录".into());
     }
+    let host = url.host_str().unwrap_or("").trim_end_matches('.');
+    if matches!(host, "tauri.localhost" | "ipc.localhost" | "asset.localhost")
+        || (url.port() == Some(1420) && matches!(host, "localhost" | "127.0.0.1" | "[::1]")) {
+        return Err("不能嵌本软件自己的页面".into());
+    }
     Ok(url)
 }
 
@@ -96,6 +101,7 @@ pub async fn monitor_open_window(app: tauri::AppHandle, id: String, url: String,
     }
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(target))
         .title(format!("{title} · DB Sonde 监控中心"))
+        .on_navigation(|url| page_url(url.as_str()).is_ok() || matches!(url.scheme(), "about" | "blob"))
         .inner_size(1280.0, 820.0)
         .min_inner_size(640.0, 420.0)
         .build()
@@ -111,7 +117,7 @@ mod tests {
     fn only_plain_http_pages_are_accepted() {
         assert!(page_url("http://192.0.2.10:18086").is_ok());
         assert!(page_url("https://example.com/dashboard?x=1").is_ok());
-        for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "http://user:pw@192.0.2.10", "ftp://x", "not a url"] {
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "http://user:pw@192.0.2.10", "ftp://x", "not a url", "http://tauri.localhost", "http://127.0.0.1:1420"] {
             assert!(page_url(bad).is_err(), "{bad} 应该被拒");
         }
     }

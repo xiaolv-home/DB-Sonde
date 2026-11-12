@@ -29,14 +29,14 @@ jobs:
       matrix:
         include:
           - label: macOS (Apple Silicon)
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
           # 不用 macos-13:GitHub 的 Intel runner 正在淘汰,极度稀缺 ——
           # 实测排队 30 分钟都分不到机器。改成在 arm64 runner 上交叉编译到
           # x86_64,苹果自家的交叉编译一向可靠(本机验证过,产出的是真正的
           # Mach-O x86_64)。
           - label: macOS (Intel)
-            os: macos-14
+            os: macos-15
             target: x86_64-apple-darwin
           - label: Windows (x64)
             os: windows-latest
@@ -50,7 +50,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.90.0
         with:
           targets: ${{ matrix.target }}
 

@@ -51,7 +51,7 @@ export default function ConnectionDialog() {
 
   const setKind = (kind: DbKind) => {
     const dp = DB_KINDS.find((k) => k.value === kind)?.defaultPort ?? 0;
-    patch({ kind, port: dp, brand: null });
+    patch({ kind, port: kind === "clickhouse" ? 8443 : dp, sslMode: kind === "clickhouse" ? "require" : "prefer", brand: null });
   };
 
   const close = () => useApp.getState().closeDialog();
@@ -244,11 +244,11 @@ export default function ConnectionDialog() {
                     <label>SSL</label>
                     <select
                       className="select"
-                      value={cfg.sslMode ?? "prefer"}
-                      onChange={(e) => patch({ sslMode: e.target.value })}
+                      value={cfg.kind === "clickhouse" ? (cfg.sslMode === "require" ? "require" : "disable") : cfg.sslMode ?? "prefer"}
+                      onChange={(e) => patch({ sslMode: e.target.value, ...(cfg.kind === "clickhouse" && [8123, 8443].includes(cfg.port) ? { port: e.target.value === "require" ? 8443 : 8123 } : {}) })}
                     >
                       <option value="disable">{t("ssl.disable")}</option>
-                      <option value="prefer">{t("ssl.prefer")}</option>
+                      {cfg.kind !== "clickhouse" && <option value="prefer">{t("ssl.prefer")}</option>}
                       <option value="require">{t("ssl.require")}</option>
                     </select>
                   </div>

@@ -386,3 +386,12 @@ mod statement_shape_tests {
         assert!(!returns_rows("#只有注释没有语句"));
     }
 }
+
+/// Editor context is passed explicitly; no driver parses SQL comments to recover ownership.
+pub async fn run_query_with_context(pool: &DbPool, sql: &str, max_rows: Option<usize>, run_id: Option<&str>, timeout_secs: Option<u64>) -> AppResult<QueryResult> {
+    if let DbPool::ClickHouse(handle) = pool {
+        return clickhouse_driver::run_query_with_options(handle, sql, max_rows.unwrap_or(usize::MAX),
+            clickhouse_driver::QueryOptions::new(run_id, timeout_secs)).await;
+    }
+    run_query(pool, sql, max_rows).await
+}

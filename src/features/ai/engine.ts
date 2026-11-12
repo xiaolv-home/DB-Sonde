@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "../../lib/mockBackend";
+import { cloudModelRequest } from "./cloudProxy";
 
 export interface EngineStatus {
   running: boolean;
@@ -36,22 +37,9 @@ export interface DownloadProgress {
   error: string | null;
 }
 
-/** The default built-in model: Qwen2.5-Coder-7B-Instruct Q4_K_M (~4.7 GB).
- *  Downloaded from ModelScope (Alibaba) — it serves the file directly and is
- *  fast/reachable in mainland China, unlike HuggingFace which redirects large
- *  files to an AWS CDN that is commonly blocked or stalls there. */
-export const BUILTIN_MODEL = {
-  filename: "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
-  total: 4_683_073_344,
-  url: "https://modelscope.cn/models/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/master/qwen2.5-coder-7b-instruct-q4_k_m.gguf",
-};
-
-export async function modelDownload(
-  url = BUILTIN_MODEL.url,
-  filename = BUILTIN_MODEL.filename,
-  total = BUILTIN_MODEL.total,
-): Promise<void> {
-  return invoke("ai_model_download", { url, filename, total });
+/** Start the built-in GGUF download. Repository path and SHA-256 are pinned in Rust. */
+export async function modelDownload(): Promise<void> {
+  return invoke("ai_model_download");
 }
 
 export async function modelProgress(): Promise<DownloadProgress | null> {
@@ -65,12 +53,22 @@ export async function modelProgress(): Promise<DownloadProgress | null> {
 
 /** Poll the OpenAI-compatible endpoint until the model has finished loading. */
 export async function waitReady(baseUrl: string, timeoutMs = 90000): Promise<boolean> {
-  const url = baseUrl.replace(/\/$/, "") + "/models";
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(url);
-      if (res.ok) return true;
+      if (inTauri) {
+        const res = await cloudModelRequest({
+          provider: "builtin",
+          baseUrl,
+          path: "models",
+          method: "GET",
+          timeoutMs: 2_000,
+        });
+        if (res.status >= 200 && res.status < 300) return true;
+      } else {
+        const res = await fetch(baseUrl.replace(/\/$/, "") + "/models");
+        if (res.ok) return true;
+      }
     } catch {
       /* not up yet */
     }

@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { moveCalendarCursor } from "./calendarKeyboard";
+import type { KeyboardEvent } from "react";
+import { useId, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -44,6 +46,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useState(() => parse(end || start));
   const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
+  const dialogId = useId();
+  const [cursor, setCursor] = useState(end || start);
+  const focusPending = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -65,8 +70,27 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   };
   // 弹层画出来、尺寸确定之后再量一次(第一次 place 时还没有弹层,量不到高度)。
   useLayoutEffect(() => { if (open) place(); }, [open, mode]);
-  const openPop = () => { place(); const d = parse(end || start); setView(new Date(d.getFullYear(), d.getMonth(), 1)); setPending(null); setMode("day"); setOpen(true); };
+  const openPop = () => { place(); const d = parse(end || start || ymd(startOfToday())); setView(new Date(d.getFullYear(), d.getMonth(), 1)); setPending(null); setMode("day"); setCursor(end || start || ymd(startOfToday())); focusPending.current = true; setOpen(true); };
   const close = () => { setOpen(false); setPending(null); };
+  const returnFocus = () => { close(); triggerRef.current?.focus(); };
+  useLayoutEffect(() => {
+    if (!open || !focusPending.current) return;
+    const cell = Array.from(popRef.current?.querySelectorAll<HTMLButtonElement>("[data-date]") ?? [])
+      .find(button => button.dataset.date === cursor);
+    const target = cell ?? popRef.current?.querySelector<HTMLButtonElement>("[data-date]");
+    if (target) { target.focus(); focusPending.current = false; }
+  }, [open, cursor, mode, view]);
+  const onCalendarKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); returnFocus(); return; }
+    const cell = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-date]");
+    if (!cell?.dataset.date) return;
+    const moved = moveCalendarCursor(mode, parse(cell.dataset.date), event.key);
+    if (!moved) return; // Enter/Space retain the native button click behavior.
+    event.preventDefault();
+    const date = ymd(moved);
+    setCursor(date); setHover(date); focusPending.current = true;
+    setView(new Date(moved.getFullYear(), moved.getMonth(), 1));
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -103,7 +127,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
     if (!pending) { setPending(repDate); setHover(repDate); return; }
     const [s, e] = expand(pending, repDate);
     onChange(s, e);
-    close();
+    returnFocus();
   };
 
   const grid = () => {
@@ -113,14 +137,14 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
       return (
         <>
           <div className="dash-cal-head">
-            <button type="button" onClick={() => setView(new Date(y - 1, 0, 1))}><ChevronLeft size={15} /></button>
+            <button type="button" aria-label="上一年" onClick={() => setView(new Date(y - 1, 0, 1))}><ChevronLeft size={15} /></button>
             <strong>{y} 年</strong>
-            <button type="button" onClick={() => setView(new Date(y + 1, 0, 1))}><ChevronRight size={15} /></button>
+            <button type="button" aria-label="下一年" onClick={() => setView(new Date(y + 1, 0, 1))}><ChevronRight size={15} /></button>
           </div>
           <div className="dash-cal-cells">
             {MONTHS.map((label, m) => {
               const key = `${y}-${pad(m + 1)}`;
-              return <button key={m} type="button" className={`dash-cal-cell${key >= hlLo && key <= hlHi ? " on" : ""}`} onClick={() => pick(ymd(new Date(y, m, 1)))} onMouseEnter={() => pending && setHover(ymd(new Date(y, m, 1)))}>{label}</button>;
+              return <button key={m} type="button" data-date={ymd(new Date(y, m, 1))} tabIndex={cursor.slice(0, 7) === key ? 0 : -1} aria-label={`${y} 年 ${label}`} onFocus={() => setCursor(ymd(new Date(y, m, 1)))} className={`dash-cal-cell${key >= hlLo && key <= hlHi ? " on" : ""}`} onClick={() => pick(ymd(new Date(y, m, 1)))} onMouseEnter={() => pending && setHover(ymd(new Date(y, m, 1)))}>{label}</button>;
             })}
           </div>
         </>
@@ -131,13 +155,13 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
       return (
         <>
           <div className="dash-cal-head">
-            <button type="button" onClick={() => setView(new Date(yearBase - 12, 0, 1))}><ChevronLeft size={15} /></button>
+            <button type="button" aria-label="前十二年" onClick={() => setView(new Date(yearBase - 12, 0, 1))}><ChevronLeft size={15} /></button>
             <strong>{yearBase} - {yearBase + 11}</strong>
-            <button type="button" onClick={() => setView(new Date(yearBase + 12, 0, 1))}><ChevronRight size={15} /></button>
+            <button type="button" aria-label="后十二年" onClick={() => setView(new Date(yearBase + 12, 0, 1))}><ChevronRight size={15} /></button>
           </div>
           <div className="dash-cal-cells">
             {Array.from({ length: 12 }, (_, i) => yearBase + i).map((y) => (
-              <button key={y} type="button" className={`dash-cal-cell${y >= hlLo && y <= hlHi ? " on" : ""}`} onClick={() => pick(`${y}-01-01`)} onMouseEnter={() => pending && setHover(`${y}-01-01`)}>{y}</button>
+              <button key={y} type="button" data-date={`${y}-01-01`} tabIndex={Number(cursor.slice(0, 4)) === y ? 0 : -1} aria-label={`${y} 年`} onFocus={() => setCursor(`${y}-01-01`)} className={`dash-cal-cell${y >= hlLo && y <= hlHi ? " on" : ""}`} onClick={() => pick(`${y}-01-01`)} onMouseEnter={() => pending && setHover(`${y}-01-01`)}>{y}</button>
             ))}
           </div>
         </>
@@ -147,9 +171,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
     return (
       <>
         <div className="dash-cal-head">
-          <button type="button" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}><ChevronLeft size={15} /></button>
+          <button type="button" aria-label="上个月" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}><ChevronLeft size={15} /></button>
           <strong>{view.getFullYear()} 年 {view.getMonth() + 1} 月</strong>
-          <button type="button" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}><ChevronRight size={15} /></button>
+          <button type="button" aria-label="下个月" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}><ChevronRight size={15} /></button>
         </div>
         <div className="dash-cal-grid dash-cal-weekdays">{WEEKDAYS.map((w) => <span key={w}>{w}</span>)}</div>
         <div className="dash-cal-grid" onMouseLeave={() => setHover(null)}>
@@ -160,6 +184,11 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
             return (
               <button
                 key={s}
+                data-date={s}
+                tabIndex={(s === cursor || (!cells.some(cell => ymd(cell) === cursor) && d.getDate() === 1 && inMonth)) ? 0 : -1}
+                aria-label={`${s}${inRange ? "，已在选择范围内" : ""}`}
+                aria-current={s === todayStr ? "date" : undefined}
+                onFocus={() => setCursor(s)}
                 type="button"
                 className={`dash-cal-day${inMonth ? "" : " other"}${inRange ? " in" : ""}${s === hl[0] ? " start" : ""}${s === hl[1] ? " end" : ""}${s === todayStr ? " today" : ""}`}
                 onClick={() => pick(s)}
@@ -176,25 +205,25 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
 
   return (
     <div className="dash-daterange">
-      <button ref={triggerRef} type="button" className="dash-daterange-trigger" onClick={() => (open ? close() : openPop())}>
+      <button ref={triggerRef} type="button" className="dash-daterange-trigger" aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined} onClick={() => (open ? close() : openPop())}>
         <Calendar size={13} />
         <span>{activePreset ? activePreset.label : `${start} — ${end}`}</span>
       </button>
       {open && createPortal(
-        <div className="dash-daterange-pop" ref={popRef} style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined }}>
+        <div id={dialogId} role="dialog" aria-label="选择日期区间" className="dash-daterange-pop" ref={popRef} onKeyDown={onCalendarKey} style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined }}>
           <div className="dash-daterange-presets">
             {presets().map((p) => (
-              <button key={p.label} type="button" className={activePreset?.label === p.label ? "on" : ""} onClick={() => { const [s, e] = p.range(); onChange(s, e); close(); }}>{p.label}</button>
+              <button key={p.label} type="button" className={activePreset?.label === p.label ? "on" : ""} onClick={() => { const [s, e] = p.range(); onChange(s, e); returnFocus(); }}>{p.label}</button>
             ))}
           </div>
           <div className="dash-cal">
             <div className="dash-cal-modes">
               {(["day", "week", "month", "year"] as Mode[]).map((m) => (
-                <button key={m} type="button" className={mode === m ? "on" : ""} onClick={() => { setMode(m); setPending(null); }}>{{ day: "日", week: "周", month: "月", year: "年" }[m]}</button>
+                <button key={m} type="button" className={mode === m ? "on" : ""} onClick={() => { setMode(m); setPending(null); focusPending.current = true; setCursor(m === "year" ? `${view.getFullYear()}-01-01` : m === "month" ? ymd(new Date(view.getFullYear(), view.getMonth(), 1)) : ymd(new Date(view.getFullYear(), view.getMonth(), Math.min(parse(cursor).getDate(), monthEnd(view.getFullYear(), view.getMonth()).getDate())))); }}>{{ day: "日", week: "周", month: "月", year: "年" }[m]}</button>
               ))}
             </div>
             {grid()}
-            <div className="dash-cal-foot">{pending ? "再点一个选为终点(可跨月/年)" : `${start} — ${end}`}</div>
+            <div className="dash-cal-foot" role="status" aria-live="polite">{pending ? "再点一个选为终点(可跨月/年)" : `${start} — ${end}`}</div>
           </div>
         </div>,
         document.body,

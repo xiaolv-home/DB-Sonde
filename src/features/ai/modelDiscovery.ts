@@ -18,7 +18,7 @@ interface DiscoveryState {
 }
 
 /** Model metadata only: the caller supplies transport; this never runs inference. */
-export function createModelDiscovery(list: (url: string, apiKey?: string) => Promise<string[]>) {
+export function createModelDiscovery(list: (url: string, apiKey?: string, provider?: AiProvider) => Promise<string[]>) {
   const requests = createRequestScope();
   const empty = { models: [] as string[], loading: false, loaded: false, error: null };
   return create<DiscoveryState>((set, get) => ({
@@ -34,7 +34,7 @@ export function createModelDiscovery(list: (url: string, apiKey?: string) => Pro
       const ticket = requests.begin("models");
       set({ ...empty, loading: true });
       try {
-        const models = await list(target.baseUrl, target.apiKey);
+        const models = await list(target.baseUrl, target.apiKey, target.provider);
         if (!ticket.isCurrent()) return;
         if (!Array.isArray(models) || !models.every(model => typeof model === "string")) throw new Error("invalid model list");
         set({ models: [...new Set(models.filter(model => model.trim()))], loaded: true });

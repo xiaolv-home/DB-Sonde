@@ -1,3 +1,4 @@
+import { requireReadOnlyAnalysis } from "../../lib/databaseDialect";
 /** Production composition: each run owns catalog, query plans and cached rows. */
 import { nanoid } from 'nanoid';
 import { useMetrics } from '../metrics/metricsStore';
@@ -32,6 +33,7 @@ export function createAnalysisSession(signal?: AbortSignal, connId?: string) {
   const connections = useApp.getState().connections.map(({ id, kind }) => ({ id, kind }));
   const readCatalog = () => structuredClone(catalog);
   const dialectFor = (id: string) => connections.find(c => c.id === id)?.kind;
+  if (connId) requireReadOnlyAnalysis(dialectFor(connId));
   const query = createQuerySession(readCatalog, dialectFor);
   const lifetime = new AbortController();
   const dimensionValues: typeof fastDimensionValues = (dataset, field, limit, search, snapshot = catalog) => {

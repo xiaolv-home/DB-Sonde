@@ -6,7 +6,7 @@
 //! rows map straight onto `serde_json::Value`. Read-first: no cell editing and
 //! no manual-commit transactions (ClickHouse has neither in the usual sense).
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::Value as Json;
 
@@ -55,50 +55,12 @@ fn with_json_format(sql: &str) -> String {
     }
 }
 
-impl ClickHouseHandle {
-    /// POST a statement to the HTTP endpoint. Non-2xx bodies carry ClickHouse's
-    /// own error text, which we surface verbatim.
-    async fn exec(&self, sql: &str) -> AppResult<String> {
-        let resp = self
-            .client
-            .post(&self.url)
-            .query(&[("database", self.database.as_str())])
-            .header("X-ClickHouse-User", self.user.as_str())
-            .header("X-ClickHouse-Key", self.password.as_str())
-            .body(sql.to_string())
-            .send()
-            .await
-            .map_err(|e| AppError::msg(format!("ClickHouse 请求失败: {e}")))?;
-        let status = resp.status();
-        let text = resp.text().await.map_err(|e| AppError::msg(e.to_string()))?;
-        if !status.is_success() {
-            return Err(AppError::msg(format!("ClickHouse {}: {}", status.as_u16(), text.trim())));
-        }
-        Ok(text)
-    }
-
-    /// Run a row-returning query and parse the `FORMAT JSON` envelope.
-    async fn query_json(&self, sql: &str) -> AppResult<Json> {
-        let text = self.exec(&with_json_format(sql)).await?;
-        serde_json::from_str(&text).map_err(|e| AppError::msg(format!("解析 ClickHouse 响应失败: {e}")))
-    }
-
-    /// First column of the first row, as a string (version/database probes).
-    async fn scalar(&self, sql: &str) -> Option<String> {
-        let j = self.query_json(sql).await.ok()?;
-        let row = j.get("data")?.as_array()?.first()?.as_object()?;
-        row.values().next().map(json_to_string)
-    }
-}
+mod http;
+pub use http::QueryOptions;
 
 pub async fn connect(cfg: &ConnectionConfig, password: Option<&str>) -> AppResult<ConnectInfo> {
-    let scheme = if matches!(cfg.ssl_mode.as_deref(), Some("require")) { "https" } else { "http" };
-    let port = if cfg.port == 0 { 8123 } else { cfg.port };
-    let url = format!("{scheme}://{}:{}/", cfg.host, port);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| AppError::msg(format!("构建 HTTP 客户端失败: {e}")))?;
+    let url = http::endpoint(cfg)?;
+    let client = http::client()?;
     let user = if cfg.username.trim().is_empty() { "default".to_string() } else { cfg.username.clone() };
     let database = if cfg.database.trim().is_empty() { "default".to_string() } else { cfg.database.clone() };
     let handle = ClickHouseHandle {
@@ -124,10 +86,14 @@ pub async fn connect(cfg: &ConnectionConfig, password: Option<&str>) -> AppResul
 }
 
 pub async fn run_query(handle: &ClickHouseHandle, sql: &str, cap: usize) -> AppResult<QueryResult> {
+    run_query_with_options(handle, sql, cap, QueryOptions::new(None, None)).await
+}
+
+pub async fn run_query_with_options(handle: &ClickHouseHandle, sql: &str, cap: usize, options: QueryOptions) -> AppResult<QueryResult> {
     let started = Instant::now();
 
     if !super::returns_rows(sql) {
-        handle.exec(sql).await?;
+        handle.execute(sql, &options).await?;
         return Ok(QueryResult {
             additional_results: None,
             message: Some("语句已执行(ClickHouse 不返回受影响行数)".into()),
@@ -137,7 +103,8 @@ pub async fn run_query(handle: &ClickHouseHandle, sql: &str, cap: usize) -> AppR
         });
     }
 
-    let j = handle.query_json(sql).await?;
+    let text = handle.execute(&with_json_format(sql), &options).await?;
+    let j: Json = serde_json::from_str(&text).map_err(|e| AppError::msg(format!("解析 ClickHouse 响应失败: {e}")))?;
     let columns: Vec<ColumnMeta> = j
         .get("meta")
         .and_then(|m| m.as_array())

@@ -32,12 +32,13 @@ export interface AiState {
 
 
 /** Persistence is injected; asynchronous saves retain responsive inputs and roll back failed drafts. */
-export function createAiStore(repository: StoredRepository<AiConfig>) {
+export function createAiStore(repository: StoredRepository<AiConfig>, present = (config: AiConfig) => config) {
   return create<AiState>((set, get) => {
-    let persisted = repository.load();
+    let persisted = present(repository.load());
     let revision = 0, persistedRevision = 0;
     const commit = (config: AiConfig): boolean | Promise<boolean> => {
       const current = ++revision;
+      const visible = present(config);
       const failed = () => {
         if (current === revision) set({ config: { ...persisted, builtin: get().config.builtin },
           configError: "AI 设置未能保存，本次修改未生效。请检查本地存储提示后重试。" });
@@ -47,15 +48,15 @@ export function createAiStore(repository: StoredRepository<AiConfig>) {
         const saving = repository.save(config);
         if (saving) {
           // Keep controlled inputs responsive while encrypted writes serialize.
-          set({ config, configError: null });
+          set({ config: visible, configError: null });
           return saving.then(() => {
-            if (current > persistedRevision) { persisted = config; persistedRevision = current; }
+            if (current > persistedRevision) { persisted = visible; persistedRevision = current; }
             if (current === revision) set({ configError: null });
             return true;
           }, failed);
         }
-        persisted = config; persistedRevision = current;
-        set({ config, configError: null });
+        persisted = visible; persistedRevision = current;
+        set({ config: visible, configError: null });
         return true;
       } catch {
         // Synchronous failure must retain the exact prior state object.

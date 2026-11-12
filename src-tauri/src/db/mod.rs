@@ -18,7 +18,7 @@ pub use cancel::{cancel_marked_query, cancel_supported, kill_process, run_marker
 pub use connect::connect;
 pub(crate) use query::strip_leading_noise;
 pub(crate) use query::returns_rows;
-pub use query::{run_query, run_read_only_query};
+pub use query::{run_query_with_context, run_query, run_read_only_query};
 pub use session::{
     begin_tx, commit_tx, rollback_tx, run_query_on_tx, run_statements, run_statements_on_tx,
     supports_session_tx, SessionTx,

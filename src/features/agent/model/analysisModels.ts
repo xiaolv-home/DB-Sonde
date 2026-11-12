@@ -1,6 +1,6 @@
 import { defaultDeepSeekAnalysis, normalizeDeepSeekModel, applyDeepSeekVision, isDeepSeekPro } from "../../ai/providers/deepseek";
 import type { AiConfig, AiProvider } from "../../ai/aiTypes";
-import { bindingFor } from "./modelRouting";
+import { bindingFor, cloudKeyConfigured } from "./modelRouting";
 
 export interface AnalysisModelChoice { provider: AiProvider; model: string }
 export const PROVIDER_LABELS = { cloud: "云端", local: "本地服务", builtin: "内置" };
@@ -27,7 +27,7 @@ export function analysisModelProblems(config: AiConfig, choice: AnalysisModelCho
     const endpoint = selected[binding.provider];
     if (!endpoint.model.trim()) return [`${label}尚未选择模型`];
     if (!endpoint.baseUrl.trim()) return [`${PROVIDER_LABELS[binding.provider]}模型尚未配置服务地址`];
-    if (binding.provider === "cloud" && !selected.cloud.apiKey) return ["云端模型尚未配置 API Key，请打开 AI 设置"];
+    if (binding.provider === "cloud" && !cloudKeyConfigured(selected.cloud)) return ["云端模型尚未配置 API Key，请打开 AI 设置"];
     if (binding.provider === "builtin" && !selected.builtin.ready) return ["内置模型尚未就绪"];
     return [];
   });

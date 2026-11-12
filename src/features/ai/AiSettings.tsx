@@ -1,3 +1,4 @@
+import { useCloudSettingsDraft } from "./useCloudSettingsDraft";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Play, Square, CircleCheck, Download, RefreshCw } from "lucide-react";
 import { inTauri } from "../../lib/mockBackend";
@@ -167,6 +168,8 @@ export default function AiSettings() {
   const update = useAi((s) => s.update);
   const close = useAi((s) => s.closeSettings);
   const configError = useAi((s) => s.configError);
+  const cloudDraft = useCloudSettingsDraft();
+  const requestClose = () => { void cloudDraft.save().then(ok => { if (ok) close(); }); };
 
   const discovery = useModelDiscovery(config.provider === "local" ? { provider: "local", baseUrl: config.local.baseUrl } : null);
   const detectMsg = discovery.error ?? (discovery.loaded
@@ -180,7 +183,7 @@ export default function AiSettings() {
   ];
 
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
+    <div className="modal-backdrop" onMouseDown={requestClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{t("settings")}</h3>
@@ -252,9 +255,10 @@ export default function AiSettings() {
                 <label>{t("baseUrl")}</label>
                 <input
                   className="input"
-                  value={config.cloud.baseUrl}
+                  value={cloudDraft.url}
                   spellCheck={false}
-                  onChange={(e) => updateCloud({ baseUrl: e.target.value })}
+                  onChange={(e) => cloudDraft.setUrl(e.target.value)}
+                  onBlur={() => { void cloudDraft.save(); }}
                 />
               </div>
               <div className="form-row">
@@ -262,11 +266,16 @@ export default function AiSettings() {
                 <input
                   className="input"
                   type="password"
-                  value={config.cloud.apiKey}
+                  value={cloudDraft.key}
+                  autoComplete="off"
+                  placeholder={cloudDraft.hasKey ? t("apiKeySaved") : ""}
                   spellCheck={false}
-                  onChange={(e) => updateCloud({ apiKey: e.target.value })}
+                  onChange={(e) => cloudDraft.setKey(e.target.value)}
+                  onBlur={() => { void cloudDraft.save(); }}
                 />
               </div>
+              <div className="ai-note" role="status">{cloudDraft.cleared ? t("cloudKeyCleared") : t("cloudKeyHostHint")}</div>
+              {cloudDraft.hasKey && <button type="button" className="btn sm" onClick={() => { void cloudDraft.save(true); }}>{t("apiKeyClear")}</button>}
               <div className="form-row">
                 <label>{t("model")}</label>
                 <input
@@ -332,7 +341,7 @@ export default function AiSettings() {
         </div>
         <div className="modal-foot">
           <div className="toolbar-spacer" />
-          <button className="btn primary" onClick={close}>
+          <button className="btn primary" onClick={requestClose}>
             {t("close")}
           </button>
         </div>

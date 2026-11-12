@@ -1,3 +1,5 @@
+import { readOnlyAnalysisProblem } from "../../lib/databaseDialect";
+import { useApp } from "../../store/appStore";
 import { useSubmitOnEnter } from "../../hooks/useSubmitOnEnter";
 import { bindingFor } from "./model/modelRouting";
 import { useEffect, useMemo, useState } from "react";
@@ -30,6 +32,8 @@ const GRAINS = [
 const TIME_DIMS = ["day", "week", "month", "year"];
 
 export default function AnalysisWorkspace({ tab }: { tab: AnalysisTab }) {
+  const connections = useApp(s => s.connections);
+  const unsupported = readOnlyAnalysisProblem(connections.find(c => c.id === tab.connId)?.kind);
   const aiConfig = useAi((s) => s.config);
   const allMetrics = useMetrics((s) => s.metrics);
   const metrics = useMemo(() => allMetrics.filter((m) => m.enabled), [allMetrics]);
@@ -102,7 +106,7 @@ export default function AnalysisWorkspace({ tab }: { tab: AnalysisTab }) {
 
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-  const problems = [...(d.mode === "question" ? (d.question.trim() ? [] : ["写下你想了解的问题"]) : analysisProblems(d, allMetrics)), ...analysisModelProblems(aiConfig, d.modelChoice, d.wantsDashboard)];
+  const problems = [...(unsupported ? [unsupported] : []), ...(d.mode === "question" ? (d.question.trim() ? [] : ["写下你想了解的问题"]) : analysisProblems(d, allMetrics)), ...analysisModelProblems(aiConfig, d.modelChoice, d.wantsDashboard)];
 
   const startAnalysis = () => {
     if (running || problems.length) return;
