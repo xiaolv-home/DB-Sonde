@@ -35,6 +35,8 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # and handle self-signed TLS. rustls only, to match sqlx (no OpenSSL).
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "stream"] }
+# Same parser reqwest uses, so IPv6 hosts can be matched as Host::Ipv6 instead of bracketed text.
+url = "2.5"
 # 运行时下载的 SHA256 校验(哈希写死在 src/python/runtime.rs,见那里的注释)
 sha2 = "0.10"
 # Tiny localhost HTTP server for the `sonde` Python bridge: user scripts POST
