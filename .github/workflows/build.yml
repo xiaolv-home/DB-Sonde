@@ -131,6 +131,31 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
           if-no-files-found: error
 
+  # Linux 上的 clippy 门禁。上面的矩阵没有 Ubuntu:Tauri 在 Linux 上要 GTK / WebKit,
+  # macOS 和 Windows 的构建机装不了这些包。警告当错误,有警告就不能合。
+  clippy:
+    name: Clippy (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Tauri 的 Linux 系统依赖
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf libxdo-dev
+
+      # Cargo.lock 需要 1.85 及以上。stable 自带这个版本;minimal profile 不含 clippy。
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: clippy
+
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
   # 打 tag 时把三个平台的包发成 Release。单独一个 job,不放进矩阵 ——
   # 三个并行 job 各自去建同一个 Release 会打架。
   release:
