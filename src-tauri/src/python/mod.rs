@@ -24,6 +24,8 @@ use std::sync::{Arc, Mutex};
 
 use assist::JediProc;
 
+use crate::paths::home_dir;
+
 #[derive(Default)]
 pub struct PyRuntime {
     /// run_id -> 子进程。停止时拿这个句柄，按平台结束进程，不调用 `kill`。
@@ -98,27 +100,8 @@ def show(fig=None, dpi=120):
     print("⟦SONDE_IMG⟧" + p + "⟦/IMG⟧", flush=True)
 "#;
 
-/// 用户主目录。不要读 `HOME`：Windows 上通常没有这个变量，读了就落到盘符根目录。
-/// `dirs::home_dir()` 在 Windows 用的是用户配置里的 Profile；那个接口失败时再看 `USERPROFILE`。
-fn home() -> PathBuf {
-    if let Some(dir) = dirs::home_dir().filter(|dir| !dir.as_os_str().is_empty()) {
-        return dir;
-    }
-    #[cfg(windows)]
-    if let Some(dir) = std::env::var_os("USERPROFILE").filter(|dir| !dir.is_empty()) {
-        return PathBuf::from(dir);
-    }
-    #[cfg(windows)]
-    {
-        PathBuf::new()
-    }
-    #[cfg(not(windows))]
-    {
-        PathBuf::from("/")
-    }
-}
 fn runtime_root() -> PathBuf {
-    home().join(".db-sonde/runtime")
+    home_dir().join(".db-sonde/runtime")
 }
 fn python_dir() -> PathBuf {
     runtime_root().join("python")
@@ -138,7 +121,7 @@ fn workspace_dir() -> PathBuf {
     #[cfg(test)]
     { TEST_WORKSPACE.with(|p| p.borrow().clone().expect("workspace tests must install an isolated fixture")) }
     #[cfg(not(test))]
-    { home().join(".db-sonde/workspace") }
+    { home_dir().join(".db-sonde/workspace") }
 }
 // ---- the `sonde` bridge: scripts query the user's live connections ----
 

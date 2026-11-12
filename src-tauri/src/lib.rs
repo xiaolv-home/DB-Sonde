@@ -13,6 +13,7 @@ mod error;
 mod export;
 mod models;
 mod navigation;
+mod paths;
 mod python;
 mod readonly;
 mod store;
@@ -164,7 +165,7 @@ mod main_thread_guard {
             ("commands/objects.rs", include_str!("commands/objects.rs")),
             ("commands/query.rs", include_str!("commands/query.rs")),
             ("export.rs", include_str!("export.rs")),
-            ("ai.rs", include_str!("ai.rs")),
+            ("ai/mod.rs", include_str!("ai/mod.rs")),
             ("credentials.rs", include_str!("credentials.rs")),
             ("cloud_proxy.rs", include_str!("cloud_proxy.rs")),
             ("dashboard_store.rs", include_str!("dashboard_store.rs")),
