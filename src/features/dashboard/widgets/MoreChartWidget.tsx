@@ -3,7 +3,8 @@ import ReactECharts from "echarts-for-react";
 import type { QueryResult } from "../../../types";
 import { useApp } from "../../../store/appStore";
 import { registerChartExporter } from "../chartExport";
-import { DEFAULT_DASHBOARD_PALETTE, type DashboardWidget } from "../domain";
+import { chartChrome, chartPalette } from "../../../lib/themeColors";
+import { type DashboardWidget } from "../domain";
 import type { ResolvedDashboardMetric } from "../metrics";
 import { moreCharts, type MoreChartInput, type MoreEchartType } from "../moreCharts";
 import { aggregate, metricValue } from "./metricUtils";
@@ -13,8 +14,7 @@ export function moreChartInput(widget: DashboardWidget, result: QueryResult, met
   const col = (name?: string) => (name ? result.columns.findIndex((c) => c.name === name) : -1);
   const dimNames = widget.bindings.dimensions?.length ? widget.bindings.dimensions : widget.bindings.dimension ? [widget.bindings.dimension] : [];
   const co = widget.options.chart ?? {};
-  const style = getComputedStyle(document.documentElement);
-  const v = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  const chrome = chartChrome();
   return {
     rows: result.rows,
     dims: dimNames.map(col).filter((i) => i >= 0),
@@ -22,9 +22,9 @@ export function moreChartInput(widget: DashboardWidget, result: QueryResult, met
     measures: metrics.map((m) => ({ name: m.name })),
     agg: (rows, i) => aggregate(rows, metrics[i]),
     fmt: (i, value) => metricValue(metrics[i], value, widget.options.numberFormat),
-    palette: co.palette?.length ? co.palette : [...DEFAULT_DASHBOARD_PALETTE],
+    palette: co.palette?.length ? co.palette : chartPalette(),
     colorOf: (name) => co.dimensionColors?.[name],
-    theme: { muted: v("--text-3", "#8b96a8"), border: v("--border", "rgba(140,150,170,.2)"), surface: v("--surface", "#ffffff"), text: v("--text", "#1f2329"), accent: v("--accent", "#4d8dff") },
+    theme: { muted: chrome.muted, border: chrome.border, surface: chrome.surface, text: chrome.text, accent: chrome.accent, red: chrome.red },
     opts: widget.options as unknown as MoreChartInput["opts"],
     animation: !staticRender,
   };
@@ -42,7 +42,7 @@ export default function MoreChartWidget({ widget, result, metrics, staticRender 
   useEffect(() => registerChartExporter(widget.id, () => {
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
-    const bg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#ffffff";
+    const bg = chartChrome().surface;
     const a = document.createElement("a");
     a.href = inst.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: bg });
     a.download = `${widget.title || widget.type}.png`;

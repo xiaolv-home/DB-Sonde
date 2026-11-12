@@ -3,10 +3,12 @@ import { nanoid } from "nanoid";
 import { WIDGET_SPECS, supportsSeries } from "./widgetSpecs";
 import type { QueryResult } from "../../types";
 import { maxOf } from "../../lib/numbers";
+import { chartPalette } from "../../lib/themeColors";
 
 
 export const DASHBOARD_SCHEMA_VERSION = 3 as const;
-export const DEFAULT_DASHBOARD_PALETTE = ["#4d8dff", "#2ed6a1", "#ffb547", "#a98bff", "#ff6b8a", "#35c6f4", "#ff7a45", "#66e0e5"] as const;
+/** 看板没单独设配色时的系列色,跟着当前主题。用户设过的 palette 不走这里。 */
+export const defaultDashboardPalette = (): string[] => chartPalette();
 
 /* 组件类型的**唯一定义处**。AI 的 schema、画布的下拉、导入时的白名单都从这里取 ——
    以前这串字面量在 4 个文件里各写一遍,加一种类型漏掉任何一处的表现是

@@ -1,3 +1,4 @@
+import { applyThemeSnapshot, type CssSource } from "../../../lib/themeColors";
 import type { BakedDashboard } from "./bake";
 import runtimeSource from "./standalone.runtime.js?inline-min";
 import controlsSource from "./filterControls.runtime.js?inline-min";
@@ -15,22 +16,11 @@ import tooltipTextSource from "../tooltipText.runtime.js?inline-min";
 /* 散点 / 雷达 / 热力 / 矩形树 / 瀑布 / 排行榜的配置,跟看板共用同一份。 */
 import moreChartsSource from "../moreCharts.runtime.js?inline-min";
 
-/** 离线看板页面的样式(主题感知:跟随系统深浅色)。内嵌进导出的 HTML。 */
+/** 离线看板页面的样式。颜色不写在这里:导出时把当时主题的实际色值填进 __THEME__。
+ *  页面是离线的,不能再去读应用的样式表,也不能跟着系统深浅色变。 */
 const STANDALONE_CSS = `
 :root {
-  --bg: #f4f6fb; --surface: #ffffff; --surface-3: #eef1f7;
-  --text: #1c2434; --text-2: #4a5468; --text-3: #8b96a8;
-  --border: rgba(120,132,156,.22); --border-2: rgba(120,132,156,.32); --accent: #4d8dff;
-  /* 筛选控件跟看板共用样式表,它要用的变量这儿也得有,否则控件是没颜色的骨架。 */
-  --surface-2: #ededf0; --accent-ink: #ffffff; --accent-soft: #dcf0fb; --accent-border: #0b8fd6;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e131c; --surface: #161d29; --surface-3: #1a2230;
-    --text: #e8edf6; --text-2: #aab4c6; --text-3: #7f8ba0;
-    --border: rgba(151,170,203,.16); --border-2: rgba(151,170,203,.26); --accent: #4d8dff;
-    --surface-2: #212127; --accent-ink: #05131e; --accent-soft: #103048; --accent-border: #33b1f5;
-  }
+  /*__THEME__*/
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -52,7 +42,7 @@ body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, 
 .dash-x-tabs.left .dash-x-tabbar { flex-direction: column; flex: 0 0 auto; }
 .dash-x-tabbar button { padding: 4px 11px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .dash-x-tabbar button:hover { color: var(--text); }
-.dash-x-tabbar button.on { border-color: var(--accent); background: var(--accent-soft, rgba(90,130,255,.14)); color: var(--accent); }
+.dash-x-tabbar button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .dash-x-tabpane { flex: 1; min-height: 0; min-width: 0; }
 .dash-x-tabpane .dash-x-grid { grid-auto-rows: 86px; }
 .dash-component-filters { margin: 0 0 8px; padding: 0 0 8px; background: transparent; }
@@ -88,8 +78,8 @@ body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, 
 .dash-kpi-label { color: var(--text-2); font-size: 12px; }
 .dash-kpi-compare { display: flex; gap: 8px; margin-top: 2px; }
 .dash-kpi-compare.layout-column { flex-direction: column; gap: 1px; }
-.dash-kpi-compare small { color: #ff6b8a; }
-.dash-kpi-compare small.up { color: #2ed6a1; }
+.dash-kpi-compare small { color: var(--red); }
+.dash-kpi-compare small.up { color: var(--green); }
 .dash-kpi-secondary { display: flex; flex-wrap: wrap; gap: 10px; color: var(--text-2); margin-top: 3px; }
 .dash-kpi-secondary b { color: var(--text); }
 
@@ -111,7 +101,7 @@ body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, 
 .dash-x-table th.grouphead { text-align: center; }
 .dash-x-table th.subhead { top: 30px; }
 .dash-x-table td.num { font-variant-numeric: tabular-nums; }
-.dash-x-table tbody tr:hover { background: rgba(128,140,170,.08); }
+.dash-x-table tbody tr:hover { background: var(--surface-2); }
 
 /* 副标题 / 脚注 */
 .dash-x-sub { flex: 0 0 auto; font-size: 11.5px; color: var(--text-3); line-height: 1.4; padding: 0 2px 6px; }
@@ -148,7 +138,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;
  * 组装自包含的离线看板 HTML:内联 echarts(动态 import 保持主包精简)+ 运行时 + 烘焙数据。
  * `</script` 通过把 JSON 里的 `<` 转成 \\u003c 防止提前闭合脚本标签。
  */
-export async function buildDashboardHtml(baked: BakedDashboard): Promise<string> {
+export async function buildDashboardHtml(baked: BakedDashboard, source?: CssSource): Promise<string> {
   /* 按需构建的 ECharts(只含折线/柱状/饼 + grid/legend/tooltip/dataZoom),
      不是完整版 —— 1096 KB → 597 KB。清单在 vite/exportAssets.ts。
      仍然是动态 import,这样它不进主包。 */
@@ -160,7 +150,7 @@ export async function buildDashboardHtml(baked: BakedDashboard): Promise<string>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(baked.title)} · 离线看板</title>
-<style>${STANDALONE_CSS}</style>
+<style>${applyThemeSnapshot(STANDALONE_CSS, source)}</style>
 <!-- 视觉预设(卡片背景/配色);放在基础样式之后,同特异性下预设胜出 -->
 <style>${filterControlsCss}</style>
 <style>${presetsCss}</style>

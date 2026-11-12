@@ -12,7 +12,6 @@
      内联在本脚本之前。和看板共用同一份,免得修了一处漏另一处。 */
   var esc = globalThis.__DASH_TIP__.esc;
   var echarts = window.echarts;
-  var PALETTE = ["#4d8dff", "#2ed6a1", "#ffb547", "#a98bff", "#ff6b8a", "#35c6f4", "#ff7a45", "#66e0e5"];
   var ROW = 96; // 每个网格行的像素高度(近似在线画布)
   /* 图表实例不攒在数组里 —— 攒了就永远不释放。
      每次下钻 / 切指标 / 改筛选都会重渲染,老的 DOM 被清掉、实例却还被数组拽着,
@@ -89,9 +88,18 @@
     }
     return metrics.map(function (m) { return { id: m.key, label: metricLabel(m), metrics: [m] }; });
   }
-  function cssVar(name, fallback) {
-    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return v || fallback;
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  /* 用户在组件上设过的配色原样用;没设过就读导出时写进页面的系列色。 */
+  function seriesPalette(co) {
+    if (co && co.palette && co.palette.length) return co.palette.slice();
+    var colors = [];
+    for (var i = 1; i <= 8; i++) {
+      var c = cssVar("--chart-" + i);
+      if (c) colors.push(c);
+    }
+    return colors;
   }
   function gradient(from, to, vertical) {
     return { type: "linear", x: 0, y: 0, x2: vertical ? 0 : 1, y2: vertical ? 1 : 0, colorStops: [{ offset: 0, color: from }, { offset: 1, color: to }] };
@@ -111,13 +119,13 @@
     var g = echarts.graphic, zr = chart.getZr && chart.getZr();
     if (!g || !g.Group || !g.Line || !g.Text || !zr) return function () {};
     var order = { zlevel: 100, z: 100, z2: 100000 };
-    var lineStyle = { stroke: cssVar("--text-3", "#8b96a8"), lineWidth: 1, lineDash: [5, 5], opacity: 0.92 };
+    var lineStyle = { stroke: cssVar("--text-3"), lineWidth: 1, lineDash: [5, 5], opacity: 0.92 };
     var group = new g.Group(Object.assign({ silent: true, invisible: true }, order));
     var vertical = new g.Line(Object.assign({ silent: true, style: lineStyle }, order));
     var horizontal = new g.Line(Object.assign({ silent: true, style: lineStyle }, order));
     var label = new g.Text(Object.assign({ silent: true, style: {
-      fill: cssVar("--text", "#e8edf6"), backgroundColor: cssVar("--surface-3", "#1a2230"),
-      borderColor: cssVar("--border-2", "rgba(151,170,203,.24)"), borderWidth: 1, borderRadius: 4,
+      fill: cssVar("--text"), backgroundColor: cssVar("--surface-3"),
+      borderColor: cssVar("--border-2"), borderWidth: 1, borderRadius: 4,
       padding: [4, 7], font: "600 11px Inter, PingFang SC, sans-serif", align: "left", verticalAlign: "middle",
     } }, order));
     group.add(vertical); group.add(horizontal); group.add(label);
@@ -220,11 +228,11 @@
   // ---- ECharts option 构建(对齐 ChartWidget) ----
   function buildChartOption(bw, view) {
     var w = bw.widget, co = w.options.chart || {}, type = w.type;
-    var muted = cssVar("--text-3", "#8b96a8");
-    var border = cssVar("--border", "rgba(140,150,170,.2)");
-    var surface = cssVar("--surface", "#ffffff");
-    var accent = cssVar("--accent", "#4d8dff");
-    var palette = (co.palette && co.palette.length) ? co.palette : PALETTE;
+    var muted = cssVar("--text-3");
+    var border = cssVar("--border");
+    var surface = cssVar("--surface");
+    var accent = cssVar("--accent");
+    var palette = seriesPalette(co);
     var grouping = co.grouping === true;
     var showValues = co.showLabels === true || co.barShowValues === true;
     var horizontal = type === "bar" && co.barOrientation === "horizontal";
@@ -322,7 +330,7 @@
       return {
         animation: true, animationDuration: 220, animationEasing: "linear",
         color: palette,
-        tooltip: { trigger: "item", formatter: function (p) { return (p.marker || "") + " " + esc(p.name) + ": <b>" + esc(metricValue(activePie, numberValue(p.value), nfF)) + "</b> <span style=\"opacity:.6\">占第一层 " + rate(numberValue(p.value)) + "</span>"; } },
+        tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: "item", formatter: function (p) { return (p.marker || "") + " " + esc(p.name) + ": <b>" + esc(metricValue(activePie, numberValue(p.value), nfF)) + "</b> <span style=\"opacity:.6\">占第一层 " + rate(numberValue(p.value)) + "</span>"; } },
         series: [{
           name: metricLabel(activePie), type: "funnel",
           sort: fo.order === "category" ? "none" : "descending", funnelAlign: fo.align || "center",
@@ -356,7 +364,7 @@
       var radii = pie.pieRadii(co.pieHole, co.pieOuterRadius, showLabels);
       return {
         animationDuration: 220, animationEasing: "linear", color: palette,
-        tooltip: { trigger: "item", formatter: function (p) {
+        tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: "item", formatter: function (p) {
           var label = String(p.name == null ? "" : p.name);
           var extra = secondarySummary(grouped[label] || [], "");
           var head = (p.marker || "") + " " + esc(label) + ": <b>" + esc(metricValue(activePie, numberValue(p.value))) + "</b>"
@@ -411,8 +419,8 @@
             // 面积:跟在线一套 —— 没设过只给单条线淡影;「面积图」显式打开时每条都填
             areaStyle: isBar ? undefined
               : co.lineArea === true
-                ? (isSingle ? { opacity: 0.32, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : (custom ? { opacity: 0.28, color: custom } : { opacity: 0.28 }))
-                : (isSingle && co.lineArea !== false) ? { opacity: 0.18, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
+                ? (isSingle ? { opacity: 0.32, color: gradient(custom || palette[0] || accent, "transparent", true) } : (custom ? { opacity: 0.28, color: custom } : { opacity: 0.28 }))
+                : (isSingle && co.lineArea !== false) ? { opacity: 0.18, color: gradient(custom || palette[0] || accent, "transparent", true) } : undefined,
             tooltip: { valueFormatter: function (v) { return metricValue(metric, numberValue(v), w.options.numberFormat); } },
           });
         });
@@ -449,7 +457,7 @@
     var marks = (co.markLine || []).filter(function (m) { return isFinite(m.value); });
     if (marks.length && series.length) {
       series[0].markLine = { silent: true, symbol: "none", data: marks.map(function (m) {
-        return { yAxis: m.value, lineStyle: { color: m.color || "#ffb547", type: "dashed", width: 1.5 },
+        return { yAxis: m.value, lineStyle: { color: m.color || cssVar("--amber"), type: "dashed", width: 1.5 },
                  label: { show: !!m.label, formatter: m.label || "", color: muted, fontSize: 10, position: "insideEndTop" } };
       }) };
     }
@@ -458,13 +466,13 @@
       animationDuration: 220, animationDurationUpdate: 220, animationEasing: "linear", animationEasingUpdate: "linear",
       color: palette,
       // 十字线交给 freeCrosshair(跟手、不吸附刻度),这里把 ECharts 自带的隐掉,免得两条。
-      tooltip: { trigger: (co.tooltip && co.tooltip.mode === "item") ? "item" : "axis", formatter: tooltipFormatter, axisPointer: { type: "cross", snap: false, lineStyle: { color: "transparent", width: 0, opacity: 0 }, crossStyle: { color: "transparent", width: 0, opacity: 0 }, label: { show: false } } },
+      tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: (co.tooltip && co.tooltip.mode === "item") ? "item" : "axis", formatter: tooltipFormatter, axisPointer: { type: "cross", snap: false, lineStyle: { color: "transparent", width: 0, opacity: 0 }, crossStyle: { color: "transparent", width: 0, opacity: 0 }, label: { show: false } } },
       // 窄屏(手机)上图例换行会压进绘图区,用可滚动单行避免。
       legend: (series.length > 1 && w.options.showLegend) ? { show: true, type: "scroll", top: 0, right: 8, left: 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
       grid: { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: dense ? 34 : 8, containLabel: true },
       xAxis: horizontal ? valAxis : catAxis,
       yAxis: horizontal ? catAxis : valAxis,
-      dataZoom: dense ? [Object.assign({ type: "slider", start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: "rgba(132,145,255,.18)", backgroundColor: "rgba(255,255,255,.03)", showDetail: false }, horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 })] : undefined,
+      dataZoom: dense ? [Object.assign({ type: "slider", start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: cssVar("--accent-soft"), backgroundColor: cssVar("--surface-2"), showDetail: false }, horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 })] : undefined,
       series: series,
     };
   }
@@ -885,9 +893,9 @@
       measures: metrics.map(function (m) { return { name: m.name }; }),
       agg: function (rows, i) { return aggregate(rows, metrics[i]); },
       fmt: function (i, v) { return metricValue(metrics[i], v, nf); },
-      palette: (co.palette && co.palette.length) ? co.palette : PALETTE,
+      palette: seriesPalette(co),
       colorOf: function (name) { return co.dimensionColors ? co.dimensionColors[name] : undefined; },
-      theme: { muted: cssVar("--text-3", "#8b96a8"), border: cssVar("--border", "rgba(140,150,170,.2)"), surface: cssVar("--surface", "#ffffff"), text: cssVar("--text", "#1c2434"), accent: cssVar("--accent", "#4d8dff") },
+      theme: { muted: cssVar("--text-3"), border: cssVar("--border"), surface: cssVar("--surface"), text: cssVar("--text"), accent: cssVar("--accent"), red: cssVar("--red") },
       opts: w.options, animation: true,
     };
   }
@@ -903,7 +911,7 @@
       if (data.empty) { body.appendChild(stateBox(data.empty)); return; }
       var list = el("div", null);
       list.style.cssText = "height:100%;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:2px";
-      var medal = ["#e5a630", "#9aa4b2", "#c08457"], barColor = (w.options.ranking || {}).barColor || cssVar("--accent", "#4d8dff");
+      var medal = [cssVar("--medal-1"), cssVar("--medal-2"), cssVar("--medal-3")], barColor = (w.options.ranking || {}).barColor || cssVar("--accent");
       data.items.forEach(function (it) {
         var row = el("div", null); row.style.cssText = "display:flex;gap:10px;align-items:flex-start";
         var no = el("span", null); no.textContent = it.rank;
@@ -963,7 +971,7 @@
     var target = go.target > 0 ? go.target : null;
     var max = go.max > 0 ? go.max : (target || niceMax(value));
     var ratio = target ? value / target : value / max;
-    var color = go.colorByProgress ? (ratio < 0.6 ? "#ef5d6f" : ratio < 1 ? "#f2a93b" : "#2ebf8a") : (go.color || cssVar("--accent", "#4d8dff"));
+    var color = go.colorByProgress ? (ratio < 0.6 ? cssVar("--red") : ratio < 1 ? cssVar("--amber") : cssVar("--green")) : (go.color || cssVar("--accent"));
     var nf = w.options.numberFormat;
     var pct = (ratio * 100).toFixed(w.options.percentDecimals == null ? 1 : w.options.percentDecimals) + "%";
     var width = ring ? 12 : 14;
@@ -972,12 +980,12 @@
       axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, anchor: { show: false }, detail: { show: false } };
     var series = [Object.assign({}, common, {
       progress: { show: true, width: width, roundCap: true, itemStyle: { color: color } },
-      axisLine: { roundCap: true, lineStyle: { width: width, color: [[1, cssVar("--surface-3", "rgba(127,127,127,.15)")]] } },
+      axisLine: { roundCap: true, lineStyle: { width: width, color: [[1, cssVar("--surface-3")]] } },
       pointer: { show: false }, data: [{ value: Math.max(0, Math.min(value, max)) }],
     })];
     if (target && target < max && !ring) {
       series.push(Object.assign({}, common, { axisLine: { show: false }, progress: { show: false }, silent: true,
-        pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: cssVar("--text-2", "#888") } },
+        pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: cssVar("--text-2") } },
         data: [{ value: target }] }));
     }
     var wrap = el("div", null);

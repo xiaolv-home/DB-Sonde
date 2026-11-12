@@ -13,7 +13,7 @@ export interface MoreChartInput {
   fmt: (index: number, value: number) => string;
   palette: string[];
   colorOf?: (name: string) => string | undefined;
-  theme: { muted: string; border: string; surface: string; text: string; accent: string };
+  theme: { muted: string; border: string; surface: string; text: string; accent: string; red?: string };
   opts: Record<string, unknown> & { topN: number; showLegend?: boolean; percentDecimals?: number };
   animation?: boolean;
 }

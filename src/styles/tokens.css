@@ -53,6 +53,20 @@
   --c-procedure: #cc8380;
   --c-function: #76b3b3;
 
+  /* 图表默认系列色和排行榜奖牌。查询图、看板没单独设色时都读这组。
+     能对上已有色的就沿用;紫和天蓝是原来查询图的系列色。 */
+  --chart-1: #7aa7dd;
+  --chart-2: #7fb98f;
+  --chart-3: #d6b06a;
+  --chart-4: #c586c0;
+  --chart-5: #cc8380;
+  --chart-6: #76b3b3;
+  --chart-7: #c8956a;
+  --chart-8: #56b6c2;
+  --medal-1: #d6b06a;
+  --medal-2: #868891;
+  --medal-3: #c8956a;
+
   /* 代码配色 · 这里只是 JS 落 data-syntax 之前的兜底（= azure）。
      五套配色的完整定义在文件下方「代码配色」一节。 */
   --syn-keyword: #569cd6;
@@ -108,6 +122,20 @@
   --c-procedure: #cf4646;
   --c-function: #1f8585;
 
+  /* 图表系列色。蓝绿琥珀沿用本主题已有色;紫和天蓝是原来看板色板的色相,
+     压到和强调色同一档深浅,白底上的细线才看得清。奖牌沿用原来的金银铜。 */
+  --chart-1: #2470c4;
+  --chart-2: #2a8a56;
+  --chart-3: #a97a12;
+  --chart-4: #69569e;
+  --chart-5: #cf4646;
+  --chart-6: #1f8585;
+  --chart-7: #b96a24;
+  --chart-8: #1d6d86;
+  --medal-1: #e5a630;
+  --medal-2: #9aa4b2;
+  --medal-3: #c08457;
+
   /* 代码配色兜底（= azure 浅色版），完整定义见下方「代码配色」一节 */
   --syn-keyword: #0b47b5;
   --syn-string: #a31515;
@@ -157,4 +185,17 @@
   --c-view: #667a35;
   --c-procedure: #b5483f;
   --c-function: #3a7d7a;
+
+  /* 暖一档的系列色,色相仍对着霜那一组,深浅跟着这套纸的强调色。 */
+  --chart-1: #2d5f96;
+  --chart-2: #4b7f52;
+  --chart-3: #93701f;
+  --chart-4: #7d5274;
+  --chart-5: #b5483f;
+  --chart-6: #3a7d7a;
+  --chart-7: #a8683a;
+  --chart-8: #667a35;
+  --medal-1: #c49a3c;
+  --medal-2: #9a9184;
+  --medal-3: #a86b42;
 }

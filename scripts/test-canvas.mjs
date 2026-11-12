@@ -16,6 +16,15 @@ try {
   const exportFile = join(dir, 'x.cjs');
   await build({ entryPoints: [resolve('src/features/canvas/canvasExport.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: exportFile, logLevel: 'silent' });
   const x = createRequire(import.meta.url)(exportFile);
+  // 导出读的是当前主题的 CSS 变量。这里装一套霜,后面断言底色和自动文字色跟这套走。
+  const themeVars = {
+    '--bg': '#f5f6f8', '--surface': '#ffffff', '--surface-2': '#eff0f3', '--surface-3': '#e4e5ea',
+    '--text': '#1f2024', '--text-2': '#55575f', '--text-3': '#646670',
+    '--border': '#dddee3', '--border-2': '#c5c6ce', '--accent': '#2470c4',
+    '--shadow': '0 12px 32px rgba(24, 28, 40, 0.12)', '--shadow-sm': '0 1px 3px rgba(24, 28, 40, 0.08)',
+  };
+  globalThis.document = { documentElement: {} };
+  globalThis.getComputedStyle = () => ({ getPropertyValue: (name) => themeVars[name] || '' });
 
   // ── 每种形状新建出来都是合法节点,整张画布 JSON 往返后仍合法 ──────────
   {
@@ -269,7 +278,8 @@ try {
     assert.equal(m.textColorValue('ink'), '#1f2328');
     assert.equal(m.textColorValue('red'), m.COLOR_VALUE.red);
     const fillOf = (node) => x.canvasToSvg([node], [], measure).svg.match(/<text [^>]*fill="([^"]+)"/)[1];
-    assert.equal(fillOf(t), '#1f2328', '自动:文字框是深色字');
+    assert.equal(fillOf(t), themeVars['--text'], '自动:文字框用当前主题的字色');
+    assert(x.canvasToSvg([t], [], measure).svg.includes(`fill="${themeVars['--bg']}"`), '图片底色是当前主题');
     assert.equal(fillOf({ ...t, textColor: 'red' }), m.COLOR_VALUE.red, '设了颜色导出就是那个颜色');
     const solid = { ...m.newNode('rect', 0, 0), fill: 'solid' };
     assert.equal(fillOf(solid), '#ffffff', '自动:实色底白字');
@@ -457,6 +467,8 @@ try {
     const live = (flowStyle, extra = {}) => hx.canvasToHtml([a, b], [edge({ flowStyle, ...extra })], measure, probe, '堂食 <链路> & 说明');
     const page = live('dash');
     assert(page.startsWith('<!doctype html>') && page.includes('<title>堂食 &lt;链路&gt; &amp; 说明</title>'), '标题要转义');
+    assert(page.includes(themeVars['--bg']) && page.includes(themeVars['--text']), '网页把导出时的主题色写进去了');
+    assert(!page.includes('#f6f7f9') && !page.includes('#1f2328'), '网页不再写死一套浅色');
     assert(page.includes('<animate attributeName="stroke-dashoffset" from="0" to="-11"'), '虚线流动在网页里真的走');
     assert(!page.includes('<rect x="-40"'), '网页里不铺白底,用页面的点阵底');
     assert(page.includes('id="fit"') && page.includes('addEventListener("wheel"'), '带适应窗口和滚轮缩放');
