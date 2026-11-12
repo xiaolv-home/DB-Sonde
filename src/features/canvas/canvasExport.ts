@@ -1,14 +1,14 @@
 /* 把画布画成一张独立的 SVG(矢量,插进 PPT / Keynote 不糊,还能拆成形状改),
  * 再按需转成 PNG;动图(GIF)也是逐帧调这里画,见 canvasAnimation。不截屏:截屏拿不到 CSS 变量和箭头定义,导出来常常缺线少色。
- * 底、字、描边跟导出那一刻的主题走(themeColors)。形状自己选的颜色仍是 COLOR_VALUE,不跟着主题换。
+ * 导出一律按浅色底画 —— 贴进文档、幻灯片时最常见的就是白底。
  * 线的走法用和画布同一套算法(React Flow 的 getBezierPath 等),导出来和屏幕上一致。 */
 import { getBezierPath, getSmoothStepPath, getStraightPath, Position } from "@xyflow/react";
-import { chartChrome, type ChartChrome } from "../../lib/themeColors";
 import { COLOR_VALUE, STROKE_PX, hasEndArrow, hasStartArrow, hi, lo, markerSize, textColorValue, type Bend, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
 const PAD = 40;
 /** 分叉点圆点的直径(节点本身大一圈,多出来的是拖线用的连接点) */
 export const JUNCTION_DOT = 10;
+const TEXT = "#1f2328";
 const FONT = `-apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
 
 /** 量一段文字有多宽(像素)。真实环境用 canvas 量,测试里可以换成假的。 */
@@ -25,17 +25,11 @@ export const canvasMeasure = (): Measure => {
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-function channel(hex: string, shift: number): number {
-  return (parseInt(hex.slice(1), 16) >> shift) & 255;
-}
-/** 把 hex 按 pct 混进 base。画布上浅色填充是 color-mix(色, 当前表面色),导出要对齐。 */
-function mixHex(hex: string, pct: number, base: string): string {
-  const ch = (shift: number) => Math.round(channel(hex, shift) * pct + channel(base, shift) * (1 - pct));
-  return `#${[16, 8, 0].map((s) => ch(s).toString(16).padStart(2, "0")).join("")}`;
-}
-/** 颜色和白色按比例混。 */
+/** 颜色和白色按比例混(和画布上 color-mix(… 14%, 白) 一样)。 */
 export function mixWhite(hex: string, pct: number): string {
-  return mixHex(hex, pct, "#ffffff");
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (shift: number) => Math.round(((n >> shift) & 255) * pct + 255 * (1 - pct));
+  return `#${[16, 8, 0].map((s) => ch(s).toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** 按宽度折行:中文按字断,英文尽量按词断;原文里的换行保留。 */
@@ -128,13 +122,13 @@ export function edgeGeometry(e: CanvasEdge, from: CanvasNode, to: CanvasNode): {
   return { path, labelX, labelY };
 }
 
-function shapeSvg(n: CanvasNode, chrome: ChartChrome): string {
+function shapeSvg(n: CanvasNode): string {
   const c = COLOR_VALUE[n.color];
   const fillKind = n.fill ?? "soft";
   const isNote = n.shape === "note", isGroup = n.shape === "group", isText = n.shape === "text";
-  let fill = fillKind === "solid" ? c : fillKind === "outline" ? chrome.surface : mixHex(c, isNote ? 0.3 : 0.14, chrome.surface);
-  if (isGroup) fill = mixHex(c, 0.06, chrome.bg);
-  const stroke = isNote ? mixHex(c, 0.6, chrome.surface) : c;
+  let fill = fillKind === "solid" ? c : fillKind === "outline" ? "#ffffff" : mixWhite(c, isNote ? 0.3 : 0.14);
+  if (isGroup) fill = mixWhite(c, 0.06);
+  const stroke = isNote ? mixWhite(c, 0.6) : c;
   const dash = n.dashed || isGroup ? ` stroke-dasharray="6 4"` : "";
   const common = `fill="${fill}" stroke="${stroke}" stroke-width="1.5"${dash}`;
   const { x, y, w, h } = n;
@@ -147,7 +141,7 @@ function shapeSvg(n: CanvasNode, chrome: ChartChrome): string {
     case "diamond": return `<polygon points="${x + w / 2},${y} ${x + w},${y + h / 2} ${x + w / 2},${y + h} ${x},${y + h / 2}" ${common}/>`;
     case "note": return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" ${common}/>`;
     case "group": return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" ${common}/>`;
-    case "junction": return `<circle cx="${x + w / 2}" cy="${y + h / 2}" r="${JUNCTION_DOT / 2}" fill="${c}" stroke="${chrome.surface}" stroke-width="1.5"/>`;
+    case "junction": return `<circle cx="${x + w / 2}" cy="${y + h / 2}" r="${JUNCTION_DOT / 2}" fill="${c}" stroke="#ffffff" stroke-width="1.5"/>`;
     case "cylinder": {
       const ry = h * 0.115;   // 和画布上的 SVG 一样:上下两个椭圆各占高度的 11.5%
       return `<path d="M${x},${y + ry} A${w / 2},${ry} 0 0 1 ${x + w},${y + ry} V${y + h - ry} A${w / 2},${ry} 0 0 1 ${x},${y + h - ry} Z" ${common}/>`
@@ -158,7 +152,7 @@ function shapeSvg(n: CanvasNode, chrome: ChartChrome): string {
   return "";
 }
 
-function labelSvg(n: CanvasNode, measure: Measure, chrome: ChartChrome): string {
+function labelSvg(n: CanvasNode, measure: Measure): string {
   if (!n.text) return "";
   const bold = !!n.bold || n.shape === "group";
   const topLeft = n.shape === "note" || n.shape === "group";
@@ -167,7 +161,7 @@ function labelSvg(n: CanvasNode, measure: Measure, chrome: ChartChrome): string 
   const lines = wrapText(n.text, Math.max(10, n.w - padX * 2), n.fontSize, bold, measure);
   const lh = n.fontSize * 1.35;
   const color = n.textColor ? textColorValue(n.textColor)
-    : n.shape === "group" ? COLOR_VALUE[n.color] : (n.fill === "solid" && n.shape !== "text" ? "#ffffff" : chrome.text);
+    : n.shape === "group" ? COLOR_VALUE[n.color] : (n.fill === "solid" && n.shape !== "text" ? "#ffffff" : TEXT);
   const weight = bold ? 650 : 400;
   const x = topLeft ? n.x + padX : n.x + n.w / 2;
   const anchorAttr = topLeft ? "start" : "middle";
@@ -203,8 +197,7 @@ export const COMMENT_BADGE_R = 6;
 /** 整张画布 → SVG 文本。没有形状时返回 null。 */
 export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, fx?: EdgeFx,
   opts: { background?: string | null; comments?: boolean } = {}): { svg: string; width: number; height: number } | null {
-  const chrome = chartChrome();
-  const background = opts.background === undefined ? chrome.bg : opts.background;
+  const background = opts.background === undefined ? "#ffffff" : opts.background;
   if (!nodes.length) return null;
   const minX = lo(nodes.map((n) => n.x)) - PAD, minY = lo(nodes.map((n) => n.y)) - PAD;
   const width = Math.ceil(hi(nodes.map((n) => n.x + n.w)) + PAD - minX);
@@ -241,16 +234,16 @@ export function canvasToSvg(nodes: CanvasNode[], edges: CanvasEdge[], measure: M
     if (live?.over) edgeParts.push(live.over);
     if (e.label) {
       const w = measure(e.label, 12, false) + 12;
-      labelParts.push(`<rect x="${(g.labelX - w / 2).toFixed(1)}" y="${(g.labelY - 10).toFixed(1)}" width="${w.toFixed(1)}" height="20" rx="4" fill="${chrome.surface}" stroke="${chrome.border}"/>`
-        + `<text x="${g.labelX.toFixed(1)}" y="${(g.labelY + 4).toFixed(1)}" font-size="12" fill="${chrome.text2}" text-anchor="middle">${esc(e.label)}</text>`);
+      labelParts.push(`<rect x="${(g.labelX - w / 2).toFixed(1)}" y="${(g.labelY - 10).toFixed(1)}" width="${w.toFixed(1)}" height="20" rx="4" fill="#ffffff" stroke="#e3e5e8"/>`
+        + `<text x="${g.labelX.toFixed(1)}" y="${(g.labelY + 4).toFixed(1)}" font-size="12" fill="#57606a" text-anchor="middle">${esc(e.label)}</text>`);
     }
   }
   // 导出网页时(comments):有注释的形状包一层带注释的 <g>(点它弹出注释),右上角画个 i 标记;图片里不带注释
   const nodeSvg = (n: CanvasNode) => {
-    const drawn = shapeSvg(n, chrome) + labelSvg(n, measure, chrome);
+    const drawn = shapeSvg(n) + labelSvg(n, measure);
     if (!opts.comments || !n.comment) return drawn;
     const at = commentBadgeAt(n), bx = +(n.x + at.x).toFixed(1), by = +(n.y + at.y).toFixed(1);
-    const badge = `<circle class="cmt-dot" cx="${bx}" cy="${by}" r="${COMMENT_BADGE_R}" fill="${COLOR_VALUE[n.color]}" stroke="${chrome.surface}" stroke-width="1.5"/>`
+    const badge = `<circle class="cmt-dot" cx="${bx}" cy="${by}" r="${COMMENT_BADGE_R}" fill="${COLOR_VALUE[n.color]}" stroke="#ffffff" stroke-width="1.5"/>`
       + `<text x="${bx}" y="${(by + 3).toFixed(1)}" font-size="8.5" font-weight="700" font-family="Georgia, serif" fill="#ffffff" text-anchor="middle">i</text>`;
     return `<g class="cmt" data-cmt="${esc(n.comment)}">${drawn}${badge}</g>`;
   };

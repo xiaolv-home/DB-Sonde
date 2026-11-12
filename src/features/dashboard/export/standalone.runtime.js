@@ -12,11 +12,13 @@
      内联在本脚本之前。和看板共用同一份,免得修了一处漏另一处。 */
   var esc = globalThis.__DASH_TIP__.esc;
   var echarts = window.echarts;
+  var PALETTE = ["#4d8dff", "#2ed6a1", "#ffb547", "#a98bff", "#ff6b8a", "#35c6f4", "#ff7a45", "#66e0e5"];
   var ROW = 96; // 每个网格行的像素高度(近似在线画布)
   /* 图表实例不攒在数组里 —— 攒了就永远不释放。
-     改筛选会清掉卡片重画,清容器前先 dispose,免得 canvas 留在内存里。
-     下钻和切指标不走这条:同一个节点上 getInstanceByDom,setOption 一次。
-     每次下钻都 dispose 再 init,图会先没再出现,像刷新了两遍。 */
+     每次下钻 / 切指标 / 改筛选都会重渲染,老的 DOM 被清掉、实例却还被数组拽着,
+     连同它的 canvas 和内部状态一起留在内存里。下钻二十次就是二十份。
+     改成用的时候从 DOM 现取(echarts 自己有 dom → 实例的映射),清容器前先 dispose。
+     数据量大时这是实打实的占用。 */
   function liveCharts() {
     var out = [];
     var nodes = document.querySelectorAll(".dash-x-chart");
@@ -87,18 +89,9 @@
     }
     return metrics.map(function (m) { return { id: m.key, label: metricLabel(m), metrics: [m] }; });
   }
-  function cssVar(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
-  /* 用户在组件上设过的配色原样用;没设过就读导出时写进页面的系列色。 */
-  function seriesPalette(co) {
-    if (co && co.palette && co.palette.length) return co.palette.slice();
-    var colors = [];
-    for (var i = 1; i <= 8; i++) {
-      var c = cssVar("--chart-" + i);
-      if (c) colors.push(c);
-    }
-    return colors;
+  function cssVar(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
   }
   function gradient(from, to, vertical) {
     return { type: "linear", x: 0, y: 0, x2: vertical ? 0 : 1, y2: vertical ? 1 : 0, colorStops: [{ offset: 0, color: from }, { offset: 1, color: to }] };
@@ -118,13 +111,13 @@
     var g = echarts.graphic, zr = chart.getZr && chart.getZr();
     if (!g || !g.Group || !g.Line || !g.Text || !zr) return function () {};
     var order = { zlevel: 100, z: 100, z2: 100000 };
-    var lineStyle = { stroke: cssVar("--text-3"), lineWidth: 1, lineDash: [5, 5], opacity: 0.92 };
+    var lineStyle = { stroke: cssVar("--text-3", "#8b96a8"), lineWidth: 1, lineDash: [5, 5], opacity: 0.92 };
     var group = new g.Group(Object.assign({ silent: true, invisible: true }, order));
     var vertical = new g.Line(Object.assign({ silent: true, style: lineStyle }, order));
     var horizontal = new g.Line(Object.assign({ silent: true, style: lineStyle }, order));
     var label = new g.Text(Object.assign({ silent: true, style: {
-      fill: cssVar("--text"), backgroundColor: cssVar("--surface-3"),
-      borderColor: cssVar("--border-2"), borderWidth: 1, borderRadius: 4,
+      fill: cssVar("--text", "#e8edf6"), backgroundColor: cssVar("--surface-3", "#1a2230"),
+      borderColor: cssVar("--border-2", "rgba(151,170,203,.24)"), borderWidth: 1, borderRadius: 4,
       padding: [4, 7], font: "600 11px Inter, PingFang SC, sans-serif", align: "left", verticalAlign: "middle",
     } }, order));
     group.add(vertical); group.add(horizontal); group.add(label);
@@ -225,15 +218,13 @@
   function uniq(arr) { var o = {}, r = []; arr.forEach(function (x) { if (x != null && !o[x]) { o[x] = 1; r.push(x); } }); return r; }
 
   // ---- ECharts option 构建(对齐 ChartWidget) ----
-  function buildChartOption(bw, view, box) {
+  function buildChartOption(bw, view) {
     var w = bw.widget, co = w.options.chart || {}, type = w.type;
-    box = box || { width: 0, height: 0 };
-    var lay = globalThis.__DASH_LAYOUT__;
-    var muted = cssVar("--text-3");
-    var border = cssVar("--border");
-    var surface = cssVar("--surface");
-    var accent = cssVar("--accent");
-    var palette = seriesPalette(co);
+    var muted = cssVar("--text-3", "#8b96a8");
+    var border = cssVar("--border", "rgba(140,150,170,.2)");
+    var surface = cssVar("--surface", "#ffffff");
+    var accent = cssVar("--accent", "#4d8dff");
+    var palette = (co.palette && co.palette.length) ? co.palette : PALETTE;
     var grouping = co.grouping === true;
     var showValues = co.showLabels === true || co.barShowValues === true;
     var horizontal = type === "bar" && co.barOrientation === "horizontal";
@@ -331,7 +322,7 @@
       return {
         animation: true, animationDuration: 220, animationEasing: "linear",
         color: palette,
-        tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: "item", formatter: function (p) { return (p.marker || "") + " " + esc(p.name) + ": <b>" + esc(metricValue(activePie, numberValue(p.value), nfF)) + "</b> <span style=\"opacity:.6\">占第一层 " + rate(numberValue(p.value)) + "</span>"; } },
+        tooltip: { trigger: "item", formatter: function (p) { return (p.marker || "") + " " + esc(p.name) + ": <b>" + esc(metricValue(activePie, numberValue(p.value), nfF)) + "</b> <span style=\"opacity:.6\">占第一层 " + rate(numberValue(p.value)) + "</span>"; } },
         series: [{
           name: metricLabel(activePie), type: "funnel",
           sort: fo.order === "category" ? "none" : "descending", funnelAlign: fo.align || "center",
@@ -357,33 +348,32 @@
       var pieData = pieAll.filter(function (d) { return isFinite(d.value) && d.value > 0; });
       view.pieDropped = pieAll.length - pieData.length;
       var legendPos = co.pieLegendPosition;
-      /* 半径和标签排版走 chartLayout(里面再用 pieGeometry)。
-         宽卡片把标签收回饼旁边,窄卡片仍是原来的贴边排法。 */
+      /* 半径和标签排版都走 pieGeometry.runtime.js —— 跟看板同一份实现,
+         不在这儿另算。以前这儿内联抄了一份,收外圈时不管内圈,环被压成一条线。 */
+      var pie = globalThis.__DASH_PIE__;
+      var PL = pie.PIE_LABEL;
       var showLabels = co.pieShowLabels === true;
-      var frame = lay.pieFrame({
-        width: box.width, height: box.height,
-        hole: co.pieHole, outer: co.pieOuterRadius,
-        showLabels: showLabels, showLegend: w.options.showLegend !== false,
-        legendPosition: legendPos,
-      });
+      var radii = pie.pieRadii(co.pieHole, co.pieOuterRadius, showLabels);
       return {
         animationDuration: 220, animationEasing: "linear", color: palette,
-        tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: "item", formatter: function (p) {
+        tooltip: { trigger: "item", formatter: function (p) {
           var label = String(p.name == null ? "" : p.name);
           var extra = secondarySummary(grouped[label] || [], "");
           var head = (p.marker || "") + " " + esc(label) + ": <b>" + esc(metricValue(activePie, numberValue(p.value))) + "</b>"
             + (p.percent != null ? " <span style='opacity:.6'>" + esc(p.percent) + "%</span>" : "");
           return extra ? head + "<br/><span style='opacity:.6'>" + extra + "</span>" : head;
         } },
-        legend: Object.assign({ show: w.options.showLegend, textStyle: { color: muted } }, frame.legend),
+        legend: legendPos === "left" ? { show: w.options.showLegend, left: 0, top: "middle", orient: "vertical", textStyle: { color: muted } }
+          : legendPos === "right" ? { show: w.options.showLegend, right: 0, top: "middle", orient: "vertical", textStyle: { color: muted } }
+            : { show: w.options.showLegend, bottom: 0, textStyle: { color: muted } },
         series: [{
           name: metricLabel(activePie), type: "pie",
-          radius: frame.radius,
-          center: frame.center,
+          radius: [radii[0] + "%", radii[1] + "%"],
+          center: legendPos === "left" ? ["62%", "50%"] : legendPos === "right" ? ["40%", "50%"] : ["50%", "44%"],
           avoidLabelOverlap: true, percentPrecision: w.options.percentDecimals == null ? 1 : w.options.percentDecimals,
-          label: Object.assign({ show: showLabels, color: muted, formatter: "{b}\n{d}%" }, frame.label),
-          labelLine: frame.labelLine,
-          labelLayout: frame.labelLayout,
+          label: Object.assign({ show: showLabels, color: muted, formatter: "{b}\n{d}%" }, PL.label),
+          labelLine: PL.labelLine,
+          labelLayout: PL.labelLayout,
           itemStyle: { borderColor: surface, borderWidth: 3, borderRadius: 4 },
           data: pieData,
         }],
@@ -421,8 +411,8 @@
             // 面积:跟在线一套 —— 没设过只给单条线淡影;「面积图」显式打开时每条都填
             areaStyle: isBar ? undefined
               : co.lineArea === true
-                ? (isSingle ? { opacity: 0.32, color: gradient(custom || palette[0] || accent, "transparent", true) } : (custom ? { opacity: 0.28, color: custom } : { opacity: 0.28 }))
-                : (isSingle && co.lineArea !== false) ? { opacity: 0.18, color: gradient(custom || palette[0] || accent, "transparent", true) } : undefined,
+                ? (isSingle ? { opacity: 0.32, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : (custom ? { opacity: 0.28, color: custom } : { opacity: 0.28 }))
+                : (isSingle && co.lineArea !== false) ? { opacity: 0.18, color: gradient(custom || palette[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
             tooltip: { valueFormatter: function (v) { return metricValue(metric, numberValue(v), w.options.numberFormat); } },
           });
         });
@@ -459,146 +449,109 @@
     var marks = (co.markLine || []).filter(function (m) { return isFinite(m.value); });
     if (marks.length && series.length) {
       series[0].markLine = { silent: true, symbol: "none", data: marks.map(function (m) {
-        return { yAxis: m.value, lineStyle: { color: m.color || cssVar("--amber"), type: "dashed", width: 1.5 },
+        return { yAxis: m.value, lineStyle: { color: m.color || "#ffb547", type: "dashed", width: 1.5 },
                  label: { show: !!m.label, formatter: m.label || "", color: muted, fontSize: 10, position: "insideEndTop" } };
       }) };
     }
     var dense = co.dataZoom || labels.length > 24;
-    var gridPad = { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: dense ? 34 : 8 };
-    var grid = lay.cartesianGrid({ left: gridPad.left, right: gridPad.right, top: gridPad.top, bottom: gridPad.bottom, width: box.width, height: box.height });
-    var catSpan = horizontal ? grid.plotHeight : grid.plotWidth;
-    var catLook = lay.categoryAxis({ span: catSpan, count: labels.length });
-    var valueFont = lay.axisFont(grid.plotWidth);
-    var thick = lay.barThickness(catSpan, labels.length);
-    series.forEach(function (item) { if (item.type === "bar") item.barMaxWidth = thick; });
-    catAxis.axisLabel.fontSize = catLook.fontSize;
-    catAxis.axisLabel.interval = catLook.interval;
-    valAxis.axisLabel.fontSize = valueFont;
-    var legendAt = lay.cartesianLegend(grid, gridPad);
-    var zoomAt = lay.placeZoom(grid, gridPad, horizontal ? "y" : "x");
     return {
       animationDuration: 220, animationDurationUpdate: 220, animationEasing: "linear", animationEasingUpdate: "linear",
       color: palette,
       // 十字线交给 freeCrosshair(跟手、不吸附刻度),这里把 ECharts 自带的隐掉,免得两条。
-      tooltip: { backgroundColor: cssVar("--surface-3"), borderColor: cssVar("--border-2"), textStyle: { color: cssVar("--text") }, trigger: (co.tooltip && co.tooltip.mode === "item") ? "item" : "axis", formatter: tooltipFormatter, axisPointer: { type: "cross", snap: false, lineStyle: { color: "transparent", width: 0, opacity: 0 }, crossStyle: { color: "transparent", width: 0, opacity: 0 }, label: { show: false } } },
+      tooltip: { trigger: (co.tooltip && co.tooltip.mode === "item") ? "item" : "axis", formatter: tooltipFormatter, axisPointer: { type: "cross", snap: false, lineStyle: { color: "transparent", width: 0, opacity: 0 }, crossStyle: { color: "transparent", width: 0, opacity: 0 }, label: { show: false } } },
       // 窄屏(手机)上图例换行会压进绘图区,用可滚动单行避免。
-      legend: (series.length > 1 && w.options.showLegend) ? { show: true, type: "scroll", top: legendAt.top, right: legendAt.right, left: grid.left > gridPad.left + 1 ? Math.round(grid.left) : 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
-      grid: { left: grid.left, right: grid.right, top: grid.top, bottom: grid.bottom, containLabel: true },
+      legend: (series.length > 1 && w.options.showLegend) ? { show: true, type: "scroll", top: 0, right: 8, left: 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
+      grid: { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: dense ? 34 : 8, containLabel: true },
       xAxis: horizontal ? valAxis : catAxis,
       yAxis: horizontal ? catAxis : valAxis,
-      dataZoom: dense ? [Object.assign({ type: "slider", start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: zoomAt.bottom == null ? 4 : zoomAt.bottom, borderColor: "transparent", fillerColor: cssVar("--accent-soft"), backgroundColor: cssVar("--surface-2"), showDetail: false }, horizontal ? { yAxisIndex: 0, width: 10, right: zoomAt.right == null ? 2 : zoomAt.right } : { xAxisIndex: 0 })] : undefined,
+      dataZoom: dense ? [Object.assign({ type: "slider", start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: "rgba(132,145,255,.18)", backgroundColor: "rgba(255,255,255,.03)", showDetail: false }, horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 })] : undefined,
       series: series,
     };
   }
 
   // ---- 渲染一个图表组件(含切换器 + 面包屑) ----
   function renderChart(bw, body) {
+    clearNode(body);
     var view = computeChartView(bw);
-    if (!view || !view.displayMetrics.length) { clearNode(body); body.appendChild(stateBox("暂无数据")); return; }
+    if (!view || !view.displayMetrics.length) { body.appendChild(stateBox("暂无数据")); return; }
     var st = stateOf(bw.widget.id);
-    /* 外壳只建一次。下钻只改面包屑和 option,不 clearNode —— 那会 dispose 实例,
-       下一帧再 init,图先消失再出现。 */
-    var shell = body._dashChartShell;
-    if (!shell || shell.parentNode !== body) {
-      clearNode(body);
-      shell = el("div", "dash-x-shell");
-      shell.style.cssText = "display:flex;flex-direction:column;flex:1;min-height:0;height:100%";
-      var crumbs = el("div", "dash-x-crumbs");
-      var switcher = el("div", "dash-x-switch");
-      var holder = el("div", "dash-x-chart");
-      var note = el("div", "dash-x-note");
-      shell.appendChild(crumbs);
-      shell.appendChild(switcher);
-      shell.appendChild(holder);
-      shell.appendChild(note);
-      body.appendChild(shell);
-      body._dashChartShell = shell;
-      shell._crumbs = crumbs;
-      shell._switcher = switcher;
-      shell._holder = holder;
-      shell._note = note;
-    }
 
-    shell._crumbs.innerHTML = "";
+    // 面包屑
     if (st.path.length) {
-      shell._crumbs.style.display = "";
-      shell._crumbs.appendChild(btn("全部", function () { st.path = []; renderChart(bw, body); }));
+      var crumbs = el("div", "dash-x-crumbs");
+      crumbs.appendChild(btn("全部", function () { st.path = []; renderChart(bw, body); }));
       st.path.forEach(function (item, idx) {
-        var sep = document.createElement("span"); sep.className = "sep"; sep.textContent = "›"; shell._crumbs.appendChild(sep);
-        shell._crumbs.appendChild(btn(item.value, function () { st.path = st.path.slice(0, idx + 1); renderChart(bw, body); }));
+        var sep = document.createElement("span"); sep.className = "sep"; sep.textContent = "›"; crumbs.appendChild(sep);
+        crumbs.appendChild(btn(item.value, function () { st.path = st.path.slice(0, idx + 1); renderChart(bw, body); }));
       });
-    } else shell._crumbs.style.display = "none";
-
+      body.appendChild(crumbs);
+    }
+    // 切换器
     var chartOpt = bw.widget.options.chart || {};
-    shell._switcher.innerHTML = "";
     if (view.switching) {
-      shell._switcher.style.display = "";
-      if (chartOpt.metricSwitchTitle !== false) { var t = document.createElement("span"); t.textContent = "指标"; shell._switcher.appendChild(t); }
+      var bar = el("div", "dash-x-switch");
+      if (chartOpt.metricSwitchTitle !== false) { var t = document.createElement("span"); t.textContent = "指标"; bar.appendChild(t); }
       var sel = document.createElement("select");
       view.choices.forEach(function (c) { var o = document.createElement("option"); o.value = c.id; o.textContent = c.label; if (view.activeChoice && c.id === view.activeChoice.id) o.selected = true; sel.appendChild(o); });
       sel.onchange = function () { st.active = sel.value; renderChart(bw, body); };
-      shell._switcher.appendChild(sel);
+      bar.appendChild(sel); body.appendChild(bar);
     } else if (bw.widget.type === "pie" && bw.metrics.primary.length >= 2) {
-      shell._switcher.style.display = "";
+      var bar2 = el("div", "dash-x-switch");
       var sel2 = document.createElement("select");
       view.primaryAll.forEach(function (m) { var o = document.createElement("option"); o.value = m.key; o.textContent = metricLabel(m); if (m.key === st.active) o.selected = true; sel2.appendChild(o); });
       sel2.onchange = function () { st.active = sel2.value; renderChart(bw, body); };
-      shell._switcher.appendChild(sel2);
-    } else shell._switcher.style.display = "none";
+      bar2.appendChild(sel2); body.appendChild(bar2);
+    }
 
-    /* 先按百分比排一版,只为知道有没有扇区。真正的尺寸等下一帧量,而且只 setOption 一次。 */
-    var preview = buildChartOption(bw, view);
+    var option = buildChartOption(bw, view);
     if (bw.widget.type === "pie" || bw.widget.type === "funnel") {
-      var slices = ((preview.series || [])[0] || {}).data || [];
+      /* 一个正数都不剩就别画空饼了,说清是哪种情况 —— 跟在线一套说法。 */
+      var slices = ((option.series || [])[0] || {}).data || [];
       if (!slices.length) {
         var dropped = view.pieDropped || 0;
-        if (shell._holder._dashFrame) { cancelAnimationFrame(shell._holder._dashFrame); shell._holder._dashFrame = 0; }
-        shell._holder.style.display = "none";
-        shell._note.style.display = "";
-        shell._note.textContent = dropped
+        body.appendChild(stateBox(dropped
           ? dropped + " 个分组都不是正数,饼图表达不了 —— 换条形图看。"
-          : "这个范围里没有数据。";
+          : "这个范围里没有数据。"));
         return;
       }
     }
-    shell._holder.style.display = "";
-    if (bw.widget.type === "pie" && view.pieDropped) {
-      shell._note.style.display = "";
-      shell._note.textContent = "另有 " + view.pieDropped + " 个分组不是正数,未计入占比";
-    } else {
-      shell._note.style.display = "none";
-      shell._note.textContent = "";
-    }
 
+    // 下钻深度(点击处理要用,得在 init 之前算好)
     var drillDims = bw.drillDimensions || [];
     var canDeeper = drillDims.length > 0 && st.path.length < drillDims.length;
-    var holder = shell._holder;
-    /* 面包屑改高度要等这一帧布局完再量。同一帧里多次进来(连点)只留最后一次。 */
-    holder._dashApply = function (inst) {
-      holder._dashBuild = function () {
-        return buildChartOption(bw, view, { width: holder.clientWidth, height: holder.clientHeight });
-      };
-      inst.setOption(holder._dashBuild(), true);
-      if (holder._dashCross) { try { holder._dashCross(); } catch (e) {} holder._dashCross = null; }
+
+    var holder = el("div", "dash-x-chart");
+    body.appendChild(holder);
+    /* **等卡片真的进了文档再初始化。**
+       renderWidget 是先把整张卡片在内存里拼好、返回之后才 appendChild 进网格的,
+       所以走到这儿时 holder 还是个游离节点,量出来 0×0。以前就在这儿直接 init:
+       ECharts 拿到零尺寸,入场动画在一块 0×0 的画布上播完了;下一帧的 resize()
+       才拿到真实尺寸,而 resize 是直接画最终状态、不重放入场动画 —— 于是导出的
+       网页里图表总是「啪」一下出现,而软件里饼图是从一点展开的。
+       下一帧再 init,尺寸已经对了,动画就跟软件里一样(参数本来就是同一组:
+       220ms linear),那句补救的 resize 也不需要了。 */
+    requestAnimationFrame(function () {
+      if (!holder.isConnected) return;   // 这一帧之前就被重渲染掉了,别再建实例
+      var inst = echarts.init(holder, null, { renderer: "canvas" });
+      inst.setOption(option);
       if (bw.widget.type === "line" || bw.widget.type === "bar") {
-        holder._dashCross = installFreeCrosshair(inst, bw.widget.type === "bar" && (bw.widget.options.chart || {}).barOrientation === "horizontal");
+        installFreeCrosshair(inst, bw.widget.type === "bar" && (bw.widget.options.chart || {}).barOrientation === "horizontal");
       }
-      if (holder._dashClick) inst.off("click", holder._dashClick);
-      holder._dashClick = function (params) {
-        if (!canDeeper || params.name == null) return;
-        st.path = st.path.concat([{ dimension: view.xField, value: params.name }]);
-        renderChart(bw, body);
-      };
-      if (canDeeper) inst.on("click", holder._dashClick);
-    };
-    if (holder._dashFrame) return;
-    holder._dashFrame = requestAnimationFrame(function () {
-      holder._dashFrame = 0;
-      if (!holder.isConnected) return;
-      var inst = echarts.getInstanceByDom(holder);
-      if (!inst) inst = echarts.init(holder, null, { renderer: "canvas" });
-      if (holder._dashApply) holder._dashApply(inst);
+      if (canDeeper) {
+        inst.on("click", function (params) {
+          if (params.name == null) return;
+          st.path = st.path.concat([{ dimension: view.xField, value: params.name }]);
+          renderChart(bw, body);
+        });
+      }
     });
+    if (bw.widget.type === "pie" && view.pieDropped) {
+      var note = el("div", "dash-x-note");
+      note.textContent = "另有 " + view.pieDropped + " 个分组不是正数,未计入占比";
+      body.appendChild(note);
+    }
+
+
   }
 
   // ---- KPI ----
@@ -666,17 +619,11 @@
       sel.onchange = function () { st.active = sel.value; renderKpi(bw, body); };
       bar.appendChild(sel); body.appendChild(bar);
       var grid = el("div", "dash-kpi-grid count-" + Math.min(active.metrics.length, 6));
-      grid.setAttribute("data-flow", "kpi");
-      grid.setAttribute("data-flow-count", String(active.metrics.length));
       active.metrics.forEach(function (m) { grid.appendChild(card(m)); }); body.appendChild(grid);
-      requestAnimationFrame(layoutFlows);
       return;
     }
     var grid2 = el("div", "dash-kpi-grid count-" + Math.min(primary.length, 6));
-    grid2.setAttribute("data-flow", "kpi");
-    grid2.setAttribute("data-flow-count", String(primary.length));
     primary.forEach(function (m) { grid2.appendChild(card(m)); }); body.appendChild(grid2);
-    requestAnimationFrame(layoutFlows);
   }
 
   // ---- 明细表(v1 简版:维度列 + 指标列,数字格式化 + 表头样式) ----
@@ -938,9 +885,9 @@
       measures: metrics.map(function (m) { return { name: m.name }; }),
       agg: function (rows, i) { return aggregate(rows, metrics[i]); },
       fmt: function (i, v) { return metricValue(metrics[i], v, nf); },
-      palette: seriesPalette(co),
+      palette: (co.palette && co.palette.length) ? co.palette : PALETTE,
       colorOf: function (name) { return co.dimensionColors ? co.dimensionColors[name] : undefined; },
-      theme: { muted: cssVar("--text-3"), border: cssVar("--border"), surface: cssVar("--surface"), text: cssVar("--text"), accent: cssVar("--accent"), red: cssVar("--red") },
+      theme: { muted: cssVar("--text-3", "#8b96a8"), border: cssVar("--border", "rgba(140,150,170,.2)"), surface: cssVar("--surface", "#ffffff"), text: cssVar("--text", "#1c2434"), accent: cssVar("--accent", "#4d8dff") },
       opts: w.options, animation: true,
     };
   }
@@ -955,10 +902,8 @@
       var data = api.ranking(input);
       if (data.empty) { body.appendChild(stateBox(data.empty)); return; }
       var list = el("div", null);
-      list.setAttribute("data-flow", "ranking");
-      list.setAttribute("data-flow-count", String(data.items.length));
-      list.style.cssText = "height:100%;width:100%;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:2px";
-      var medal = [cssVar("--medal-1"), cssVar("--medal-2"), cssVar("--medal-3")], barColor = (w.options.ranking || {}).barColor || cssVar("--accent");
+      list.style.cssText = "height:100%;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:2px";
+      var medal = ["#e5a630", "#9aa4b2", "#c08457"], barColor = (w.options.ranking || {}).barColor || cssVar("--accent", "#4d8dff");
       data.items.forEach(function (it) {
         var row = el("div", null); row.style.cssText = "display:flex;gap:10px;align-items:flex-start";
         var no = el("span", null); no.textContent = it.rank;
@@ -976,21 +921,14 @@
         row.appendChild(no); row.appendChild(main); list.appendChild(row);
       });
       body.appendChild(list);
-      requestAnimationFrame(layoutFlows);
       return;
     }
-    var preview = api[w.type](input);
-    if (preview.empty) { body.appendChild(stateBox(preview.empty)); return; }
+    var option = api[w.type](input);
+    if (option.empty) { body.appendChild(stateBox(option.empty)); return; }
     var holder = el("div", "dash-x-chart");
     body.appendChild(holder);
     requestAnimationFrame(function () {
       if (!holder.isConnected) return;
-      holder._dashBuild = function () {
-        input.box = { width: holder.clientWidth, height: holder.clientHeight };
-        return api[w.type](input);
-      };
-      var option = holder._dashBuild();
-      if (option.empty) return;
       echarts.init(holder, null, { renderer: "canvas" }).setOption(option);
     });
   }
@@ -1025,7 +963,7 @@
     var target = go.target > 0 ? go.target : null;
     var max = go.max > 0 ? go.max : (target || niceMax(value));
     var ratio = target ? value / target : value / max;
-    var color = go.colorByProgress ? (ratio < 0.6 ? cssVar("--red") : ratio < 1 ? cssVar("--amber") : cssVar("--green")) : (go.color || cssVar("--accent"));
+    var color = go.colorByProgress ? (ratio < 0.6 ? "#ef5d6f" : ratio < 1 ? "#f2a93b" : "#2ebf8a") : (go.color || cssVar("--accent", "#4d8dff"));
     var nf = w.options.numberFormat;
     var pct = (ratio * 100).toFixed(w.options.percentDecimals == null ? 1 : w.options.percentDecimals) + "%";
     var width = ring ? 12 : 14;
@@ -1034,12 +972,12 @@
       axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, anchor: { show: false }, detail: { show: false } };
     var series = [Object.assign({}, common, {
       progress: { show: true, width: width, roundCap: true, itemStyle: { color: color } },
-      axisLine: { roundCap: true, lineStyle: { width: width, color: [[1, cssVar("--surface-3")]] } },
+      axisLine: { roundCap: true, lineStyle: { width: width, color: [[1, cssVar("--surface-3", "rgba(127,127,127,.15)")]] } },
       pointer: { show: false }, data: [{ value: Math.max(0, Math.min(value, max)) }],
     })];
     if (target && target < max && !ring) {
       series.push(Object.assign({}, common, { axisLine: { show: false }, progress: { show: false }, silent: true,
-        pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: cssVar("--text-2") } },
+        pointer: { show: true, icon: "rect", length: width + 6, width: 3, offsetCenter: [0, "-89%"], itemStyle: { color: cssVar("--text-2", "#888") } },
         data: [{ value: target }] }));
     }
     var wrap = el("div", null);
@@ -1304,48 +1242,10 @@
     root.appendChild(grid);
   }
 
-  /** KPI / 排行榜按卡片尺寸收宽度。图表则按量到的尺寸重算 option。 */
-  function layoutFlows() {
-    var api = globalThis.__DASH_LAYOUT__;
-    if (!api) return;
-    var nodes = document.querySelectorAll("[data-flow]");
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      var parent = el.parentElement;
-      if (!parent) continue;
-      var frame = api.flowFrame({
-        kind: el.getAttribute("data-flow"),
-        count: Number(el.getAttribute("data-flow-count")) || 1,
-        width: parent.clientWidth,
-        height: parent.clientHeight,
-      });
-      el.style.maxWidth = frame.maxWidth ? frame.maxWidth + "px" : "";
-      el.style.marginLeft = frame.centerX ? "auto" : "";
-      el.style.marginRight = frame.centerX ? "auto" : "";
-      if (frame.centerY && frame.maxHeight) {
-        el.style.maxHeight = frame.maxHeight + "px";
-        el.style.height = "auto";
-        el.style.flex = "0 0 auto";
-        el.style.marginTop = "auto";
-        el.style.marginBottom = "auto";
-      }
-    }
-  }
-  function relayoutCharts() {
-    layoutFlows();
-    liveCharts().forEach(function (c) {
-      var dom = c.getDom();
-      if (dom && dom._dashBuild) {
-        try { c.setOption(dom._dashBuild(), true); } catch (e) {}
-      }
-      try { c.resize(); } catch (e2) {}
-    });
-  }
-
   var resizeTimer = null;
   window.addEventListener("resize", function () {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(relayoutCharts, 120);
+    resizeTimer = setTimeout(function () { liveCharts().forEach(function (c) { try { c.resize(); } catch (e) {} }); }, 120);
   });
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);

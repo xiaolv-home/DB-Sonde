@@ -200,8 +200,8 @@ pub async fn call_sql(pool: &DbPool, sql: &str, cap: usize) -> AppResult<QueryRe
 }
 pub async fn call_sql_tx(tx: &mut SessionTx, sql: &str, cap: usize) -> AppResult<QueryResult> {
     let sets = match tx {
-        SessionTx::MySql(tx) => mysql_sql(tx, sql, cap).await?,
-        SessionTx::Postgres(tx) => pg_sql(tx, sql, cap).await?,
+        SessionTx::MySql(tx) => mysql_sql(&mut **tx, sql, cap).await?,
+        SessionTx::Postgres(tx) => pg_sql(&mut **tx, sql, cap).await?,
         _ => return Err(AppError::msg("该数据库不支持 CALL 执行")),
     };
     Ok(combine(sets))

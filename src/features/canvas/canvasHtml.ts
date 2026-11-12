@@ -1,8 +1,7 @@
 /* 把画布导出成一个网页(单个 .html 文件):浏览器打开就是画布原样 —— 同样的尺寸、颜色、弧度,
  * 流动的线一直在流(SVG 自带的动画,和画布上同一套画法),能滚轮缩放、拖动平移、一键适应窗口 / 原尺寸。
  * 文件自带所有东西(不联网、不依赖 Sonde),发给别人用浏览器打开就行。
- * 页面底色和控件色是导出那一刻的主题色,写成实际色值,不再靠应用的样式表。 */
-import { chartChrome, type ChartChrome } from "../../lib/themeColors";
+ * 和其它导出一样按浅色底画。 */
 import { cometSync, liveFlowFx, type PathProbe } from "./canvasAnimation";
 import { canvasToSvg, type Measure } from "./canvasExport";
 import type { CanvasEdge, CanvasNode } from "./canvasModel";
@@ -88,35 +87,32 @@ const VIEWER_JS = `
 })();
 `;
 
-function pageCss(c: ChartChrome): string {
-  return `
+const PAGE_CSS = `
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; color: ${c.text}; background: ${c.bg}; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; color: #1f2328; background: #f6f7f9; }
 #stage { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
-  background-color: ${c.bg}; background-image: radial-gradient(${c.border2} 1px, transparent 1px); background-size: 20px 20px; }
+  background-color: #f6f7f9; background-image: radial-gradient(#d3d7de 1px, transparent 1px); background-size: 20px 20px; }
 #stage.grab { cursor: grabbing; }
 #board { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 #board svg { display: block; overflow: visible; }
 .bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
-  padding: 6px 8px 6px 14px; border-radius: 10px; background: ${c.surface}; border: 1px solid ${c.border};
-  box-shadow: ${c.shadowSm}; font-size: 13px; white-space: nowrap; max-width: calc(100vw - 32px); color: ${c.text}; }
+  padding: 6px 8px 6px 14px; border-radius: 10px; background: rgba(255,255,255,.94); border: 1px solid #e3e5e8;
+  box-shadow: 0 4px 16px rgba(0,0,0,.08); font-size: 13px; white-space: nowrap; max-width: calc(100vw - 32px); }
 .bar b { overflow: hidden; text-overflow: ellipsis; }
-.bar span { color: ${c.muted}; }
-.bar button { font: inherit; padding: 4px 10px; border-radius: 7px; border: 1px solid ${c.border}; background: ${c.surface}; color: ${c.text}; cursor: pointer; }
-.bar button:hover { background: ${c.surface2}; }
+.bar span { color: #8a8f98; }
+.bar button { font: inherit; padding: 4px 10px; border-radius: 7px; border: 1px solid #e3e5e8; background: #fff; color: #1f2328; cursor: pointer; }
+.bar button:hover { background: #f0f2f5; }
 g.cmt { cursor: pointer; }
 g.cmt:hover .cmt-dot, g.cmt.on .cmt-dot { r: 7; }
-g.cmt.on { filter: drop-shadow(0 0 5px ${c.accent}); }
-.cmt-card { position: fixed; z-index: 5; max-width: min(360px, calc(100vw - 16px)); padding: 9px 12px; border-radius: 9px; background: ${c.surface};
-  border: 1px solid ${c.border}; box-shadow: ${c.shadow}; font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: ${c.text}; }
+g.cmt.on { filter: drop-shadow(0 0 5px rgba(47, 142, 230, .55)); }
+.cmt-card { position: fixed; z-index: 5; max-width: min(360px, calc(100vw - 16px)); padding: 9px 12px; border-radius: 9px; background: #fff;
+  border: 1px solid #e3e5e8; box-shadow: 0 8px 24px rgba(0,0,0,.14); font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 @media (max-width: 560px) { .bar .tip { display: none; } }
 `;
-}
 
 /** 画布 → 完整的 HTML 文本。没有形状时返回 null。 */
 export function canvasToHtml(nodes: CanvasNode[], edges: CanvasEdge[], measure: Measure, probe: PathProbe, title: string): string | null {
-  const chrome = chartChrome();
   const out = canvasToSvg(nodes, edges, measure, liveFlowFx(probe, cometSync(nodes, edges, measure, probe)), { background: null, comments: true });
   const hasComments = nodes.some((n) => n.comment);
   if (!out) return null;
@@ -128,7 +124,7 @@ export function canvasToHtml(nodes: CanvasNode[], edges: CanvasEdge[], measure: 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="DB Sonde">
 <title>${name}</title>
-<style>${pageCss(chrome)}</style>
+<style>${PAGE_CSS}</style>
 </head>
 <body>
 <div id="stage"><div id="board" data-w="${out.width}" data-h="${out.height}">

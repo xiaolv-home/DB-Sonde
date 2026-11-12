@@ -5,9 +5,8 @@
  * 配一个对比期。要回答的永远是同一类问题:**变化在哪、集中在哪、有多大**。
  *
  *   有对比期 + 按分组拆   每组变了多少、占总变化的几成(贡献度),按影响排序
- *   按时间拆              逐期走势;按日时找偏离「同星期几均值」最多的天
- *                         (均值去掉的是当前这一行,不是所有相同数值);
- *                         有对比期时按日期键对齐,缺一天或对比期多一天不会把后面错位
+ *   按时间拆              逐期走势;按日时找偏离「同星期几均值」最多的天;
+ *                         有对比期时逐期对齐(第 n 天对第 n 天),找掉得最多的几期
  *   没有对比期            各组份额、头尾,和明显偏离平均的组
  *
  * 不可加的指标(比率、均值、去重数)不算贡献度 —— 它们不能拆成各组之和 ——
@@ -34,89 +33,6 @@ export interface DrillFactInput {
 
 const additive = (c: Column) => c.rollup === "sum" || c.rollup === "count";
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-
-interface TimePoint { key: string; value: number }
-interface AlignedPair { now: TimePoint; then: TimePoint; delta: number }
-
-/** 时间键里用来和对比期对齐的那一段。日用日号:10-13 对 09-13,中间缺一天不会把后面整段错位。 */
-function dateSlot(key: string, breakdown: string): string | null {
-  const text = key.trim();
-  if (breakdown === "day") {
-    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
-    return match ? match[3] : null;
-  }
-  if (breakdown === "week") {
-    const match = /W(\d{1,2})$/i.exec(text);
-    return match ? match[1].padStart(2, "0") : null;
-  }
-  if (breakdown === "month") {
-    const match = /^(\d{4})-(\d{2})$/.exec(text);
-    return match ? match[2] : null;
-  }
-  if (breakdown === "year") {
-    const match = /^(\d{4})$/.exec(text);
-    return match ? match[1] : null;
-  }
-  return null;
-}
-
-/** 这一天在自己的日期区间里是第几天(从 0 起)。用日期算,不用结果里的行号。 */
-function dayOffset(key: string, start: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}/.test(key) || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
-  const at = Date.parse(`${key.slice(0, 10)}T00:00:00Z`);
-  const from = Date.parse(`${start}T00:00:00Z`);
-  if (!Number.isFinite(at) || !Number.isFinite(from)) return null;
-  const offset = Math.round((at - from) / 86_400_000);
-  return offset >= 0 ? offset : null;
-}
-
-/**
- * 本期和对比期按日期键配对。
- * 两边都有日期区间时,按「区间里的第 n 天」对齐 —— 区间本身不是整月、中间又缺一天,也不会错位。
- * 否则按日号 / 周号 / 月份对齐。对不上的期留空,不拿数组下标硬凑。
- * 键解析不了时返回 null,调用方再决定要不要退回顺序对齐。
- */
-function alignByDateKey(
-  series: TimePoint[],
-  before: TimePoint[],
-  breakdown: string,
-  currentRange?: { start: string; end: string },
-  compareRange?: { start: string; end: string },
-): AlignedPair[] | null {
-  if (breakdown === "day" && currentRange && compareRange) {
-    const compareAt = new Map<number, TimePoint>();
-    let indexed = 0;
-    for (const point of before) {
-      const offset = dayOffset(point.key, compareRange.start);
-      if (offset === null) continue;
-      indexed += 1;
-      if (!compareAt.has(offset)) compareAt.set(offset, point);
-    }
-    if (indexed) {
-      return series.flatMap((now) => {
-        const offset = dayOffset(now.key, currentRange.start);
-        if (offset === null) return [];
-        const then = compareAt.get(offset);
-        return then ? [{ now, then, delta: now.value - then.value }] : [];
-      });
-    }
-  }
-  const slots = new Map<string, TimePoint>();
-  const ambiguous = new Set<string>();
-  for (const point of before) {
-    const slot = dateSlot(point.key, breakdown);
-    if (slot === null) continue;
-    if (slots.has(slot)) ambiguous.add(slot);
-    else slots.set(slot, point);
-  }
-  if (!slots.size) return null;
-  return series.flatMap((now) => {
-    const slot = dateSlot(now.key, breakdown);
-    if (slot === null || ambiguous.has(slot)) return [];
-    const then = slots.get(slot);
-    return then ? [{ now, then, delta: now.value - then.value }] : [];
-  });
-}
 
 /** 一组行按某一列分组,保持出现顺序。 */
 function groupRows(result: QueryResult, index: number): Map<string, Cell[][]> {
@@ -182,24 +98,22 @@ export function drillFacts(input: DrillFactInput): Fact[] {
         text: `${label}按${dimName}看${column.name}:${series.map((p) => `${p.key} ${fmtNum(p.value, column.unit)}`).join("、")}`,
         rows: series.map((p) => [p.key, p.value]), columns: [dimName, column.name], computedBy: `drill_series(${column.field} by ${breakdown})`,
       });
-      // 按日:跟「同星期几」的平均比 —— 周末本来就高,直接跟全月平均比会把每个周末都标成异常。
-      // 只摘掉当前这一行。按值摘会把「恰好同值」的其他天也丢掉,两天一样反常时均值就算偏了。
+      // 按日:跟「同星期几」的平均比 —— 周末本来就高,直接跟全月平均比会把每个周末都标成异常
       if (breakdown === "day" && series.length >= 10) {
         const weekday = (key: string) => new Date(`${key.slice(0, 10)}T00:00:00`).getDay();
-        const byWeekday = new Map<number, { index: number; value: number }[]>();
-        for (const [index, point] of series.entries()) {
-          const w = weekday(point.key);
+        const byWeekday = new Map<number, number[]>();
+        for (const p of series) {
+          const w = weekday(p.key);
           if (Number.isNaN(w)) continue;
           const bucket = byWeekday.get(w);
-          const item = { index, value: point.value };
-          if (bucket) bucket.push(item); else byWeekday.set(w, [item]);
+          if (bucket) bucket.push(p.value); else byWeekday.set(w, [p.value]);
         }
-        const deviations = series.flatMap((point, index) => {
-          const w = weekday(point.key);
-          const peers = (byWeekday.get(w) ?? []).filter((item) => item.index !== index).map((item) => item.value);
+        const deviations = series.flatMap((p) => {
+          const w = weekday(p.key);
+          const peers = (byWeekday.get(w) ?? []).filter((v) => v !== p.value);
           if (peers.length < 2) return [];
-          const mean = peers.reduce((sum, value) => sum + value, 0) / peers.length;
-          return mean ? [{ ...point, w, mean, dev: ((point.value - mean) / Math.abs(mean)) * 100 }] : [];
+          const mean = peers.reduce((a, b) => a + b, 0) / peers.length;
+          return mean ? [{ ...p, w, mean, dev: ((p.value - mean) / Math.abs(mean)) * 100 }] : [];
         }).sort((a, b) => Math.abs(b.dev) - Math.abs(a.dev)).filter((d) => Math.abs(d.dev) >= 15).slice(0, 5);
         if (deviations.length) {
           add({
@@ -210,19 +124,16 @@ export function drillFacts(input: DrillFactInput): Fact[] {
           });
         }
       }
-      // 有对比期:按日期键对齐(不是第 n 行对第 n 行),找掉得 / 涨得最多的。
-      // 周 / 月的键对不上时(环比周号本来就不同)才退回顺序,避免整段事实消失。
+      // 有对比期:逐期对齐(本期第 n 个 vs 对比期第 n 个),找掉得 / 涨得最多的
       if (compareGroups && cmpColumn) {
         const before = [...compareGroups.entries()].map(([key, rows]) => ({ key, value: cmpValueOf(rows) }))
-          .filter((p): p is TimePoint => p.value !== null).sort((a, b) => compareText(a.key, b.key));
-        const keyed = alignByDateKey(series, before, breakdown, current.shape.dateRange, compare?.shape.dateRange);
-        const byDate = Boolean(keyed && (breakdown === "day" || keyed.length >= 2));
-        const pairs = byDate && keyed ? keyed : series.slice(0, before.length).map((now, index) => ({ now, then: before[index], delta: now.value - before[index].value }));
+          .filter((p): p is { key: string; value: number } => p.value !== null).sort((a, b) => compareText(a.key, b.key));
+        const pairs = series.slice(0, before.length).map((p, i) => ({ now: p, then: before[i], delta: p.value - before[i].value }));
         if (pairs.length >= 2) {
           const ranked = [...pairs].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 4);
           add({
             kind: "anomaly",
-            text: `${label}${column.name}逐期对比${vs}(${byDate ? "按日期对齐" : "按顺序对齐"}),变化最大的:${ranked.map((p) => `${p.now.key} ${fmtNum(p.now.value, column.unit)} vs ${p.then.key} ${fmtNum(p.then.value, column.unit)}(${p.delta >= 0 ? "+" : ""}${fmtNum(p.delta, column.unit)}${p.then.value ? `,${pct((p.delta / Math.abs(p.then.value)) * 100)}` : ""})`).join(";")}`,
+            text: `${label}${column.name}逐期对比${vs}(按顺序对齐),变化最大的:${ranked.map((p) => `${p.now.key} ${fmtNum(p.now.value, column.unit)} vs ${p.then.key} ${fmtNum(p.then.value, column.unit)}(${p.delta >= 0 ? "+" : ""}${fmtNum(p.delta, column.unit)}${p.then.value ? `,${pct((p.delta / Math.abs(p.then.value)) * 100)}` : ""})`).join(";")}`,
             rows: ranked.map((p) => [p.now.key, p.now.value, p.then.key, p.then.value, p.delta]), columns: [dimName, "本期", `${vs}对应期`, "对比期值", "差值"],
             computedBy: `aligned_periods(${column.field} by ${breakdown})`,
           });

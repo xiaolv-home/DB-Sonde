@@ -8,11 +8,6 @@ import { exportSheet } from "../export/sheet";
 import { maxOf, minOf } from "../../../lib/numbers";
 import { compareText } from "../../../lib/collate";
 
-/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
-function iconName(label: string) {
-  return { title: label, "aria-label": label };
-}
-
 
 interface Props {
   columns: TableColumnSpec[];
@@ -209,7 +204,8 @@ function DashboardTable({ columns, rows, options = NO_OPTIONS, onDrill, filename
       if (i < frozenCount) acc += widthOf(c);
     });
     return offs;
-  }, [displayCols, frozenCount, widthOf]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayCols, frozenCount, options.columnWidths, options.dimensionWidth, options.metricWidth]);
 
   /* 横向虚拟化:只画视口里那几列。一千多列全塞进 DOM 的话,十几行就是上万个单元格 ——
      首屏要好几秒,之后在看板上改任何东西都得跟着它重来一遍。列照旧全算出来(那是人家的
@@ -339,7 +335,7 @@ function DashboardTable({ columns, rows, options = NO_OPTIONS, onDrill, filename
             数据没取全:撞到行数上限了,下面这些是其中一段
           </em>
         )}
-        <button className="dash-dt-csv" {...iconName("导出 Excel")} onClick={() => void exportTable()}><Download size={12} /> Excel</button>
+        <button className="dash-dt-csv" onClick={() => void exportTable()} title="导出 Excel"><Download size={12} /> Excel</button>
         {exportHint && <em className="dash-dt-export-hint">{exportHint}</em>}
       </div>
       <div className="dash-dt-scroll" ref={scrollRef}>
@@ -480,9 +476,9 @@ function DashboardTable({ columns, rows, options = NO_OPTIONS, onDrill, filename
       </div>
       {pageCount > 1 && (
         <div className="dash-dt-pager">
-          <button {...iconName("上一页")} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>‹</button>
+          <button disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>‹</button>
           <span>{curPage} / {pageCount}</span>
-          <button {...iconName("下一页")} disabled={curPage >= pageCount} onClick={() => setPage(curPage + 1)}>›</button>
+          <button disabled={curPage >= pageCount} onClick={() => setPage(curPage + 1)}>›</button>
         </div>
       )}
     </div>

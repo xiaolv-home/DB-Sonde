@@ -51,11 +51,6 @@ interface MenuItem {
 type Section = "conn" | "editor" | "files";
 const SECTION_KEY = "sonde.sidebarSection.v1";
 
-/** 侧栏里只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
-function iconName(label: string) {
-  return { title: label, "aria-label": label };
-}
-
 const tabIcon = (tab: WorkspaceTab) => {
   switch (tab.kind) {
     case "routine": return <Code2 size={14} />;
@@ -91,7 +86,7 @@ function EditorList() {
           {tab.connName && <span className="el-conn">{tab.connName}</span>}
           <button
             className="el-close"
-            {...iconName(`关闭 ${tab.title}`)}
+            title="关闭"
             onClick={(e) => {
               e.stopPropagation();
               useApp.getState().closeTab(tab.id);
@@ -201,7 +196,7 @@ function FilesPanel() {
                 <span className="sq-name">{q.name}</span>
                 <button
                   className="sq-del"
-                  {...iconName(`删除脚本 ${q.name}`)}
+                  title="删除脚本"
                   onClick={(e) => {
                     e.stopPropagation();
                     useApp.getState().deleteSavedQuery(q.id);
@@ -226,7 +221,7 @@ function FilesPanel() {
                 <span className="sq-name">{f.name.replace(/\.html?$/i, "")}</span>
                 <button
                   className="sq-del"
-                  {...iconName(`删除这个导出文件 ${f.name}`)}
+                  title="删除这个导出文件"
                   onClick={(e) => { e.stopPropagation(); void deleteBoard(f.path); }}
                 >
                   <Trash2 size={12} />
@@ -241,7 +236,7 @@ function FilesPanel() {
           <span>Python 脚本</span>
           <button
             className="fg-add"
-            {...iconName(pyDir ? `打开脚本目录:${pyDir}` : "打开脚本目录")}
+            title={pyDir ? `脚本目录:${pyDir}\n点击在访达里打开` : "脚本目录"}
             onClick={() => {
               if (!pyDir) return;
               void import("@tauri-apps/plugin-opener")
@@ -251,7 +246,7 @@ function FilesPanel() {
           >
             <FolderOpen size={13} />
           </button>
-          <button className="fg-add" {...iconName("新建 Python 脚本")} onClick={newPy}>
+          <button className="fg-add" title="新建 Python 脚本" onClick={newPy}>
             <Plus size={13} />
           </button>
         </div>
@@ -277,7 +272,6 @@ function FilesPanel() {
                 {renaming?.path === f.path ? (
                   <input
                     className="qt-rename sq-rename"
-                    aria-label={`重命名 ${f.name}`}
                     autoFocus
                     value={renaming.value}
                     onClick={(e) => e.stopPropagation()}
@@ -293,7 +287,7 @@ function FilesPanel() {
                 )}
                 <button
                   className="sq-act"
-                  {...iconName(`重命名 ${f.name}`)}
+                  title="重命名"
                   onClick={(e) => {
                     e.stopPropagation();
                     setRenaming({ path: f.path, value: f.name.replace(/\.py$/i, "") });
@@ -303,7 +297,7 @@ function FilesPanel() {
                 </button>
                 <button
                   className="sq-del"
-                  {...iconName(`删除脚本 ${f.name}`)}
+                  title="删除脚本"
                   onClick={(e) => {
                     e.stopPropagation();
                     void deletePy(f.path);
@@ -571,7 +565,6 @@ export default function Sidebar() {
             className={`side-tab ${section === s.key ? "on" : ""}`}
             onClick={() => changeSection(s.key)}
             title={s.label}
-            aria-pressed={section === s.key}
           >
             {s.icon}
             <span className="st-label">{s.label}</span>
@@ -587,22 +580,21 @@ export default function Sidebar() {
         {section === "conn" && hiddenCount > 0 && (
           <button
             className={`icon-btn ${showHidden ? "on" : ""}`}
-            {...iconName(showHidden ? "隐藏已隐藏项" : `显示 ${hiddenCount} 个已隐藏项`)}
-            aria-pressed={showHidden}
+            title={showHidden ? "隐藏已隐藏项" : `显示 ${hiddenCount} 个已隐藏项`}
             onClick={() => useApp.getState().toggleShowHidden()}
           >
             {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
           </button>
         )}
         {section === "conn" && (
-          <button className="icon-btn" {...iconName(t("toolbar.newConnection"))} onClick={() => useApp.getState().openDialog()}>
+          <button className="icon-btn" title={t("toolbar.newConnection")} onClick={() => useApp.getState().openDialog()}>
             <Plus size={17} />
           </button>
         )}
         {section === "editor" && tabs.length > 0 && (
           <button
             className="icon-btn"
-            {...iconName("关闭全部编辑器")}
+            title="关闭全部编辑器"
             onClick={() => tabs.forEach((tb) => useApp.getState().closeTab(tb.id))}
           >
             <X size={16} />

@@ -97,7 +97,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
   const [, setVersions] = useDashboardVersions(document?.id);
   // 多级下钻路径(按 widgetId)。UI 态,不持久化。
   const [drillPaths, setDrillPaths] = useState<DrillPathMap>({});
-  const drillRuntime = useDrillRuntime(runtimeDocument, filterValues, drillPaths, runtimeRevision, t, componentFilterValues);
+  const drillRuntime = useDrillRuntime(runtimeDocument, filterValues, drillPaths, runtimeRevision, t);
   const componentRuntime = useComponentRuntime(runtimeDocument, filterValues, componentFilterValues, drillPaths, runtimeRevision, t);
   const comparisonRuntime = useComparisonRuntime(runtimeDocument, filterValues, componentFilterValues, runtimeRevision, t);
   const drillDown = (widgetId: string, value: string) => {
@@ -141,7 +141,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
     /* 只认 tab.id。tab.documentId 是这个 effect 自己在末尾写上去的(新建的白板
        落到标签页上),列进依赖就会立刻再跑一遍、把刚建的板子覆盖掉。
        t 是 i18n 取词函数,只用来给白板起个默认名,不该触发重新加载。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只认 tab.id;documentId 是这个 effect 自己写上去的
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id]);
 
   // 自动刷新:每 refreshInterval 秒触发一次全量重取(bump runtimeRevision)。
@@ -456,7 +456,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
       <div className={`st-body ${!preview && fieldsOpen ? "with-fields" : ""}`}>
         {!preview && (fieldsOpen
           ? <FieldPanel widget={selectedWidget} datasetId={browseDatasetId ?? lastDatasetId()} onDataset={setBrowseDatasetId} onChange={updateWidget} onCollapse={() => toggleFields(false)} />
-          : <button type="button" className="st-fields-rail" title="展开字段面板" aria-label="展开字段面板" aria-expanded={false} onClick={() => toggleFields(true)}><PanelLeftOpen size={15} /><span>字段</span></button>)}
+          : <button type="button" className="st-fields-rail" title="展开字段面板" onClick={() => toggleFields(true)}><PanelLeftOpen size={15} /><span>字段</span></button>)}
         <main className="dash-canvas-shell st-canvas"
           onDragOver={(event) => { if (!preview && event.dataTransfer.types.includes("application/x-sonde-field")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
           onDrop={(event) => { if (!preview) dropField(event); }}>

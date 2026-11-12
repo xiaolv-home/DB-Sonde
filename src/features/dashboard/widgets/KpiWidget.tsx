@@ -1,7 +1,4 @@
-import type { CSSProperties } from "react";
 import { appearanceBackground, readableColor } from "../cardReadability";
-import { flowFrame } from "../chartLayout";
-import { useChartBox } from "../useChartBox";
 import { useI18n } from "../../../hooks/useI18n";
 import type { Cell, QueryResult } from "../../../types";
 import type { DashboardWidget } from "../domain";
@@ -25,32 +22,8 @@ function comparisonText(value: number | null, label: string, decimals: number): 
 }
 
 /** 指标卡:一个或多个大数字 + 可选副指标 + 可选同环比;支持"切换"模式在多指标间轮换。 */
-function flowShell(frame: ReturnType<typeof flowFrame>): { frame: CSSProperties; body: CSSProperties } {
-  return {
-    frame: {
-      height: "100%",
-      width: "100%",
-      minHeight: 0,
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: frame.centerY ? "center" : "flex-start",
-      alignItems: frame.centerX ? "center" : "stretch",
-    },
-    body: {
-      width: "100%",
-      maxWidth: frame.maxWidth ?? undefined,
-      height: frame.centerY ? "auto" : "100%",
-      minHeight: 0,
-      display: "flex",
-      flexDirection: "column",
-      flex: frame.centerY ? "0 1 auto" : "1 1 auto",
-    },
-  };
-}
-
 export default function KpiWidget({ widget, rows, resolvedMetrics, secondaryMetrics, comparison, activeMeasure, onActiveMeasure }: Props) {
   const { t } = useI18n();
-  const { ref: boxRef, box } = useChartBox();
   const ko = widget.options.kpi ?? {};
   const selected = resolvedMetrics.slice(0, 6);
   if (selected.length === 0) return <div className="dash-widget-state">{t("dashboard.chooseDimensionMeasure")}</div>;
@@ -109,26 +82,21 @@ export default function KpiWidget({ widget, rows, resolvedMetrics, secondaryMetr
     <div className={`dash-kpi-grid count-${Math.min(metrics.length, 6)}`}>{metrics.map(card)}</div>
   );
 
-  const switching = (ko.displayMode === "switch" || ko.displayMode === "group_switch") && choices.length > 1;
-  const active = switching
-    ? (choices.find((c) => c.id === activeMeasure) ?? choices.find((c) => c.id === ko.metricSwitchDefault) ?? choices[0])
-    : undefined;
-  const shown = active ? active.metrics : selected;
-  const shell = flowShell(flowFrame({ kind: "kpi", width: box.width, height: box.height, count: shown.length }));
-  const body = switching ? (
-    <div className="dash-kpi-switch" style={shell.body.flex === "0 1 auto" ? { height: "auto" } : undefined}>
-      <div className="dash-kpi-switch-bar">
-        {ko.metricSwitchTitle !== false && <span className="dash-kpi-switch-title">指标</span>}
-        <select aria-label={t("dashboard.metricSwitch")} value={active!.id} onChange={(e) => onActiveMeasure(e.target.value)}>
-          {choices.map((c) => <option value={c.id} key={c.id}>{c.label}</option>)}
-        </select>
+  if ((ko.displayMode === "switch" || ko.displayMode === "group_switch") && choices.length > 1) {
+    const active = choices.find((c) => c.id === activeMeasure)
+      ?? choices.find((c) => c.id === ko.metricSwitchDefault)
+      ?? choices[0];
+    return (
+      <div className="dash-kpi-switch">
+        <div className="dash-kpi-switch-bar">
+          {ko.metricSwitchTitle !== false && <span className="dash-kpi-switch-title">指标</span>}
+          <select aria-label={t("dashboard.metricSwitch")} value={active.id} onChange={(e) => onActiveMeasure(e.target.value)}>
+            {choices.map((c) => <option value={c.id} key={c.id}>{c.label}</option>)}
+          </select>
+        </div>
+        {grid(active.metrics)}
       </div>
-      {grid(shown)}
-    </div>
-  ) : grid(shown);
-  return (
-    <div ref={boxRef} className="dash-flow-frame" style={shell.frame}>
-      <div style={shell.body}>{body}</div>
-    </div>
-  );
+    );
+  }
+  return grid(selected);
 }

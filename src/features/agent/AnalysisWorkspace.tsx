@@ -97,7 +97,7 @@ export default function AnalysisWorkspace({ tab }: { tab: AnalysisTab }) {
        它就是「这次要读哪个维度的取值」的完整身份。那几个再逐个列进去是重复的;
        而 options / shared / chosen / searchTerm 是这个 effect 的结果,
        列进去会自己触发自己。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- optionKey 已含维度、指标、日期和搜索词;options 写回后会重入
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optionKey, valuesRevision, d.mode]);
 
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);

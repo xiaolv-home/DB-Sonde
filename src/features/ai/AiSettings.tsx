@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Play, Square, CircleCheck, Download, RefreshCw } from "lucide-react";
 import { inTauri } from "../../lib/mockBackend";
-import { cloudOrigin } from "./cloudProxy";
 import { useAi, type AiProvider } from "./aiStore";
 import { routingSummary } from "../agent/model/modelRouting";
 import { useAiStrings } from "./strings";
@@ -168,81 +167,6 @@ export default function AiSettings() {
   const update = useAi((s) => s.update);
   const close = useAi((s) => s.closeSettings);
   const configError = useAi((s) => s.configError);
-  const [draftKey, setDraftKey] = useState("");
-  const [draftUrl, setDraftUrl] = useState(config.cloud.baseUrl);
-  const [keyCleared, setKeyCleared] = useState(false);
-  const draftUrlRef = useRef(config.cloud.baseUrl);
-  const clearingKey = useRef(false);
-  const flushingKey = useRef<Promise<boolean> | null>(null);
-  const hasKey = Boolean(config.cloud.hasKey || config.cloud.apiKey);
-  // The saved key is never loaded back into this field. A non-empty draft replaces
-  // it; leaving the field blank keeps the saved key. Desktop builds then drop the
-  // draft from renderer state so later requests read the key only in Rust.
-  const persistKey = (next: string, baseUrl?: string): Promise<boolean> => {
-    const trimmed = next.trim();
-    if (!trimmed) return Promise.resolve(true);
-    if (flushingKey.current) return flushingKey.current;
-    const run = (async () => {
-      const saved = await updateCloud({
-        apiKey: trimmed,
-        hasKey: true,
-        ...(baseUrl !== undefined ? { baseUrl } : {}),
-      });
-      if (saved === false) return false;
-      if (inTauri) {
-        const scrubbed = await updateCloud({ apiKey: "" });
-        if (scrubbed === false) return false;
-      }
-      setDraftKey("");
-      return true;
-    })();
-    flushingKey.current = run;
-    void run.finally(() => {
-      if (flushingKey.current === run) flushingKey.current = null;
-    });
-    return run;
-  };
-  const clearKey = () => {
-    clearingKey.current = true;
-    setDraftKey("");
-    void Promise.resolve(updateCloud({ apiKey: "", hasKey: false })).finally(() => {
-      clearingKey.current = false;
-    });
-  };
-  const setUrl = (value: string) => {
-    draftUrlRef.current = value;
-    setDraftUrl(value);
-  };
-  // Commit the address when editing finishes. A different origin drops the stored
-  // key unless this same save includes a new one; Rust enforces that again.
-  const commitUrl = (next: string, keyDraft = draftKey): Promise<boolean | void> => {
-    const previous = cloudOrigin(config.cloud.baseUrl);
-    const origin = cloudOrigin(next);
-    if (origin !== null && origin === previous) {
-      if (next === config.cloud.baseUrl) return Promise.resolve(true);
-      return Promise.resolve(updateCloud({ baseUrl: next }));
-    }
-    const trimmed = keyDraft.trim();
-    if (trimmed) return persistKey(trimmed, next);
-    return Promise.resolve(updateCloud({ baseUrl: next, apiKey: "", hasKey: false }));
-  };
-  // 只观察 commitUrl 的结果来决定要不要出状态提示,清 Key 仍由 commitUrl 自己做。
-  const noteClearedKey = (next: string) => {
-    const hadKey = hasKey;
-    const previous = cloudOrigin(config.cloud.baseUrl);
-    return commitUrl(next).then((ok) => {
-      if (ok !== false && hadKey) {
-        const now = useAi.getState().config.cloud;
-        if (cloudOrigin(now.baseUrl) !== previous && !now.hasKey && !now.apiKey.trim()) setKeyCleared(true);
-      }
-      return ok;
-    });
-  };
-  const requestClose = () => {
-    void commitUrl(draftUrlRef.current).then((ok) => (ok === false ? false : persistKey(draftKey))).then((ok) => {
-      if (ok !== false) close();
-    });
-  };
 
   const discovery = useModelDiscovery(config.provider === "local" ? { provider: "local", baseUrl: config.local.baseUrl } : null);
   const detectMsg = discovery.error ?? (discovery.loaded
@@ -256,7 +180,7 @@ export default function AiSettings() {
   ];
 
   return (
-    <div className="modal-backdrop" onMouseDown={requestClose}>
+    <div className="modal-backdrop" onMouseDown={close}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{t("settings")}</h3>
@@ -325,54 +249,24 @@ export default function AiSettings() {
           {config.provider === "cloud" && (
             <>
               <div className="form-row">
-                <label htmlFor="cloud-base-url">{t("baseUrl")}</label>
+                <label>{t("baseUrl")}</label>
                 <input
-                  id="cloud-base-url"
                   className="input"
-                  value={draftUrl}
+                  value={config.cloud.baseUrl}
                   spellCheck={false}
-                  aria-describedby={keyCleared ? "cloud-host-key-hint cloud-host-key-cleared" : "cloud-host-key-hint"}
-                  onChange={(e) => setUrl(e.target.value)}
-                  onBlur={(e) => { void noteClearedKey(e.target.value); }}
+                  onChange={(e) => updateCloud({ baseUrl: e.target.value })}
                 />
-                <p id="cloud-host-key-hint" className="ai-field-hint">{t("cloudKeyHostHint")}</p>
               </div>
               <div className="form-row">
-                <label htmlFor="cloud-api-key">{t("apiKey")}</label>
+                <label>{t("apiKey")}</label>
                 <input
-                  id="cloud-api-key"
                   className="input"
                   type="password"
-                  value={draftKey}
+                  value={config.cloud.apiKey}
                   spellCheck={false}
-                  autoComplete="off"
-                  aria-describedby={keyCleared ? "cloud-host-key-hint cloud-host-key-cleared" : "cloud-host-key-hint"}
-                  placeholder={hasKey ? t("apiKeySaved") : ""}
-                  onChange={(e) => setDraftKey(e.target.value)}
-                  onBlur={() => {
-                    if (clearingKey.current) return;
-                    void persistKey(draftKey).then((ok) => {
-                      if (ok !== false && draftKey.trim()) setKeyCleared(false);
-                    });
-                  }}
+                  onChange={(e) => updateCloud({ apiKey: e.target.value })}
                 />
-                {keyCleared && (
-                  <p id="cloud-host-key-cleared" className="ai-field-hint" role="status">{t("cloudKeyCleared")}</p>
-                )}
               </div>
-              {hasKey && (
-                <div className="form-row">
-                  <label />
-                  <button
-                    type="button"
-                    className="btn sm"
-                    onMouseDown={() => { clearingKey.current = true; }}
-                    onClick={clearKey}
-                  >
-                    {t("apiKeyClear")}
-                  </button>
-                </div>
-              )}
               <div className="form-row">
                 <label>{t("model")}</label>
                 <input
@@ -438,7 +332,7 @@ export default function AiSettings() {
         </div>
         <div className="modal-foot">
           <div className="toolbar-spacer" />
-          <button className="btn primary" onClick={requestClose}>
+          <button className="btn primary" onClick={close}>
             {t("close")}
           </button>
         </div>

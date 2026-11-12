@@ -1,29 +1,18 @@
 //! Built-in AI engine: manages a local `llama-server` (llama.cpp) child process
 //! that speaks the OpenAI-compatible API on 127.0.0.1. Self-contained — the
 //! server binary + dylibs ship in the app's resources (see scripts/bundle-llama.sh);
-//! the model is downloaded on first use. The repository path and SHA-256 are
-//! pinned in `download`; the download is checked before it is treated as done.
+//! the model is downloaded on first use. No extra Cargo deps (std + curl only).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
+use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::Manager;
 
-use crate::paths::home_dir;
-
-mod download;
-
-use download::{
-    builtin_model_url, download_builtin_model, model_destination, validate_model_url,
-    BUILTIN_MODEL_FILENAME, BUILTIN_MODEL_SIZE,
-};
-
-/// Fixed loopback port for the built-in engine. The model proxy only allows this port.
-pub const BUILTIN_PORT: u16 = 8899;
+/// Fixed loopback port for the built-in engine.
+const PORT: u16 = 8899;
 
 #[derive(Default)]
 pub struct AiEngine {
@@ -32,34 +21,9 @@ pub struct AiEngine {
 }
 
 struct Download {
-    worker: Option<JoinHandle<()>>,
+    child: Child,
     dest: PathBuf,
     total: u64,
-    error: Arc<Mutex<Option<String>>>,
-}
-
-impl Download {
-    fn still_running(&self) -> bool {
-        self.worker
-            .as_ref()
-            .is_some_and(|worker| !worker.is_finished())
-    }
-
-    /// Join only after the worker has finished so the UI thread never blocks on it.
-    fn finish(&mut self) -> Option<String> {
-        if self.still_running() {
-            return None;
-        }
-        if let Some(worker) = self.worker.take() {
-            if worker.join().is_err() {
-                let mut error = self.error.lock().unwrap();
-                if error.is_none() {
-                    *error = Some("download failed".to_string());
-                }
-            }
-        }
-        self.error.lock().unwrap().clone()
-    }
 }
 
 #[derive(Serialize)]
@@ -83,9 +47,13 @@ pub struct DownloadProgress {
     error: Option<String>,
 }
 
+fn home() -> PathBuf {
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+}
+
 /// Where the built-in model(s) live.
 fn models_dir() -> PathBuf {
-    home_dir().join(".db-sonde").join("models")
+    home().join(".db-sonde").join("models")
 }
 
 /// Windows 上可执行文件带 .exe —— 拼路径的地方都得跟着变,否则在 Windows
@@ -110,7 +78,7 @@ fn resolve_binary(resource: Option<&Path>) -> Option<PathBuf> {
             return Some(p);
         }
     }
-    let mut candidates = vec![home_dir().join(".db-sonde").join("bin").join(LLAMA_EXE)];
+    let mut candidates = vec![home().join(".db-sonde").join("bin").join(LLAMA_EXE)];
     #[cfg(target_os = "macos")]
     candidates.extend([
         PathBuf::from("/opt/homebrew/bin/llama-server"),
@@ -137,11 +105,7 @@ fn resolve_model() -> Option<PathBuf> {
             Some(n) => n.to_string_lossy().to_lowercase(),
             None => continue,
         };
-        if !name.ends_with(".gguf")
-            || name.contains("bge")
-            || name.contains("embed")
-            || name.contains("rerank")
-        {
+        if !name.ends_with(".gguf") || name.contains("bge") || name.contains("embed") || name.contains("rerank") {
             continue;
         }
         if name.contains("qwen") && name.contains("coder") {
@@ -165,8 +129,8 @@ fn status(child: &mut Option<Child>, resource: Option<&Path>) -> EngineStatus {
     let model = resolve_model();
     EngineStatus {
         running: is_running(child),
-        port: BUILTIN_PORT,
-        base_url: format!("http://127.0.0.1:{BUILTIN_PORT}/v1"),
+        port: PORT,
+        base_url: format!("http://127.0.0.1:{PORT}/v1"),
         binary: binary.map(|p| p.to_string_lossy().into_owned()),
         model_size: model.as_deref().and_then(size_of),
         model: model.map(|p| p.to_string_lossy().into_owned()),
@@ -208,7 +172,7 @@ pub fn ai_engine_start(
     let child = Command::new(&binary)
         .arg("-m")
         .arg(&model)
-        .args(["--host", "127.0.0.1", "--port", &BUILTIN_PORT.to_string()])
+        .args(["--host", "127.0.0.1", "--port", &PORT.to_string()])
         .args(["-c", "8192", "-ngl", "999", "--jinja"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -230,34 +194,33 @@ pub fn ai_engine_stop(app: tauri::AppHandle, engine: tauri::State<'_, AiEngine>)
     status(&mut guard, resource_dir(&app).as_deref())
 }
 
-/// Download the pinned GGUF (resumable). Returns once the download has started;
-/// poll `ai_model_progress`. The filename and URL still go through the ModelScope
-/// allowlist (single `.gguf`, no symlink, https only, redirect hops checked).
+/// Download a GGUF into the models dir via `curl` (resumable). Returns once the
+/// download has started; poll `ai_model_progress` for status.
 #[tauri::command]
-pub fn ai_model_download(engine: tauri::State<'_, AiEngine>) -> Result<(), String> {
-    let dest = model_destination(&models_dir(), BUILTIN_MODEL_FILENAME)?;
-    let url = validate_model_url(&builtin_model_url())?.to_string();
+pub fn ai_model_download(
+    engine: tauri::State<'_, AiEngine>,
+    url: String,
+    filename: String,
+    total: u64,
+) -> Result<(), String> {
+    let dir = models_dir();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(&filename);
     let mut guard = engine.download.lock().unwrap();
-    if let Some(current) = guard.as_mut() {
-        if current.still_running() {
-            return Ok(());
+    if let Some(dl) = guard.as_mut() {
+        if matches!(dl.child.try_wait(), Ok(None)) {
+            return Ok(()); // already downloading
         }
-        let _ = current.finish();
     }
-    let error = Arc::new(Mutex::new(None));
-    let error_slot = Arc::clone(&error);
-    let path = dest.clone();
-    let worker = std::thread::spawn(move || {
-        if let Err(msg) = download_builtin_model(&url, &path) {
-            *error_slot.lock().unwrap() = Some(msg);
-        }
-    });
-    *guard = Some(Download {
-        worker: Some(worker),
-        dest,
-        total: BUILTIN_MODEL_SIZE,
-        error,
-    });
+    let child = Command::new("curl")
+        .args(["-L", "--fail", "-C", "-", "-o"])
+        .arg(&dest)
+        .arg(&url)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to start download: {e}"))?;
+    *guard = Some(Download { child, dest, total });
     Ok(())
 }
 
@@ -265,32 +228,18 @@ pub fn ai_model_download(engine: tauri::State<'_, AiEngine>) -> Result<(), Strin
 pub fn ai_model_progress(engine: tauri::State<'_, AiEngine>) -> DownloadProgress {
     let mut guard = engine.download.lock().unwrap();
     let Some(dl) = guard.as_mut() else {
-        return DownloadProgress {
-            downloading: false,
-            bytes: 0,
-            total: 0,
-            done: false,
-            error: None,
-        };
+        return DownloadProgress { downloading: false, bytes: 0, total: 0, done: false, error: None };
     };
-    if dl.still_running() {
-        let bytes = size_of(&dl.dest).unwrap_or(0);
-        return DownloadProgress {
-            downloading: true,
+    let bytes = size_of(&dl.dest).unwrap_or(0);
+    match dl.child.try_wait() {
+        Ok(Some(st)) => DownloadProgress {
+            downloading: false,
             bytes,
             total: dl.total,
-            done: false,
-            error: None,
-        };
-    }
-    let error = dl.finish();
-    // SHA mismatch deletes the file, so measure again after the worker finishes.
-    let bytes = size_of(&dl.dest).unwrap_or(0);
-    DownloadProgress {
-        downloading: false,
-        bytes,
-        total: dl.total,
-        done: error.is_none(),
-        error,
+            done: st.success(),
+            error: (!st.success()).then(|| "download failed".to_string()),
+        },
+        Ok(None) => DownloadProgress { downloading: true, bytes, total: dl.total, done: false, error: None },
+        Err(e) => DownloadProgress { downloading: false, bytes, total: dl.total, done: false, error: Some(e.to_string()) },
     }
 }

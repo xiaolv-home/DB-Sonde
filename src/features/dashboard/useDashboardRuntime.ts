@@ -6,7 +6,6 @@ import { defaultMetricScope, type QueryScope } from "../metrics/queryPlan";
 import type { Metric } from "../metrics/metricsStore";
 import type { DashboardComponentFilterField, DashboardDataset, DashboardDocument, DashboardDrillFilter, DashboardRuntimeData, DashboardWidget } from "./domain";
 import { datasetOf } from "./resolveDatasets";
-import { retainDrillMap, widgetsToFetch } from "./drillView";
 import { activeDashboardFilters, type DashboardFilterValues } from "./filtering";
 import { executeDataset } from "./query";
 import { dashboardRepository } from "./repository";
@@ -113,7 +112,7 @@ export function useDatasetRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- querySignature 才是查询身份;centralMetrics 只作刷新触发,document 与 t 不能列进去
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [querySignature, centralMetrics, runtimeRevision]);
   return [runtime, setRuntime];
 }
@@ -153,7 +152,7 @@ export function useFilteredRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 数据集用 querySignature,筛选用 document.filters;整个 document 变了不重查
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [querySignature, document?.filters, filterValues, drill, runtimeRevision, t]);
   return [filteredRuntime, setFilteredRuntime];
 }
@@ -179,13 +178,9 @@ export type DrillPath = { dimension: string; value: string }[];
 export type DrillPathMap = Record<string, DrillPath>; // key = widgetId
 
 /**
- * 多级下钻运行时:为每个配了下钻链的折线/柱/饼/漏斗,
- * 按当前层级维度分组、叠加路径值 + 看板筛选,重新取数。
- * 返回按数据集 id 索引的结果(编译产物的 id 就是组件 id),画布用它盖住基础运行时。
- *
- * 查询回来之前不往表里塞 `{ loading: true }`。那一笔会把基础结果顶掉,
- * 渲染层看到「在加载、又没有结果」就把整张图卸掉;数据到了再挂上,
- * 尺寸从 0 量起,图表等于画了两遍。旧结果一直留到新结果落地。
+ * 多级下钻运行时:为每个"配置了 drillDimensions 的 bar/pie 组件",
+ * 按当前层级维度(drillDimensions[path.length])分组、叠加路径值 + 看板筛选,重新取数。
+ * 返回按 datasetId 索引的结果,canvasRuntime 用它覆盖这些组件的基础运行时。
  */
 export function useDrillRuntime(
   document: DashboardDocument | undefined,
@@ -193,78 +188,54 @@ export function useDrillRuntime(
   drillPaths: DrillPathMap,
   runtimeRevision: number,
   t: Translate,
-  componentValues: ComponentFilterValueMap = {},
 ): RuntimeMap {
   const [map, setMap] = useState<RuntimeMap>({});
   const targets = document
-    ? document.widgets.filter((w) => (w.options.chart?.drillDimensions?.length ?? 0) > 0 && (w.type === "line" || w.type === "bar" || w.type === "pie" || w.type === "funnel"))
+    ? document.widgets.filter((w) => (w.type === "bar" || w.type === "pie" || w.type === "funnel") && (w.options.chart?.drillDimensions?.length ?? 0) > 0)
     : [];
   const signature = JSON.stringify({
     datasets: querySignatureOf(document?.datasets),
     filters: document?.filters,
     filterValues,
-    componentValues,
     drillPaths,
     runtimeRevision,
     dims: targets.map((w) => [w.id, w.datasetId, w.options.chart?.drillDimensions]),
   });
   useEffect(() => {
-    if (!document || targets.length === 0) { setMap((current) => (Object.keys(current).length ? {} : current)); return; }
-    const owned: Record<string, boolean> = {};
-    for (const widget of document.widgets) {
-      const dataset = datasetOf(widget, document.datasets);
-      if (componentQueryActive(widget, componentValues[widget.id], dataset)) owned[widget.id] = true;
-    }
-    /* 只有「真的钻进去了」的组件才有这份数据。回到第 0 层就该从表里去掉 ——
-       留着的话画布优先用它(那是按下一层维度分组的),而渲染层已经回到当前维度了,
-       两边对不上,组件当场变成「请选择维度和指标」。这就是「下钻能用、一返回就空」。
-       回到顶层不用再查,基础那份还在。键没变也不要换一张新表,免得白渲染一帧。 */
-    const plan = widgetsToFetch(document.widgets, drillPaths, owned);
-    if (plan.length === 0) {
-      setMap((current) => (Object.keys(current).length ? {} : current));
-      return;
-    }
+    if (!document || targets.length === 0) { setMap({}); return; }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      const ids: string[] = [];
-      const jobs: { key: string; dataset: DashboardDataset; filters: ReturnType<typeof activeDashboardFilters> }[] = [];
-      for (const item of plan) {
-        const widget = document.widgets.find((w) => w.id === item.id);
-        if (!widget) continue;
+      /* 只有「真的钻进去了」的组件才有这份数据。回到第 0 层就该从表里去掉 ——
+         留着的话画布优先用它(那是按下一层维度分组的),而渲染层已经回到当前维度了,
+         两边对不上,组件当场变成「请选择维度和指标」。这就是「下钻能用、一返回就空」。
+
+         结果按组件 id 存(编译产物就是按组件 id 的),剪枝也得按组件 id ——
+         拿 datasetId 去对一个也对不上,等于每跑一次就把整张表清空重来。 */
+      const drilled = targets.filter((w) => (drillPaths[w.id] ?? []).length > 0);
+      const ids = new Set(drilled.map((w) => w.id));
+      setMap((current) => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+      for (const widget of drilled) {
         const dataset = datasetOf(widget, document.datasets);
         if (!dataset || !datasetReady(dataset)) continue;
+        const dims = widget.options.chart!.drillDimensions!;
         const path = drillPaths[widget.id] ?? [];
-        ids.push(dataset.id);
-        jobs.push({
-          key: dataset.id,
-          dataset: { ...dataset, groupBy: [item.groupBy] },
-          filters: [
-            ...activeDashboardFilters(dataset, document.filters, filterValues, undefined),
-            ...path.map((p) => ({ field: p.dimension, kind: "select" as const, value: p.value })),
-          ],
-        });
-      }
-      setMap((current) => retainDrillMap(current, ids));
-      for (const job of jobs) {
-        void executeDataset(job.dataset, t, 5_000, job.filters, WIDGET_TIMEOUT_SECS)
-          .then((result) => { if (!cancelled) setMap((current) => ({ ...current, [job.key]: { loading: false, result } })); })
-          .catch((error) => { if (!cancelled) setMap((current) => ({ ...current, [job.key]: { loading: false, error: String(error) } })); });
+        // 第 0 层是组件自己绑的维度(基础运行时那份就是),第 k 层才换成链里的第 k-1 个。
+        const level = Math.min(path.length, dims.length);
+        const filters = [
+          ...activeDashboardFilters(dataset, document.filters, filterValues, undefined),
+          ...path.map((p) => ({ field: p.dimension, kind: "select" as const, value: p.value })),
+        ];
+        const drilled = { ...dataset, groupBy: [dims[level - 1]] };
+        setMap((current) => ({ ...current, [dataset.id]: refetching(current[dataset.id]) }));
+        void executeDataset(drilled, t, 5_000, filters, WIDGET_TIMEOUT_SECS)
+          .then((result) => { if (!cancelled) setMap((current) => ({ ...current, [dataset.id]: { loading: false, result } })); })
+          .catch((error) => { if (!cancelled) setMap((current) => ({ ...current, [dataset.id]: { loading: false, error: String(error) } })); });
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature 已序列化数据集、筛选和下钻路径
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, t]);
   return map;
-}
-
-function componentQueryActive(
-  widget: DashboardWidget,
-  value: ComponentFilterValue | undefined,
-  dataset: DashboardDataset | undefined,
-): boolean {
-  const local = componentQueryFilters(widget, value);
-  const hasDate = widget.filtersEnabled && dateFilterFieldsOf(widget, dataset).length > 0 && !!(value?.start || value?.end);
-  return hasDate || local.length > 0;
 }
 
 /** Component-local filter runtime, keyed by widget id. It layers the V1 local
@@ -326,7 +297,7 @@ export function useComponentRuntime(
       }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature 已序列化组件筛选和下钻,避免整份 document 触发重查
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, t]);
   return map;
 }
@@ -428,7 +399,7 @@ export function useComparisonRuntime(
       }
     }, 300);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- compareSignature 与 querySignature 是对比查询的身份,document 对象不单独触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareSignature, querySignature, globalValues, runtimeRevision, t]);
   return map;
 }

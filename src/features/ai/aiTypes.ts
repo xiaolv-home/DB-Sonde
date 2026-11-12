@@ -5,7 +5,7 @@ export interface AiConfig {
   /** The bundled model — endpoint is managed by the sidecar once installed. */
   builtin: { model: string; baseUrl: string; ready: boolean };
   local: { baseUrl: string; model: string };
-  cloud: { baseUrl: string; apiKey: string; model: string; hasKey?: boolean };
+  cloud: { baseUrl: string; apiKey: string; model: string };
   /** Qwen hybrid reasoning switch. Sent to local OpenAI-compatible endpoints
    *  as chat_template_kwargs.enable_thinking; direct answers are the default. */
   thinkingEnabled: boolean;

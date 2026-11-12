@@ -401,7 +401,7 @@ export default function ResultGrid({
     [rows],
   );
 
-  const setColumnValue = useCallback((c: number, raw: string): boolean => {
+  const setColumnValue = (c: number, raw: string): boolean => {
     let value: Cell;
     try {
       value = parseEditedValue(raw, columnSample(c), { number: t("edit.validNumber"), boolean: t("edit.validBoolean") }, numericCols[c], nullableCols[c]);
@@ -426,11 +426,11 @@ export default function ResultGrid({
       });
     }
     return true;
-  }, [columnSample, t, numericCols, nullableCols, onEditError, edits, colOps]);
+  };
 
   /** All selected LOADED cells, addressed by loaded-row index (insert rows edit
    *  their own value store, so they are skipped here). */
-  const selectedTargets = useCallback((raw: string) => {
+  const selectedTargets = (raw: string) => {
     const out: { r: number; c: number; raw: string }[] = [];
     if (!bounds) return out;
     for (let pos = bounds.r0; pos <= bounds.r1; pos++) {
@@ -439,7 +439,7 @@ export default function ResultGrid({
       for (let c = bounds.c0; c <= bounds.c1; c++) if (inSel(pos, c)) out.push({ r: loaded, c, raw });
     }
     return out;
-  }, [bounds, loadedAt, inSel]);
+  };
 
   // ---- added / deleted rows ----
   const parseForColumn = (raw: string, c: number): Cell => parseInsertValue(raw, numericCols[c]);
@@ -657,7 +657,8 @@ export default function ResultGrid({
     const lastC = Math.min(active.c + matrix[0].length - 1, cols.length - 1);
     if (targets.length) setRanges([{ a: { r: active.r, c: active.c }, b: { r: lastR, c: lastC } }]);
     applyStaged(targets);
-  }, [editable, active, bounds, multiCells, columnUpdateActive, totalRows, cols.length, applyStaged, onEditError, loadedAt, setColumnValue, selectedTargets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editable, active, bounds, multiCells, columnUpdateActive, totalRows, cols.length, applyStaged, onEditError]);
 
   const save = useCallback(async () => {
     if (saving || dirtyCount === 0) return;

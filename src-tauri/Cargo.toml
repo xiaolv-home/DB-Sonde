@@ -13,14 +13,14 @@ name = "sonde_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.7.4", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # 不要开 unstable:它会把主界面变成子 webview,macOS 上 ⌘V/⌘C/⌘Z/⌘S 到不了页面(见 monitor.rs)
-tauri = { version = "=2.12.4", features = [] }
-tauri-plugin-opener = "2.7.3"
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
 # Native folder / file picker for bulk-importing ETL configs.
-tauri-plugin-dialog = "2.8.4"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
@@ -34,7 +34,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # frontend calls schedulers through a Rust proxy command to dodge webview CORS
 # and handle self-signed TLS. rustls only, to match sqlx (no OpenSSL).
 base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 # 运行时下载的 SHA256 校验(哈希写死在 src/python/runtime.rs,见那里的注释)
 sha2 = "0.10"
 # Tiny localhost HTTP server for the `sonde` Python bridge: user scripts POST
@@ -46,21 +46,9 @@ tiny_http = "0.12"
 # without any Oracle SDK present (ODPI-C loads the client dynamically at runtime).
 oracle-rs = "0.1.7"
 oracle = "0.6"
-tauri-plugin-clipboard-manager = "2.5.0"
+tauri-plugin-clipboard-manager = "2"
 ring = "0.17.14"
 libc = "0.2"
-# 用户主目录。Windows 上没有 HOME，不能自己读那个环境变量。
-dirs = "6"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-# macOS:wry 的导航回调分不出主框架和 iframe。改 WKWebView 的策略方法,
-# 子框架只放行 subframe_navigation_allowed。
-objc2 = "0.6.4"
-
-[target.'cfg(windows)'.dependencies]
-# Windows:NavigationStarting 不管子框架。版本跟 wry 0.57 的 webview2-com 0.39 / windows 0.62 对齐。
-webview2-com = "0.39"
-windows-core = "0.62"
 
 [dependencies.sqlx]
 version = "0.8"
@@ -92,4 +80,4 @@ opt-level = 1
 oracle-rs = { path = "third_party/oracle-rs" }
 
 [dev-dependencies]
-tauri = { version = "=2.12.4", features = ["test"] }
+tauri = { version = "2", features = ["test"] }

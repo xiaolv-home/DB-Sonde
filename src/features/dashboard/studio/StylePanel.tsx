@@ -9,22 +9,15 @@ import { ImagePlus, Plus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import type { Dataset } from "../../datasets/domain";
-import { readVar } from "../../../lib/themeColors";
-import { useApp } from "../../../store/appStore";
 import { pieRadii } from "../pieGeometry";
 import {
-  defaultDashboardPalette,
+  DEFAULT_DASHBOARD_PALETTE,
   isStaticWidget,
   type DashboardAppearanceOptions, type DashboardChartOptions, type DashboardContainerOptions, type DashboardFunnelOptions,
   type DashboardGaugeOptions, type DashboardKpiOptions, type DashboardTableOptions, type DashboardTextOptions, type DashboardWidget,
 } from "../domain";
 import { dimsOf, fieldLabel } from "./smart";
 import { Color, CommitInput, Num, Row, Section, Seg, Sel, Toggle } from "../../../components/StudioKit";
-
-/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
-function iconName(label: string) {
-  return { title: label, "aria-label": label };
-}
 
 const PRESETS: Array<{ id: string; label: string }> = [
   { id: "editorial", label: "简洁" }, { id: "slate", label: "石板" }, { id: "ocean", label: "海" }, { id: "jade", label: "玉" },
@@ -38,9 +31,6 @@ export default function StylePanel({ widget, dataset, onChange }: {
   dataset?: Dataset;
   onChange: (w: DashboardWidget) => void;
 }) {
-  const theme = useApp((s) => s.theme);
-  void theme; // 换主题时默认色板要跟着重读
-  const tone = (name: string) => readVar(name);
   const o = widget.options;
   const set = (change: Partial<DashboardWidget["options"]>) => onChange({ ...widget, options: { ...o, ...change } });
   const co = o.chart ?? {};
@@ -58,8 +48,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
   const nf = o.numberFormat ?? {};
   const axis = co.axis ?? {};
   const setAxis = (c: Partial<typeof axis>) => chart({ axis: { ...axis, ...c } });
-  const defaults = defaultDashboardPalette();
-  const palette = co.palette ?? defaults;
+  const palette = co.palette ?? [...DEFAULT_DASHBOARD_PALETTE];
   const t = widget.type;
   const go = o.gauge ?? {};
   const gauge = (c: Partial<DashboardGaugeOptions>) => set({ gauge: { ...go, ...c } });
@@ -105,7 +94,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
           </Row>
           <Row label="行高 / 颜色">
             <Num value={tx.lineHeight ?? 150} min={100} max={300} step={10} onChange={(v) => text({ lineHeight: v })} suffix="%" />
-            <Color value={tx.color} fallback={tone("--text")} onChange={(v) => text({ color: v })} />
+            <Color value={tx.color} fallback="#cfd1d6" onChange={(v) => text({ color: v })} />
           </Row>
         </Section>
       )}
@@ -113,10 +102,10 @@ export default function StylePanel({ widget, dataset, onChange }: {
       {t === "container" && (
         <Section id="container" title="分页">
           <div className="st-tablist-edit">
-            {widget.tabs.map((tab) => (
+            {widget.tabs.map((tab, i) => (
               <div key={tab.id} className="st-tab-edit">
                 <CommitInput value={tab.label} onCommit={(label) => onChange({ ...widget, tabs: widget.tabs.map((x) => (x.id === tab.id ? { ...x, label } : x)) })} />
-                {widget.tabs.length > 1 && <button type="button" className="icon-btn" {...iconName(`删除分页 ${tab.label}`)} onClick={() => onChange({ ...widget, tabs: widget.tabs.filter((x) => x.id !== tab.id) })}><X size={12} /></button>}
+                {widget.tabs.length > 1 && <button type="button" className="icon-btn" aria-label={`删除第 ${i + 1} 页`} onClick={() => onChange({ ...widget, tabs: widget.tabs.filter((x) => x.id !== tab.id) })}><X size={12} /></button>}
               </div>
             ))}
             <button type="button" className="st-link" onClick={() => onChange({ ...widget, tabs: [...widget.tabs, { id: `tab-${nanoid(8)}`, label: `第 ${widget.tabs.length + 1} 页` }] })}><Plus size={12} />加一页</button>
@@ -146,7 +135,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
           <Row label="形状"><Seg size="sm" value={go.shape ?? "arc"} onChange={(v) => gauge({ shape: v })} options={[{ value: "arc", label: "半圆仪表" }, { value: "ring", label: "圆环进度" }]} /></Row>
           <Row label="目标" hint="画刻度线、算完成率"><Num value={go.target} placeholder="不设" min={0} onChange={(v) => gauge({ target: v })} /></Row>
           <Row label="满刻度" hint="不填:有目标用目标"><Num value={go.max} placeholder="自动" min={0} onChange={(v) => gauge({ max: v })} /></Row>
-          <Row label="颜色"><Color value={go.color} fallback={tone("--accent")} onChange={(v) => gauge({ color: v })} /></Row>
+          <Row label="颜色"><Color value={go.color} fallback="#4d8dff" onChange={(v) => gauge({ color: v })} /></Row>
           <Toggle checked={!!go.colorByProgress} onChange={(v) => gauge({ colorByProgress: v })} label="按完成率变色" hint="不到六成红、不到十成黄、达标绿" />
           <Row label="完成率小数"><Seg size="sm" value={o.percentDecimals ?? 1} onChange={(v) => set({ percentDecimals: v })} options={[0, 1, 2].map((n) => ({ value: n, label: String(n) }))} /></Row>
         </Section>
@@ -193,8 +182,8 @@ export default function StylePanel({ widget, dataset, onChange }: {
           <Toggle checked={wf.showValues !== false} onChange={(v) => set({ waterfall: { ...wf, showValues: v } })} label="柱子上写增减" />
           <Row label="增 / 减 / 合计">
             <Color value={wf.upColor} fallback={palette[0]} onChange={(v) => set({ waterfall: { ...wf, upColor: v } })} />
-            <Color value={wf.downColor} fallback={tone("--red")} onChange={(v) => set({ waterfall: { ...wf, downColor: v } })} />
-            <Color value={wf.totalColor} fallback={tone("--text-3")} onChange={(v) => set({ waterfall: { ...wf, totalColor: v } })} />
+            <Color value={wf.downColor} fallback="#ef5d6f" onChange={(v) => set({ waterfall: { ...wf, downColor: v } })} />
+            <Color value={wf.totalColor} fallback="#8c99a8" onChange={(v) => set({ waterfall: { ...wf, totalColor: v } })} />
           </Row>
         </Section>
       )}
@@ -202,7 +191,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
       {t === "ranking" && (
         <Section id="ranking" title="排行榜">
           <Row label="顺序"><Seg size="sm" value={rk.order ?? "desc"} onChange={(v) => set({ ranking: { ...rk, order: v } })} options={[{ value: "desc", label: "从高到低" }, { value: "asc", label: "从低到高", title: "看倒数几名" }]} /></Row>
-          <Row label="进度条"><Color value={rk.barColor} fallback={tone("--accent")} onChange={(v) => set({ ranking: { ...rk, barColor: v } })} /></Row>
+          <Row label="进度条"><Color value={rk.barColor} fallback="#4d8dff" onChange={(v) => set({ ranking: { ...rk, barColor: v } })} /></Row>
           <small className="st-hint">显示几名在「数据」页的「显示多少」里设,默认前 10。</small>
         </Section>
       )}
@@ -211,7 +200,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
         <Section id="kpi" title="指标卡">
           <Row label="数值">
             <Num value={ko.valueSize ?? 34} min={16} max={72} onChange={(v) => kpi({ valueSize: v })} suffix="号" />
-            <Color value={ko.valueColor} fallback={tone("--text")} onChange={(v) => kpi({ valueColor: v })} />
+            <Color value={ko.valueColor} fallback="#cfd1d6" onChange={(v) => kpi({ valueColor: v })} />
           </Row>
           <Row label="名称">
             <Seg size="sm" value={ko.labelPosition ?? "below"} onChange={(v) => kpi({ labelPosition: v })} options={[{ value: "above", label: "在上" }, { value: "below", label: "在下" }]} />
@@ -294,7 +283,7 @@ export default function StylePanel({ widget, dataset, onChange }: {
               <div className="st-markline" key={i}>
                 <Num value={line.value} onChange={(v) => chart({ markLine: (co.markLine ?? []).map((l, j) => (j === i ? { ...l, value: v ?? 0 } : l)) })} />
                 <CommitInput value={line.label ?? ""} placeholder="如:目标" onCommit={(label) => chart({ markLine: (co.markLine ?? []).map((l, j) => (j === i ? { ...l, label } : l)) })} />
-                <button type="button" className="icon-btn" {...iconName(line.label?.trim() ? `删除参考线 ${line.label.trim()}` : `删除第 ${i + 1} 条参考线`)} onClick={() => chart({ markLine: (co.markLine ?? []).filter((_, j) => j !== i) })}><X size={12} /></button>
+                <button type="button" className="icon-btn" aria-label="删除参考线" onClick={() => chart({ markLine: (co.markLine ?? []).filter((_, j) => j !== i) })}><X size={12} /></button>
               </div>
             ))}
             <button type="button" className="st-link" onClick={() => chart({ markLine: [...(co.markLine ?? []), { value: 0, label: "" }] })}><Plus size={12} />加一条参考线</button>
@@ -328,18 +317,18 @@ export default function StylePanel({ widget, dataset, onChange }: {
 
       <Section id="look" title="外观" defaultOpen={false} aside={ap.visualPreset && ap.visualPreset !== "none" ? PRESETS.find((p) => p.id === ap.visualPreset)?.label : undefined}>
         <div className="st-presets">
-          <button type="button" className={`st-preset none ${!ap.visualPreset || ap.visualPreset === "none" ? "on" : ""}`} aria-pressed={!ap.visualPreset || ap.visualPreset === "none"} onClick={() => look({ visualPreset: undefined })}>默认</button>
+          <button type="button" className={`st-preset none ${!ap.visualPreset || ap.visualPreset === "none" ? "on" : ""}`} onClick={() => look({ visualPreset: undefined })}>默认</button>
           {PRESETS.map((p) => (
-            <button type="button" key={p.id} data-visual-preset={p.id} className={`st-preset ${ap.visualPreset === p.id ? "on" : ""}`} title={p.label} aria-pressed={ap.visualPreset === p.id} onClick={() => look({ visualPreset: p.id })}><span>{p.label}</span></button>
+            <button type="button" key={p.id} data-visual-preset={p.id} className={`st-preset ${ap.visualPreset === p.id ? "on" : ""}`} title={p.label} onClick={() => look({ visualPreset: p.id })}><span>{p.label}</span></button>
           ))}
         </div>
         <Row label="背景 / 文字">
-          <Color value={ap.background} fallback={tone("--surface")} onChange={(v) => look({ background: v })} />
-          <Color value={ap.textColor} fallback={tone("--text")} onChange={(v) => look({ textColor: v })} />
+          <Color value={ap.background} fallback="#212226" onChange={(v) => look({ background: v })} />
+          <Color value={ap.textColor} fallback="#cfd1d6" onChange={(v) => look({ textColor: v })} />
         </Row>
         <Row label="标题 / 边框">
-          <Color value={ap.titleColor} fallback={tone("--text")} onChange={(v) => look({ titleColor: v })} />
-          <Color value={ap.borderColor} fallback={tone("--border")} onChange={(v) => look({ borderColor: v })} />
+          <Color value={ap.titleColor} fallback="#cfd1d6" onChange={(v) => look({ titleColor: v })} />
+          <Color value={ap.borderColor} fallback="#2e2f35" onChange={(v) => look({ borderColor: v })} />
         </Row>
         <Row label="圆角 / 边框"><Num value={ap.radius} placeholder="12" min={0} max={40} onChange={(v) => look({ radius: v })} /><Num value={ap.borderWidth} placeholder="1" min={0} max={6} onChange={(v) => look({ borderWidth: v })} /></Row>
         <Row label="内边距"><Num value={ap.padding} placeholder="12" min={0} max={40} onChange={(v) => look({ padding: v })} /></Row>
@@ -445,10 +434,10 @@ function PaletteRow({ palette, custom, onChange }: { palette: string[]; custom: 
       {palette.map((c, i) => (
         <span className="st-swatch" key={i} style={{ background: c }}>
           <input type="color" value={c} aria-label={`第 ${i + 1} 种颜色`} onChange={(e) => { const p = [...palette]; p[i] = e.target.value; onChange(p); }} />
-          {palette.length > 1 && <button type="button" {...iconName(`删除第 ${i + 1} 种颜色`)} onClick={() => onChange(palette.filter((_, j) => j !== i))}>×</button>}
+          {palette.length > 1 && <button type="button" aria-label="删除颜色" onClick={() => onChange(palette.filter((_, j) => j !== i))}>×</button>}
         </span>
       ))}
-      <button type="button" className="st-swatch-add" {...iconName("加一种颜色")} onClick={() => { const defaults = defaultDashboardPalette(); onChange([...palette, defaults[palette.length % defaults.length]]); }}><Plus size={11} /></button>
+      <button type="button" className="st-swatch-add" aria-label="加一种颜色" onClick={() => onChange([...palette, DEFAULT_DASHBOARD_PALETTE[palette.length % DEFAULT_DASHBOARD_PALETTE.length]])}><Plus size={11} /></button>
       {custom && <button type="button" className="st-link" onClick={() => onChange(undefined)}>默认</button>}
     </div>
   );

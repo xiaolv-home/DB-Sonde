@@ -22,11 +22,6 @@ import StylePanel from "./StylePanel";
 import { convertWidget, fieldLabel, recommend, shelvesOf } from "./smart";
 import { ALL_KINDS, TYPE_META } from "./catalog";
 import { CommitInput, MenuItem, Pop, Section, Seg, Toggle } from "../../../components/StudioKit";
-
-/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
-function iconName(label: string) {
-  return { title: label, "aria-label": label };
-}
 import type { WidgetCondition } from "../../datasets/widgetQuery";
 
 export { TYPE_META };
@@ -95,7 +90,7 @@ export default function Inspector({ widget: raw, scope, onChange, onDelete }: {
       <div className="st-insp-head">
         <Icon size={15} className="st-insp-icon" />
         <CommitInput className="st-insp-title" value={widget.title} ariaLabel="组件标题" onCommit={(title) => patch({ title })} />
-        <button type="button" className="icon-btn" {...iconName(`删除组件 ${widget.title}`)} onClick={() => onDelete(widget.id)}><X size={14} /></button>
+        <button type="button" className="icon-btn" title="删除组件 (⌫)" onClick={() => onDelete(widget.id)}><X size={14} /></button>
       </div>
       {choices.length > 1 && (
         <div className="st-types" role="radiogroup" aria-label="组件类型">
@@ -221,7 +216,7 @@ function InteractTab({ widget, dataset, onChange }: {
         <p className="st-hint">勾上的字段会在这张卡片顶上出现筛选框,只影响这一张。</p>
         <div className="st-chipset">
           {[{ name: "date", label: "日期", time: true }, ...dims.filter((f) => !isTimeField(f)).map((f) => ({ name: f.name, label: f.label || f.name, time: false }))].map((f) => (
-            <button type="button" key={f.name} className={filterFields.includes(f.name) ? "on" : ""} aria-pressed={filterFields.includes(f.name)} onClick={() => toggleViewer(f.name, !filterFields.includes(f.name))}>
+            <button type="button" key={f.name} className={filterFields.includes(f.name) ? "on" : ""} onClick={() => toggleViewer(f.name, !filterFields.includes(f.name))}>
               {f.time ? <CalendarRange size={12} /> : <FieldIcon field={dims.find((d) => d.name === f.name)} size={12} />}{f.label}
             </button>
           ))}
@@ -235,10 +230,10 @@ function InteractTab({ widget, dataset, onChange }: {
             <span className="st-drill-step base">{fieldLabel(dataset, widget.bindings.dimensions?.[0] ?? "") || "当前分类"}</span>
             {drill.map((d, i) => (
               <span key={d} className="st-drill-step">→ {fieldLabel(dataset, d)}
-                <button type="button" {...iconName(`去掉下钻层 ${fieldLabel(dataset, d)}`)} onClick={() => patchChart({ drillDimensions: drill.filter((_, j) => j !== i) })}><X size={11} /></button>
+                <button type="button" aria-label="去掉这一层" onClick={() => patchChart({ drillDimensions: drill.filter((_, j) => j !== i) })}><X size={11} /></button>
               </span>
             ))}
-            <button type="button" className="st-drill-add" aria-haspopup="menu" aria-expanded={!!addDrill} onClick={(e) => setAddDrill(e.currentTarget)}><Plus size={12} />加一层</button>
+            <button type="button" className="st-drill-add" onClick={(e) => setAddDrill(e.currentTarget)}><Plus size={12} />加一层</button>
           </div>
           {addDrill && (
             <Pop anchor={addDrill} width={220} onClose={() => setAddDrill(null)}>
@@ -269,11 +264,11 @@ function InteractTab({ widget, dataset, onChange }: {
                 <div className="st-group" key={g.id}>
                   <div className="st-group-head">
                     <CommitInput value={g.label} onCommit={(label) => patchMode({ metricGroups: groups.map((x) => (x.id === g.id ? { ...x, label } : x)) })} />
-                    <button type="button" className="icon-btn" {...iconName(`删除分组 ${g.label}`)} onClick={() => patchMode({ metricGroups: groups.filter((x) => x.id !== g.id) })}><X size={12} /></button>
+                    <button type="button" className="icon-btn" aria-label="删除分组" onClick={() => patchMode({ metricGroups: groups.filter((x) => x.id !== g.id) })}><X size={12} /></button>
                   </div>
                   <div className="st-chipset">
                     {measures.map((m) => (
-                      <button type="button" key={m.id} className={g.metricIds.includes(m.id) ? "on" : ""} aria-pressed={g.metricIds.includes(m.id)}
+                      <button type="button" key={m.id} className={g.metricIds.includes(m.id) ? "on" : ""}
                         onClick={() => patchMode({ metricGroups: groups.map((x) => (x.id === g.id ? { ...x, metricIds: x.metricIds.includes(m.id) ? x.metricIds.filter((i) => i !== m.id) : [...x.metricIds, m.id] } : x)) })}>{m.name}</button>
                     ))}
                   </div>

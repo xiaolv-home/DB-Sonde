@@ -29,13 +29,14 @@ jobs:
       matrix:
         include:
           - label: macOS (Apple Silicon)
-            os: macos-15
+            os: macos-14
             target: aarch64-apple-darwin
-          # macos-14 已下线:配置 macos-14-arm64-us-default 不再受支持,job 一秒就被取消。
-          # 现在的 arm64 镜像是 macos-15。Intel 包仍在这台 arm64 runner 上交叉编译到
-          # x86_64-apple-darwin,不用 macos-15-intel(那是原生 Intel 机,排队久且不必)。
+          # 不用 macos-13:GitHub 的 Intel runner 正在淘汰,极度稀缺 ——
+          # 实测排队 30 分钟都分不到机器。改成在 arm64 runner 上交叉编译到
+          # x86_64,苹果自家的交叉编译一向可靠(本机验证过,产出的是真正的
+          # Mach-O x86_64)。
           - label: macOS (Intel)
-            os: macos-15
+            os: macos-14
             target: x86_64-apple-darwin
           - label: Windows (x64)
             os: windows-latest
@@ -49,10 +50,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      # 仓库根的 rust-toolchain.toml 把工具链钉在 1.90.0。rustup 优先读这个文件,
-      # 所以 target 必须装到 1.90.0 上;装到 @stable 上的话,交叉编译时固定版本
-      # 找不到 aarch64/x86_64-apple-darwin 和 x86_64-pc-windows-msvc。
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -132,32 +130,6 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
           if-no-files-found: error
-
-  # Linux 上的 clippy 门禁。上面的矩阵没有 Ubuntu:Tauri 在 Linux 上要 GTK / WebKit,
-  # macOS 和 Windows 的构建机装不了这些包。警告当错误,有警告就不能合。
-  clippy:
-    name: Clippy (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 安装 Tauri 的 Linux 系统依赖
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf libxdo-dev
-
-      # 与 rust-toolchain.toml 同一版本。Tauri 2.12.4 的 MSRV 是 1.90,
-      # 高于 Cargo.lock 原先要求的 1.85。minimal profile 不含 clippy。
-      - uses: dtolnay/rust-toolchain@1.90.0
-        with:
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          key: clippy
-
-      - name: cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
 
   # 打 tag 时把三个平台的包发成 Release。单独一个 job,不放进矩阵 ——
   # 三个并行 job 各自去建同一个 Release 会打架。

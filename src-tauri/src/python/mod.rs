@@ -19,17 +19,14 @@ pub mod workspace;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Child;
 use std::sync::{Arc, Mutex};
 
 use assist::JediProc;
 
-use crate::paths::home_dir;
-
 #[derive(Default)]
 pub struct PyRuntime {
-    /// run_id -> 子进程。停止时拿这个句柄，按平台结束进程，不调用 `kill`。
-    procs: Mutex<HashMap<String, Arc<Mutex<Child>>>>,
+    /// run_id -> child pid, for stop().
+    procs: Mutex<HashMap<String, u32>>,
     extracting: Arc<Mutex<bool>>,
     /// 下载进度 0-100。None = 没在下载。
     progress: Arc<Mutex<Option<u8>>>,
@@ -100,8 +97,11 @@ def show(fig=None, dpi=120):
     print("⟦SONDE_IMG⟧" + p + "⟦/IMG⟧", flush=True)
 "#;
 
+fn home() -> PathBuf {
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+}
 fn runtime_root() -> PathBuf {
-    home_dir().join(".db-sonde/runtime")
+    home().join(".db-sonde/runtime")
 }
 fn python_dir() -> PathBuf {
     runtime_root().join("python")
@@ -121,7 +121,7 @@ fn workspace_dir() -> PathBuf {
     #[cfg(test)]
     { TEST_WORKSPACE.with(|p| p.borrow().clone().expect("workspace tests must install an isolated fixture")) }
     #[cfg(not(test))]
-    { home_dir().join(".db-sonde/workspace") }
+    { home().join(".db-sonde/workspace") }
 }
 // ---- the `sonde` bridge: scripts query the user's live connections ----
 

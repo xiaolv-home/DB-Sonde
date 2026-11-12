@@ -1,3 +1,4 @@
+import { useWorkspaceReady } from "./WorkspaceOpening";
 import { useEffect, useMemo, useState } from "react";
 import { Activity, Braces, ChevronDown, ChevronUp, Eye, Loader2, RefreshCw, Search, Table2, Workflow } from "lucide-react";
 import { api } from "../lib/api";
@@ -83,6 +84,7 @@ export default function DatabaseBrowser({ tab, active = true }: { tab: DatabaseT
   const kind = useApp((s) => s.meta[tab.connId]?.kind);
   const canProcesses = kind === "mysql" || kind === "mariadb" || kind === "postgres";
   const [loading, setLoading] = useState(true);
+  useWorkspaceReady(!loading);
   const [error, setError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
 

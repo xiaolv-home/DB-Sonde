@@ -13,7 +13,7 @@ import { availableParallelism } from 'node:os';
 import { readFileSync } from 'node:fs';
 
 /** 要额外环境才能跑的(要编 Rust、连库……),只能单独 npm run */
-const OPT_IN = new Set(['test:postgres']);
+const OPT_IN = new Set(['test:postgres', 'test:startup-webkit']);
 
 const scripts = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts;
 const tasks = [
@@ -49,7 +49,6 @@ function run(task) {
     child.on('close', (code, signal) => {
       const result = { ...task, ok: code === 0, code: code ?? signal, out, ms: Date.now() - started };
       console.log(`${result.ok ? color(32, '✓') : color(31, '✗')} ${task.name} ${color(2, secs(result.ms))}`);
-      if (result.ok) for (const line of result.out.split(/\r?\n/)) if (line.startsWith('skipped:')) console.log(line);
       resolve(result);
     });
   });

@@ -79,7 +79,7 @@ pub fn py_list_files() -> Vec<PyFile> {
             }
         }
     }
-    out.sort_by_key(|a| a.name.to_lowercase());
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out
 }
 
@@ -108,7 +108,7 @@ pub fn workspace_list_files(ext: String) -> Vec<PyFile> {
             }
         }
     }
-    out.sort_by_key(|a| a.name.to_lowercase());
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out
 }
 

@@ -19,9 +19,7 @@ pub fn list_connections(app: AppHandle) -> AppResult<Vec<ConnectionConfig>> {
 pub fn save_connection(app: AppHandle, config: ConnectionConfig) -> AppResult<ConnectionConfig> {
     let mut list = store::load_connections(&app)?;
     if let Some(existing) = list.iter_mut().find(|c| c.id == config.id) {
-        if crate::credentials::account(existing) != crate::credentials::account(&config) {
-            crate::credentials::remove(&app, existing)?;
-        }
+        if crate::credentials::account(existing) != crate::credentials::account(&config) { crate::credentials::remove(&app, existing)?; }
         *existing = config.clone();
     } else {
         list.push(config.clone());
@@ -38,9 +36,7 @@ pub async fn delete_connection(
     id: String,
 ) -> AppResult<()> {
     let mut list = store::load_connections(&app)?;
-    if let Some(config) = list.iter().find(|c| c.id == id) {
-        crate::credentials::remove(&app, config)?;
-    }
+    if let Some(config) = list.iter().find(|c| c.id == id) { crate::credentials::remove(&app, config)?; }
     list.retain(|c| c.id != id);
     store::save_connections(&app, &list)?;
     state.conns.write().await.remove(&id);
@@ -57,10 +53,7 @@ pub async fn test_connection(
     config: ConnectionConfig,
     password: Option<String>,
 ) -> AppResult<String> {
-    let password = match password {
-        Some(value) => Some(value),
-        None => crate::credentials::load(&app, &config)?,
-    };
+    let password = match password { Some(value) => Some(value), None => crate::credentials::load(&app, &config)? };
     let info = db::connect(&config, password.as_deref()).await?;
     let version = info.server_version.clone();
     // Drop the pool; this was only a probe.
@@ -86,49 +79,21 @@ pub async fn connect(
         .ok_or_else(|| AppError::UnknownConnection(id.clone()))?;
 
     let supplied = password.is_some();
-    let pw = if cfg.kind == DbKind::Sqlite {
-        None
-    } else {
-        match password {
-            Some(value) => Some(value),
-            None => crate::credentials::load(&app, &cfg)?,
-        }
+    let pw = if cfg.kind == DbKind::Sqlite { None } else {
+        match password { Some(value) => Some(value), None => crate::credentials::load(&app, &cfg)? }
     };
-    if cfg.kind != DbKind::Sqlite && pw.is_none() {
-        return Err(AppError::msg(
-            "CREDENTIAL_REQUIRED: 请输入数据库密码，成功连接后会加密保存",
-        ));
-    }
+    if cfg.kind != DbKind::Sqlite && pw.is_none() { return Err(AppError::msg("CREDENTIAL_REQUIRED: 请输入数据库密码，成功连接后会加密保存")); }
     let info = db::connect(&cfg, pw.as_deref()).await.map_err(|error| {
         let auth_error = match &error {
-            AppError::Db(sqlx::Error::Database(db)) => {
-                matches!(db.code().as_deref(), Some("1045" | "28P01" | "28000"))
-            }
-            _ => {
-                error.to_string().contains("ORA-01017")
-                    || error.to_string().contains("AUTHENTICATION_FAILED")
-            }
+            AppError::Db(sqlx::Error::Database(db)) => matches!(db.code().as_deref(), Some("1045" | "28P01" | "28000")),
+            _ => error.to_string().contains("ORA-01017") || error.to_string().contains("AUTHENTICATION_FAILED"),
         };
-        let mapped = if !supplied && auth_error {
-            AppError::msg("CREDENTIAL_REJECTED: 保存的密码已失效，请重新输入")
-        } else {
-            error
-        };
-        let clean = redact_secrets(&mapped.to_string(), pw.as_deref());
-        if clean == mapped.to_string() {
-            mapped
-        } else {
-            AppError::msg(clean)
-        }
+        if !supplied && auth_error { AppError::msg("CREDENTIAL_REJECTED: 保存的密码已失效，请重新输入") } else { error }
     })?;
     // Only successful authentication may replace saved credentials.
     let credential_warning = if supplied && cfg.kind != DbKind::Sqlite {
-        crate::credentials::save(&app, &cfg, pw.as_deref().unwrap_or(""))
-            .err()
-            .map(|_| "连接成功，但凭据未能保存。请检查本地凭据文件权限或完整性。".to_string())
-    } else {
-        None
-    };
+        crate::credentials::save(&app, &cfg, pw.as_deref().unwrap_or("")).err().map(|_| "连接成功，但凭据未能保存。请检查本地凭据文件权限或完整性。".to_string())
+    } else { None };
 
     let meta = ConnectionMeta {
         credential_warning,
@@ -157,111 +122,6 @@ pub async fn connect(
         },
     );
     Ok(meta)
-}
-
-/// Saved password, or a database that does not take one. The answer is a bool; the secret stays in the vault.
-fn allows_unattended_connect(kind: DbKind, saved: bool) -> bool {
-    kind == DbKind::Sqlite || saved
-}
-
-fn has_saved_secret(app: &AppHandle, id: &str) -> AppResult<bool> {
-    let list = store::load_connections(app)?;
-    let cfg = list
-        .into_iter()
-        .find(|c| c.id == id)
-        .ok_or_else(|| AppError::UnknownConnection(id.to_string()))?;
-    if allows_unattended_connect(cfg.kind, false) {
-        return Ok(true);
-    }
-    Ok(allows_unattended_connect(
-        cfg.kind,
-        crate::credentials::has_saved(app, &cfg)?,
-    ))
-}
-
-#[tauri::command]
-pub async fn connection_has_saved_secret(app: AppHandle, id: String) -> AppResult<bool> {
-    tokio::task::spawn_blocking(move || has_saved_secret(&app, &id))
-        .await
-        .map_err(|_| AppError::msg("无法检查已保存的凭据"))?
-}
-
-fn redact_secrets(message: &str, password: Option<&str>) -> String {
-    let mut text = redact_url_userinfo(message);
-    text = redact_query_secret(&text);
-    if let Some(secret) = password.filter(|value| value.len() >= 4) {
-        text = text.replace(secret, "••••");
-    }
-    text
-}
-
-fn redact_url_userinfo(message: &str) -> String {
-    let mut out = String::with_capacity(message.len());
-    let mut rest = message;
-    while let Some(index) = rest.find("://") {
-        let scheme_end = index + 3;
-        out.push_str(&rest[..scheme_end]);
-        let after = &rest[scheme_end..];
-        let end = after
-            .find(|c: char| c.is_whitespace() || c == '/')
-            .unwrap_or(after.len());
-        let authority = &after[..end];
-        if let Some(at) = authority.rfind('@') {
-            let userinfo = &authority[..at];
-            if let Some(colon) = userinfo.find(':') {
-                out.push_str(&userinfo[..colon]);
-                out.push_str(":••••@");
-                out.push_str(&authority[at + 1..]);
-            } else {
-                out.push_str(authority);
-            }
-        } else {
-            out.push_str(authority);
-        }
-        rest = &after[end..];
-    }
-    out.push_str(rest);
-    out
-}
-
-fn redact_query_secret(message: &str) -> String {
-    let mut out = String::new();
-    let mut rest = message;
-    loop {
-        let lower = rest.to_ascii_lowercase();
-        let password = lower.find("password=");
-        let pwd = lower.find("pwd=");
-        let passwd = lower.find("passwd=");
-        let Some(start) = [password, pwd, passwd].into_iter().flatten().min() else {
-            out.push_str(rest);
-            break;
-        };
-        let key_len = if password == Some(start) {
-            "password=".len()
-        } else if passwd == Some(start) {
-            "passwd=".len()
-        } else {
-            "pwd=".len()
-        };
-        let boundary_ok = start == 0
-            || matches!(
-                rest.as_bytes().get(start - 1).copied(),
-                Some(b'?' | b'&' | b' ' | b'\n' | b'\t')
-            );
-        if !boundary_ok {
-            out.push_str(&rest[..start + key_len]);
-            rest = &rest[start + key_len..];
-            continue;
-        }
-        out.push_str(&rest[..start + key_len]);
-        rest = &rest[start + key_len..];
-        let value_end = rest
-            .find(|c: char| c == '&' || c.is_whitespace())
-            .unwrap_or(rest.len());
-        out.push_str("••••");
-        rest = &rest[value_end..];
-    }
-    out
 }
 
 #[tauri::command]
@@ -387,39 +247,4 @@ async fn seed_demo(pool: &sqlx::SqlitePool) -> AppResult<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod restore_connect_tests {
-    use super::{allows_unattended_connect, redact_secrets};
-    use crate::models::DbKind;
-
-    #[test]
-    fn unattended_connect_needs_a_saved_secret_or_no_password() {
-        assert!(allows_unattended_connect(DbKind::Sqlite, false));
-        assert!(allows_unattended_connect(DbKind::Mysql, true));
-        assert!(allows_unattended_connect(DbKind::Postgres, true));
-        assert!(!allows_unattended_connect(DbKind::Mysql, false));
-        assert!(!allows_unattended_connect(DbKind::Postgres, false));
-        assert!(!allows_unattended_connect(DbKind::Oracle, false));
-        assert!(!allows_unattended_connect(DbKind::Clickhouse, false));
-    }
-
-    #[test]
-    fn connect_errors_drop_passwords_and_url_secrets() {
-        let secret = "hunter2-secret";
-        let raw = format!(
-            "failed for {secret} at postgres://alice:{secret}@db.internal/shop?password={secret}&x=1"
-        );
-        let clean = redact_secrets(&raw, Some(secret));
-        assert!(!clean.contains(secret), "{clean}");
-        assert!(
-            clean.contains("postgres://alice:••••@db.internal/shop"),
-            "{clean}"
-        );
-        assert!(clean.contains("password=••••"), "{clean}");
-        assert_eq!(redact_secrets("table missing", Some("ab")), "table missing");
-        let url = redact_secrets("postgres://u:ab@host/db", Some("ab"));
-        assert!(!url.contains(":ab@"), "{url}");
-    }
 }

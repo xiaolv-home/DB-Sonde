@@ -24,10 +24,10 @@ export function isSavedAiConfig(value: unknown): value is SavedAiConfig {
   for (const key of ["builtin", "local", "cloud"]) {
     const endpoint = value[key];
     if (endpoint === undefined) continue;
-    const keys = key === "builtin" ? ["baseUrl", "model", "ready"] : key === "cloud" ? ["baseUrl", "model", "apiKey", "hasKey"] : ["baseUrl", "model"];
+    const keys = key === "builtin" ? ["baseUrl", "model", "ready"] : key === "cloud" ? ["baseUrl", "model", "apiKey"] : ["baseUrl", "model"];
     if (!record(endpoint) || !only(endpoint, keys)) return false;
     for (const [name, field] of Object.entries(endpoint)) {
-      if (field !== undefined && typeof field !== (name === "ready" || name === "hasKey" ? "boolean" : "string")) return false;
+      if (field !== undefined && typeof field !== (name === "ready" ? "boolean" : "string")) return false;
     }
   }
   if (value.designVision !== undefined) {
@@ -53,7 +53,7 @@ export function defaultAiConfig(): AiConfig {
     // Optional OpenAI-compatible local endpoint. Select an installed model in settings;
     // never assume a developer's model exists on a new machine.
     local: { baseUrl: "http://127.0.0.1:1234/v1", model: "" },
-    cloud: { baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini", hasKey: false },
+    cloud: { baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini" },
     thinkingEnabled: false,
     includeSampleRows: false,
   };

@@ -4,7 +4,6 @@ import type { Metric } from "../../metrics/metricsStore";
 import { executeDataset } from "../query";
 import type { Cell } from "../../../types";
 import { dateFilterFieldsOf } from "../componentFilterFields";
-import { drillDimensionsOf } from "../drillView";
 import { isTimeField } from "../../datasets/domain";
 import {
   isStaticWidget,
@@ -167,7 +166,9 @@ export async function bakeDashboard(
 
     /* 下钻靠改写 groupBy 逐层重跑。两种模型现在都支持(数据集模型带着重编的原料),
        所以导出的页面里下钻也照样能用。 */
-    const drillDimensions = drillDimensionsOf(widget);
+    const drillDimensions = widget.type === "bar" || widget.type === "pie" || widget.type === "funnel"
+      ? (widget.options.chart?.drillDimensions ?? [])
+      : [];
     const data: BakedWidget["data"] = {};
     let note: string | undefined;
     try {

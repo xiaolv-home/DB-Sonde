@@ -61,7 +61,7 @@ export const createShellSlice: ShellSlice = (set, get) => ({
             // Loading saved profiles must never initiate a database connection.
         }
         catch (e) {
-            // No backend available (e.g. running the frontend outside Tauri).
+            set({ connectionsError: translate(get().language, "workspace.profilesFailed") });
             get().showToast({ kind: "error", text: `连接列表加载失败：${String(e)}` });
         }
     },

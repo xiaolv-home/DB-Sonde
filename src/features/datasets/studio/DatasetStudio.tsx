@@ -107,7 +107,7 @@ export default function DatasetStudio({ startId, usage, onClose }: {
     if (problem || !draft.fields.length) return;
     const timer = window.setTimeout(runPreview, 800);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- previewKey 汇总字段形状(含 fields.length),effect 不直接读这个 key
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewKey, problem, runPreview]);
 
   /** 每个字段前几个不重复的非空值。 */

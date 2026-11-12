@@ -49,18 +49,14 @@ function humanAgo(value: string): { ago: string; tone: Freshness["tone"] } | nul
 /** 查一张表的水位:挑一个时间列跑 SELECT MAX(col)。只读、单行,很便宜。 */
 export function useFreshness(target: EntityTarget | null): Freshness {
   const [state, setState] = useState<Freshness>({ loading: false });
-  const connId = target?.connId ?? "";
-  const database = target?.database;
-  const schema = target?.schema ?? "";
-  const table = target?.table ?? "";
-  const active = target != null;
+  const key = target ? `${target.connId}|${target.database ?? ""}|${target.schema ?? ""}|${target.table}` : "";
   useEffect(() => {
-    if (!active) { setState({ loading: false }); return; }
+    if (!target) { setState({ loading: false }); return; }
     let cancelled = false;
     setState({ loading: true });
     void (async () => {
       try {
-        const cols = await api.listColumns(connId, database ?? "", schema, table);
+        const cols = await api.listColumns(target.connId, target.database ?? "", target.schema ?? "", target.table);
         const byName = new Map(cols.map((c) => [c.name.toLowerCase(), c]));
         // 三档挑列,优先级从严到宽:
         // 1) 名字正好是水位列且类型也是时间类
@@ -79,9 +75,9 @@ export function useFreshness(target: EntityTarget | null): Freshness {
         if (!picked) picked = cols.find((c) => TIME_TYPE.test(c.dataType))?.name;
         if (!picked) { if (!cancelled) setState({ loading: false, unavailable: true }); return; }
 
-        const qualified = database ? `${database}.${table}` : table;
+        const qualified = target.database ? `${target.database}.${target.table}` : target.table;
         const res = await api.runReadOnlyQuery(
-          connId, database, `SELECT MAX(${picked}) AS v FROM ${qualified}`, 1, [],
+          target.connId, target.database, `SELECT MAX(${picked}) AS v FROM ${qualified}`, 1, [],
         );
         const raw = res.rows[0]?.[0];
         if (cancelled) return;
@@ -100,6 +96,7 @@ export function useFreshness(target: EntityTarget | null): Freshness {
       }
     })();
     return () => { cancelled = true; };
-  }, [active, connId, database, schema, table]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   return state;
 }

@@ -13,6 +13,7 @@ import PythonPanel from "./PythonPanel";
 import SqlWorkspace from "./SqlWorkspace";
 import TableInspector from "./TableInspector";
 import WorkspaceTabBar from "./WorkspaceTabBar";
+import WorkspaceOpening from "./WorkspaceOpening";
 
 const RoutineWorkspace = lazy(() => import("./RoutineWorkspace"));
 const DashboardWorkspace = lazy(() => import("../features/dashboard/DashboardWorkspace"));
@@ -22,20 +23,21 @@ const AnalysisWorkspace = lazy(() => import("../features/agent/AnalysisWorkspace
 export default function QueryPanel() {
   const tabs = useApp(s => s.tabs);
   const activeTabId = useApp(s => s.activeTabId);
+  const connectionsReady = useApp(s => s.connectionsReady);
   const [visited, setVisited] = useState<Set<string>>(() => new Set(activeTabId ? [activeTabId] : []));
   useEffect(() => {
     if (activeTabId) setVisited(previous => new Set([...previous, activeTabId]));
+
   }, [activeTabId]);
   useEffect(() => {
-    // Hidden restored tabs stay mounted after a visit, but only the visible one may connect.
-    if (!activeTabId) return;
-    const tab = useApp.getState().tabs.find(item => item.id === activeTabId);
-    if (!tab || (tab.kind !== "database" && tab.kind !== "table" && tab.kind !== "routine")) return;
-    if (useApp.getState().meta[tab.connId]) return;
-    let live = true;
-    void useApp.getState().openRestoredConnection(tab.connId, () => live);
-    return () => { live = false; };
-  }, [activeTabId]);
+    if (!connectionsReady || !activeTabId) return;
+    const state = useApp.getState();
+    const tab = state.tabs.find(item => item.id === activeTabId);
+    if (!tab?.connId || !["query", "table", "database", "routine"].includes(tab.kind) || state.meta[tab.connId]) return;
+    // The backend reuses encrypted credentials, or returns CREDENTIAL_REQUIRED before connecting.
+    // Only the active tab restores; SQL editors never execute their saved statements.
+    void state.connect(tab.connId, null, "restore");
+  }, [activeTabId, connectionsReady]);
   useEffect(() => {
     const save = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
@@ -57,14 +59,12 @@ export default function QueryPanel() {
 }
 
 
-/* 恢复出来的标签页,连接还没建立。
- *
- * 已经保存了密码(或这个库本来就不要密码)时,切到这一页就连。没切到的页先不动。
- * 没有凭据或连不上,卡片留在这个标签的内容区里,并写上原因。点按钮仍是手动连接。 */
+/* Missing credentials only affect this pane; the global navigation stays usable. */
 function DisconnectedState({ tab }: { tab: { connId: string; connName: string; title: string; database?: string } }) {
   const { t } = useI18n();
   const connecting = useApp((s) => !!s.connecting[tab.connId]);
-  const notice = useApp((s) => s.restoreNotice[tab.connId]);
+  const notice = useApp(s => s.restoreNotice[tab.connId] ?? s.connectionsError);
+  const ready = useApp(s => s.connectionsReady);
   const where = [tab.connName, tab.database].filter(Boolean).join(" · ");
   return (
     <div className="disconnected">
@@ -72,11 +72,11 @@ function DisconnectedState({ tab }: { tab: { connId: string; connName: string; t
         <span className="disconnected-icon"><PlugZap size={22} /></span>
         <h3>{tab.title}</h3>
         <p className="disconnected-where">{where}</p>
-        <p className="disconnected-why" role={notice ? "alert" : undefined}>{notice ?? t("workspace.restoreConnecting")}</p>
+        <p className="disconnected-why">{notice ?? t("workspace.connecting")}</p>
         <button
           className="btn primary"
           disabled={connecting}
-          onClick={() => void useApp.getState().connect(tab.connId).catch(() => { /* 失败由 connect 自己 toast,原因留在卡片上 */ })}
+          onClick={() => void (ready ? useApp.getState().connect(tab.connId) : useApp.getState().init()).catch(() => { /* 失败由 connect 自己 toast */ })}
         >
           {connecting ? <><Loader2 size={14} className="spin" /> {t("workspace.connecting")}</> : t("workspace.connectAndOpen")}
         </button>
@@ -89,6 +89,7 @@ function WorkspaceContent({ tabId, active }: { tabId: string; active: boolean; }
   const { t } = useI18n();
   const tab = useApp(s => s.tabs.find(t => t.id === tabId));
   const connected = useApp(s => tab ? !!s.meta[tab.connId] : false);
+  const notice = useApp(s => tab ? s.restoreNotice[tab.connId] ?? s.connectionsError : undefined);
   if (!tab) {
     return (
       <div className="main">
@@ -106,16 +107,13 @@ function WorkspaceContent({ tabId, active }: { tabId: string; active: boolean; }
     );
   }
 
-  if ((tab.kind === "database" || tab.kind === "table" || tab.kind === "routine") && !connected) {
-    return <div className="main"><DisconnectedState tab={tab} /></div>;
-  }
-  if (tab.kind === "routine") return <Suspense fallback={<div className="object-state">正在加载…</div>}><RoutineWorkspace tab={tab} /></Suspense>;
-  if (tab.kind === "database") {
-    return <div className="main"><DatabaseBrowser tab={tab} active={active} /></div>;
-  }
-
-  if (tab.kind === "table") {
-    return <div className="main"><TableInspector tab={tab} /></div>;
+  if (tab.kind === "database" || tab.kind === "table" || tab.kind === "routine") {
+    return <WorkspaceOpening connected={connected} notice={notice} label={[tab.connName, tab.database].filter(Boolean).join(" · ")}>
+      {!connected ? <DisconnectedState tab={tab} />
+        : tab.kind === "table" ? <TableInspector tab={tab} />
+        : tab.kind === "database" ? <DatabaseBrowser tab={tab} active={active} />
+        : <Suspense fallback={null}><RoutineWorkspace tab={tab} /></Suspense>}
+    </WorkspaceOpening>;
   }
 
   if (tab.kind === "python") {

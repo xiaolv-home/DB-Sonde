@@ -1,6 +1,5 @@
-import { axisFont, barThickness, cartesianGrid, cartesianLegend, categoryAxis, pieFrame, placeZoom } from "../chartLayout";
+import { PIE_LABEL, pieRadii } from "../pieGeometry";
 import { escapeHtml } from "../tooltipText";
-import { useChartBox, usePaintGate } from "../useChartBox";
 import { useCallback, useEffect, useRef } from "react";
 import ReactECharts from "echarts-for-react";
 import { ChevronLeft } from "lucide-react";
@@ -8,8 +7,7 @@ import type { ECharts } from "echarts";
 import { useI18n } from "../../../hooks/useI18n";
 import type { Cell, QueryResult } from "../../../types";
 import { useApp } from "../../../store/appStore";
-import { chartChrome, chartPalette, cssSource, readVar } from "../../../lib/themeColors";
-import { type DashboardDrillFilter, type DashboardWidget } from "../domain";
+import { DEFAULT_DASHBOARD_PALETTE, type DashboardDrillFilter, type DashboardWidget } from "../domain";
 import { isTimeField } from "../../datasets/domain";
 import type { ResolvedDashboardMetric } from "../metrics";
 import { registerChartExporter } from "../chartExport";
@@ -17,11 +15,6 @@ import { aggregate, axisUnit, buildMetricChoices, formatNumber, metricLabel, met
 import { pieComposition } from "./pieComposition";
 import { installFreeCrosshair } from "../freeCrosshair";
 import { orderLabels, orderSpecOf } from "../labelOrder";
-
-/** 只有图标:title 给鼠标看,aria-label 给读屏,两处同一句。 */
-function iconName(label: string) {
-  return { title: label, "aria-label": label };
-}
 
 interface Props {
   staticRender?: boolean;
@@ -36,8 +29,6 @@ interface Props {
   onDrill?: (filter: DashboardDrillFilter) => void;
   drillDimensions?: string[];
   drillPath?: { dimension: string; value: string }[];
-  /** 路径已经往下走、这一层的数据还没到。这期间忽略点击,免得用旧扇区又钻一层。 */
-  drillFrozen?: boolean;
   /** 维度字段 → 中文名,面包屑上标「按什么钻的」。 */
   dimensionLabels?: Record<string, string>;
   onDrillDown?: (value: string) => void;
@@ -46,28 +37,10 @@ interface Props {
 
 /** 折线 / 柱状 / 饼图:分组取数 → 构建系列 → 生成 ECharts option,支持双轴、TopN、系列维度、多级下钻。 */
 export default function ChartWidget(props: Props) {
-  const { widget, result, resolvedMetrics, secondaryMetrics, dimensionName, dimensionIndex, activeMeasure, onActiveMeasure, onDrill, drillDimensions, drillPath, drillFrozen, onDrillDown, onDrillTo } = props;
+  const { widget, result, resolvedMetrics, secondaryMetrics, dimensionName, dimensionIndex, activeMeasure, onActiveMeasure, onDrill, drillDimensions, drillPath, onDrillDown, onDrillTo } = props;
   const { t } = useI18n();
   // 订阅主题:切换深浅色时强制重渲,让 getComputedStyle 读到新的 CSS 变量。
   const theme = useApp((state) => state.theme);
-  const { ref: boxRef, box } = useChartBox();
-  /* 下钻会让整张看板重渲染。option 每次都是新对象,里面的 formatter 也是新函数,
-     echarts-for-react 会当成图变了,notMerge 再画一遍。输入没变就跳过 setOption,
-     实例留在原地。点击处理读这份 ref,避免为了换闭包把事件重新绑一遍。 */
-  const shouldSetOption = usePaintGate([widget, result, resolvedMetrics, secondaryMetrics, dimensionName, activeMeasure, theme, box.width, box.height, !!props.staticRender]);
-  const clickRef = useRef({
-    metricComposition: false,
-    type: widget.type,
-    pieData: [] as { isOther?: boolean }[],
-    drillConfigured: false,
-    canDrillDeeper: false,
-    drillFrozen: false,
-    onDrillDown,
-    onDrill,
-    linkage: false,
-    datasetId: widget.datasetId,
-    xDimName: dimensionName,
-  });
 
   // 导出 PNG:把本组件的 ECharts 实例导出函数注册到全局表,供画布头部按钮调用。
   const chartRef = useRef<ReactECharts>(null);
@@ -76,7 +49,7 @@ export default function ChartWidget(props: Props) {
   useEffect(() => registerChartExporter(widget.id, () => {
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
-    const bg = readVar("--surface");
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#ffffff";
     const url = inst.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: bg });
     const a = document.createElement("a");
     a.href = url;
@@ -91,21 +64,21 @@ export default function ChartWidget(props: Props) {
     crosshairCleanupRef.current?.();
     crosshairCleanupRef.current = null;
     if (widget.type !== "line" && widget.type !== "bar") return;
-    const chrome = chartChrome(cssSource(chart.getDom().closest(".dash-widget")));
+    const style = getComputedStyle(chart.getDom().closest(".dash-widget") ?? document.documentElement);
     crosshairCleanupRef.current = installFreeCrosshair(chart, {
       formatValue: (value) => {
         const nf = widget.options.numberFormat;
         return scaledText(value, widget.options.decimals, "", nf, widget.options.chart?.grouping === true);
       },
       horizontalValueAxis: widget.type === "bar" && widget.options.chart?.barOrientation === "horizontal",
-      lineColor: chrome.muted,
-      labelColor: chrome.text,
-      labelBackground: chrome.surface3,
-      labelBorder: chrome.border2,
+      lineColor: style.getPropertyValue("--text-3").trim() || "rgba(151, 170, 203, 0.55)",
+      labelColor: style.getPropertyValue("--text").trim() || "#e8edf6",
+      labelBackground: style.getPropertyValue("--surface-3").trim() || "#1a2230",
+      labelBorder: style.getPropertyValue("--border-2").trim() || "rgba(151, 170, 203, 0.24)",
     });
   /* theme 不是多余依赖:这个回调用 getPropertyValue 现读 CSS 变量的值,换主题时
      那些值会变,而 eslint 看不出来。去掉它,换主题图表就不重画。 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 换主题会改 CSS 变量,回调用 getPropertyValue 现读,静态分析看不到 theme
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, widget.type, widget.options.chart?.barOrientation, widget.options.chart?.grouping, widget.options.numberFormat, widget.options.decimals]);
   useEffect(() => {
     const chart = crosshairChartRef.current;
@@ -231,10 +204,7 @@ export default function ChartWidget(props: Props) {
   // Always give ECharts a concrete palette. Passing an explicit undefined
   // color/style suppresses series painting in the Tauri WebView even though
   // axes and legends still render.
-  const style = cssSource(chartRef.current?.getEchartsInstance()?.getDom().closest(".dash-widget"));
-  const chrome = chartChrome(style);
-  // 用户在这张图上设过的配色原样用;没设过才跟当前主题的系列色。
-  const palette = co.palette && co.palette.length ? co.palette : chartPalette(style);
+  const palette = co.palette && co.palette.length ? co.palette : [...DEFAULT_DASHBOARD_PALETTE];
   const colorOf = (name: string) => co.dimensionColors?.[name];
   const grouping = co.grouping === true;
   // 数字显示格式(万/亿换算 + 前后缀):轴刻度、数据标签、tooltip 都要跟着走,
@@ -243,11 +213,11 @@ export default function ChartWidget(props: Props) {
   const scaleDiv = nf?.scale === "wan" ? 1e4 : nf?.scale === "yi" ? 1e8 : 1;
   const showValues = co.showLabels === true || co.barShowValues === true;
   const horizontal = widget.type === "bar" && co.barOrientation === "horizontal";
-  const muted = chrome.muted;
-  const border = chrome.border;
-  const surface = chrome.surface;
-  const accent = chrome.accent;
-  const tip = { backgroundColor: chrome.surface3, borderColor: chrome.border2, textStyle: { color: chrome.text } };
+  const style = getComputedStyle(chartRef.current?.getEchartsInstance()?.getDom().closest(".dash-widget") ?? document.documentElement);
+  const muted = style.getPropertyValue("--text-3").trim();
+  const border = style.getPropertyValue("--border").trim();
+  const surface = style.getPropertyValue("--surface").trim() || "#ffffff";
+  const accent = style.getPropertyValue("--accent").trim() || "#4d8dff";
   const gradient = (from: string, to: string, vertical: boolean) => ({ type: "linear" as const, x: 0, y: 0, x2: vertical ? 0 : 1, y2: vertical ? 1 : 0, colorStops: [{ offset: 0, color: from }, { offset: 1, color: to }] });
 
   const buildSeries = (selected: ResolvedDashboardMetric[], yAxisIndex: number, single: boolean, seriesType: "bar" | "line", stackId?: string) => selected.flatMap((metric) => {
@@ -266,7 +236,7 @@ export default function ChartWidget(props: Props) {
         smoothMonotone: !isBar ? ("x" as const) : undefined,
         yAxisIndex,
         stack: stackId,
-        barMaxWidth: 30, // 真正的宽度在系列拼完、知道绘图区之后再改
+        barMaxWidth: 30,
         showSymbol: co.linePoints !== false,
         symbol: labels.length > 24 || co.linePoints === false ? "none" : "circle",
         symbolSize: 4,
@@ -282,8 +252,8 @@ export default function ChartWidget(props: Props) {
            多条的颜色交给 ECharts 跟线走。 */
         areaStyle: isBar ? undefined
           : co.lineArea === true
-            ? (single ? { opacity: 0.32, color: gradient(custom || palette?.[0] || accent, "transparent", true) } : { opacity: 0.28, ...(custom ? { color: custom } : {}) })
-            : single && co.lineArea !== false ? { opacity: 0.18, color: gradient(custom || palette?.[0] || accent, "transparent", true) } : undefined,
+            ? (single ? { opacity: 0.32, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : { opacity: 0.28, ...(custom ? { color: custom } : {}) })
+            : single && co.lineArea !== false ? { opacity: 0.18, color: gradient(custom || palette?.[0] || accent, "rgba(0,0,0,0)", true) } : undefined,
         tooltip: { valueFormatter: (value: number) => metricValue(metric, numberValue(value), yAxisIndex === 1 ? undefined : nf) },
       };
     });
@@ -335,7 +305,7 @@ export default function ChartWidget(props: Props) {
     : 0;
   const coloredPieData = pieData.map((slice, index) => {
     const metric = metricComposition ? displayMetrics.find(m => metricLabel(m) === slice.name) : undefined;
-    const color = slice.isOther ? muted : colorOf(slice.name) || (metric && (colorOf(metric.key) || colorOf(metric.name))) || palette[index % palette.length];
+    const color = slice.isOther ? "#8C99A8" : colorOf(slice.name) || (metric && (colorOf(metric.key) || colorOf(metric.name))) || palette[index % palette.length];
     return { ...slice, itemStyle: { color } };
   });
   const pieLegendData = coloredPieData.map(slice => ({ name: slice.name, itemStyle: { color: slice.itemStyle.color } }));
@@ -349,23 +319,11 @@ export default function ChartWidget(props: Props) {
   };
 
   const ax = co.axis ?? {};
-  /* 超宽封顶绘图区宽度、超高封顶高度，多出来的边距左右/上下均分，图就停在中间。
-     还没量到容器时宽高是 0，算出来的边距和以前一样。 */
-  const zoomOn = !!(co.dataZoom || labels.length > 24);
-  const gridPad = { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: zoomOn ? 34 : 8 };
-  const grid = cartesianGrid({ ...gridPad, width: box.width, height: box.height });
-  const catSpan = horizontal ? grid.plotHeight : grid.plotWidth;
-  const catLook = categoryAxis({ span: catSpan, count: labels.length });
-  const valueFont = axisFont(grid.plotWidth);
-  const thick = barThickness(catSpan, labels.length);
-  for (const item of series) if (item.type === "bar") item.barMaxWidth = thick;
-  const legendAnchor = cartesianLegend(grid, gridPad);
-  const zoomAt = placeZoom(grid, gridPad, horizontal ? "y" : "x");
   const catAxis = {
     type: "category" as const, data: labels,
     name: ax.xTitle || undefined, nameLocation: "middle" as const, nameGap: 26,
     nameTextStyle: { color: muted, fontSize: 10 },
-    axisLabel: { color: muted, hideOverlap: true, fontSize: catLook.fontSize, interval: catLook.interval },
+    axisLabel: { color: muted, hideOverlap: true, fontSize: 10 },
     axisLine: { lineStyle: { color: border } }, axisTick: { show: false },
   };
   /* 数值轴:默认无网格线(用户当初要求去掉密集横线),但现在可以按需打开;
@@ -376,7 +334,7 @@ export default function ChartWidget(props: Props) {
     name: ax.yTitle || axisUnit(displayMetrics),
     ...(ax.yMin != null ? { min: ax.yMin } : {}),
     ...(ax.yMax != null ? { max: ax.yMax } : {}),
-    axisLabel: { color: muted, fontSize: valueFont, formatter: (v: number) => formatNumber(v / scaleDiv, nf?.scale && nf.scale !== "none" ? 1 : 0, grouping) },
+    axisLabel: { color: muted, fontSize: 10, formatter: (v: number) => formatNumber(v / scaleDiv, nf?.scale && nf.scale !== "none" ? 1 : 0, grouping) },
     axisLine: { show: false }, axisTick: { show: false },
     splitLine: { show: ax.splitLine === true, lineStyle: { color: border, type: "dashed" as const, opacity: .6 } },
   };
@@ -388,7 +346,7 @@ export default function ChartWidget(props: Props) {
       silent: true, symbol: "none" as const,
       data: markLine.map((m) => ({
         yAxis: m.value,
-        lineStyle: { color: m.color ?? chrome.amber, type: "dashed" as const, width: 1.5 },
+        lineStyle: { color: m.color ?? "var(--amber, #ffb547)", type: "dashed" as const, width: 1.5 },
         label: { show: !!m.label, formatter: m.label ?? "", color: muted, fontSize: 10, position: "insideEndTop" as const },
       })),
     };
@@ -412,7 +370,6 @@ export default function ChartWidget(props: Props) {
     ...anim,
     color: palette,
     tooltip: {
-      ...tip,
       trigger: "item",
       formatter: (p: TipParam) => `${p.marker ?? ""} ${escapeHtml(String(p.name ?? ""))}: <b>${escapeHtml(metricValue(activePieMetric, numberValue(p.value), nf))}</b> <span style="opacity:.6">占第一层 ${funnelRate(numberValue(p.value))}</span>`,
     },
@@ -436,34 +393,26 @@ export default function ChartWidget(props: Props) {
       data: funnelData,
     }],
   };
-  const pieLayout = pieFrame({
-    width: box.width, height: box.height,
-    hole: co.pieHole, outer: co.pieOuterRadius,
-    showLabels: showPieLabels, showLegend: widget.options.showLegend,
-    legendPosition: co.pieLegendPosition, manySlices,
-  });
   const option = widget.type === "funnel" ? funnelOption : widget.type === "pie"
     ? {
         ...anim,
         color: palette,
-        tooltip: { ...tip, trigger: "item", formatter: pieTooltipFormatter },
-        legend: {
-          data: pieLegendData,
-          show: widget.options.showLegend,
-          textStyle: { color: muted, ...(manySlices ? { width: 100, overflow: "truncate" as const } : {}) },
-          ...(manySlices ? { pageTextStyle: { color: muted } } : {}),
-          ...pieLayout.legend,
-        },
+        tooltip: { trigger: "item", formatter: pieTooltipFormatter },
+        legend: manySlices ? { data: pieLegendData, show: widget.options.showLegend, type: "scroll" as const, orient: "vertical" as const, right: 0, top: 8, bottom: 8, width: "28%", textStyle: { color: muted, width: 100, overflow: "truncate" }, pageTextStyle: { color: muted } } : co.pieLegendPosition === "left"
+          ? { data: pieLegendData, show: widget.options.showLegend, left: 0, top: "middle", orient: "vertical" as const, textStyle: { color: muted } }
+          : co.pieLegendPosition === "right"
+            ? { data: pieLegendData, show: widget.options.showLegend, right: 0, top: "middle", orient: "vertical" as const, textStyle: { color: muted } }
+            : { data: pieLegendData, show: widget.options.showLegend, bottom: 0, textStyle: { color: muted } },
         series: [{
           name: metricLabel(activePieMetric),
           type: "pie",
-          radius: pieLayout.radius,
-          center: pieLayout.center,
+          radius: pieRadii(co.pieHole, co.pieOuterRadius, showPieLabels).map(n => `${n}%`),
+          center: manySlices ? ["36%", "50%"] : co.pieLegendPosition === "left" ? ["62%", "50%"] : co.pieLegendPosition === "right" ? ["40%", "50%"] : ["50%", "44%"],
           avoidLabelOverlap: true,
           percentPrecision: widget.options.percentDecimals ?? 1,
-          label: { show: showPieLabels, color: muted, formatter: "{b}\n{d}%", ...pieLayout.label },
-          labelLine: pieLayout.labelLine,
-          labelLayout: pieLayout.labelLayout,
+          label: { show: showPieLabels, color: muted, formatter: "{b}\n{d}%", ...PIE_LABEL.label },
+          labelLine: PIE_LABEL.labelLine,
+          labelLayout: PIE_LABEL.labelLayout,
           itemStyle: { borderColor: surface, borderWidth: 3, borderRadius: 4 },
           data: coloredPieData,
         }],
@@ -472,7 +421,6 @@ export default function ChartWidget(props: Props) {
         ...anim,
         color: palette,
         tooltip: {
-          ...tip,
           // 趋势图默认一次看同一 x 的所有系列;改成 item 就只看当前那根。
           trigger: co.tooltip?.mode === "item" ? "item" : "axis",
           formatter: tooltipFormatter,
@@ -484,38 +432,32 @@ export default function ChartWidget(props: Props) {
             label: { show: false },
           },
         },
-        legend: series.length > 1 && widget.options.showLegend ? { show: true, top: legendAnchor.top, right: legendAnchor.right, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
-        grid: { left: grid.left, right: grid.right, top: grid.top, bottom: grid.bottom, containLabel: true as const },
+        legend: series.length > 1 && widget.options.showLegend ? { show: true, top: 0, right: 8, textStyle: { color: muted }, itemWidth: 10, itemHeight: 6 } : undefined,
+        grid: { left: 12, right: 16, top: series.length > 1 ? 34 : 18, bottom: (co.dataZoom || labels.length > 24) ? 34 : 8, containLabel: true },
         xAxis: horizontal ? valAxis : catAxis,
         yAxis: horizontal ? { ...catAxis, inverse: true } : dualAxis ? [valAxis, {
           ...valAxis, name: axisUnit(displaySecondary), min: undefined, max: undefined, position: "right",
-          axisLabel: { color: muted, fontSize: valueFont, formatter: (v: number) => formatNumber(v, displaySecondary[0]?.decimals ?? 0, grouping) },
+          axisLabel: { color: muted, fontSize: 10, formatter: (v: number) => formatNumber(v, displaySecondary[0]?.decimals ?? 0, grouping) },
           splitLine: { show: false },
         }] : valAxis,
-        dataZoom: zoomOn ? [{ type: "slider" as const, start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: zoomAt.bottom ?? 4, borderColor: "transparent", fillerColor: chrome.accentSoft, backgroundColor: chrome.surface2, showDetail: false, ...(horizontal ? { yAxisIndex: 0, width: 10, right: zoomAt.right ?? 2 } : { xAxisIndex: 0 }) }] : undefined,
+        dataZoom: (co.dataZoom || labels.length > 24) ? [{ type: "slider" as const, start: 0, end: labels.length > 24 ? Math.max(18, Math.round((24 / labels.length) * 100)) : 100, height: 12, bottom: 4, borderColor: "transparent", fillerColor: "rgba(132,145,255,.18)", backgroundColor: "rgba(255,255,255,.03)", showDetail: false, ...(horizontal ? { yAxisIndex: 0, width: 10, right: 2 } : { xAxisIndex: 0 }) }] : undefined,
         series,
       };
   // 点击行为:配了下钻维度且未到最深 → 下钻;否则回退到普通点击(联动全局筛选)。
   const drillConfigured = (drillDimensions?.length ?? 0) > 0;
   // 链里有几层就能钻几层(第 0 层是当前维度,不占链里的位置)。
   const canDrillDeeper = drillConfigured && (drillPath?.length ?? 0) < drillDimensions!.length;
-  clickRef.current = {
-    metricComposition, type: widget.type, pieData, drillConfigured, canDrillDeeper, drillFrozen: !!drillFrozen,
-    onDrillDown, onDrill, linkage: widget.options.chart?.linkage === true, datasetId: widget.datasetId, xDimName,
-  };
   const onEvents = (onDrill || onDrillDown) ? {
     click: (params: { name?: string; dataIndex?: number }) => {
-      const d = clickRef.current;
-      if (d.drillFrozen) return;
-      if (d.metricComposition) return;
-      if (d.type === "pie" && params.dataIndex != null && d.pieData[params.dataIndex]?.isOther) return;
+      if (metricComposition) return;
+      if (widget.type === "pie" && params.dataIndex != null && pieData[params.dataIndex]?.isOther) return;
       if (params.name == null) return;
-      if (d.drillConfigured) {
-        if (d.canDrillDeeper) d.onDrillDown?.(params.name);
-      } else if (d.linkage) {
+      if (drillConfigured) {
+        if (canDrillDeeper) onDrillDown?.(params.name);
+      } else if (widget.options.chart?.linkage) {
         /* 联动是可选的。默认点一下只在本组件里下钻(配了层级的话),没配就什么也不做 ——
            而不是把整张看板都筛掉:那样一点就全变,还得去顶上找那个小标签才能变回来。 */
-        d.onDrill?.({ datasetId: d.datasetId, field: d.xDimName, value: params.name });
+        onDrill?.({ datasetId: widget.datasetId, field: xDimName, value: params.name });
       }
     },
   } : undefined;
@@ -540,11 +482,7 @@ export default function ChartWidget(props: Props) {
       </div>
     );
   }
-  const echart = (
-    <div ref={boxRef} className="dash-chart-box">
-      <ReactECharts ref={chartRef} option={option} onEvents={onEvents} onChartReady={attachCrosshair} shouldSetOption={shouldSetOption} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />
-    </div>
-  );
+  const echart = <ReactECharts ref={chartRef} option={option} onEvents={onEvents} onChartReady={attachCrosshair} notMerge lazyUpdate style={{ width: "100%", height: "100%" }} />;
   const chart = pieDropped > 0
     ? (
       <div className="dash-pie-with-note">
@@ -587,29 +525,28 @@ export default function ChartWidget(props: Props) {
       )
       : chart;
 
-  /* 面包屑出现或消失时,图表节点必须还是同一个。换根节点会卸掉 ECharts,
-     库自己还会在 finished 里 dispose 再 new 一次,再叠上尺寸从 0 量起的
-     第二次 setOption,下钻就闪两下。chart-host 的 key 不跟路径走。 */
+  if (!drillPath?.length) return content;
+  /* 面包屑:返回上一层 + 全部 › 各层选中值,点任意一层回到那一层。
+     原来只有一排没有图标的小方块,钻进去之后第一反应是「怎么出去」—— 所以补一个
+     明确的返回箭头,每一层也标上它是哪个维度(光一个「咖啡」看不出是按什么钻的)。 */
   const dimLabelOf = (name: string) => props.dimensionLabels?.[name] || name;
   return (
     <div className="dash-chart-drill">
-      {drillPath?.length ? (
-        <div className="dash-drill-crumbs">
-          <button className="back" {...iconName("返回上一层")} onClick={() => onDrillTo?.(drillPath.length - 1)}>
-            <ChevronLeft size={12} />返回
-          </button>
-          <button onClick={() => onDrillTo?.(0)}>全部</button>
-          {drillPath.map((item, index) => (
-            <span key={`${item.dimension}-${index}`}>
-              <span className="sep">›</span>
-              <button onClick={() => onDrillTo?.(index + 1)} title={`${dimLabelOf(item.dimension)}:${item.value}`}>
-                <small>{dimLabelOf(item.dimension)}</small>{item.value}
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <div key="chart-host" className="dash-drill-body">{content}</div>
+      <div className="dash-drill-crumbs">
+        <button className="back" title="返回上一层" onClick={() => onDrillTo?.(drillPath.length - 1)}>
+          <ChevronLeft size={12} />返回
+        </button>
+        <button onClick={() => onDrillTo?.(0)}>全部</button>
+        {drillPath.map((item, index) => (
+          <span key={`${item.dimension}-${index}`}>
+            <span className="sep">›</span>
+            <button onClick={() => onDrillTo?.(index + 1)} title={`${dimLabelOf(item.dimension)}:${item.value}`}>
+              <small>{dimLabelOf(item.dimension)}</small>{item.value}
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="dash-drill-body">{content}</div>
     </div>
   );
 }

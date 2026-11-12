@@ -211,8 +211,8 @@ pub async fn execute_routine(state: State<'_, AppState>, conn_id:String, databas
             return Err(AppError::msg("MySQL 存储过程可能自行提交，手动模式下已阻止执行"));
         }
             let sets=match tx {
-                db::SessionTx::MySql(tx)=>db::routines::execute_mysql(tx,&database,&details,&values).await?,
-                db::SessionTx::Postgres(tx)=>db::routines::execute_pg(tx,&schema,&details,&values).await?,
+                db::SessionTx::MySql(tx)=>db::routines::execute_mysql(&mut **tx,&database,&details,&values).await?,
+                db::SessionTx::Postgres(tx)=>db::routines::execute_pg(&mut **tx,&schema,&details,&values).await?,
                 _=>return Err(AppError::msg("该数据库不支持此例程执行面板")),
             };return Ok(db::routines::combine(sets));
     }

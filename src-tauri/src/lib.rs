@@ -1,7 +1,6 @@
 mod ai;
 mod app_menu;
 mod canvas_window;
-mod cloud_proxy;
 mod monitor;
 mod commands;
 mod credentials;
@@ -12,8 +11,6 @@ mod db;
 mod error;
 mod export;
 mod models;
-mod navigation;
-mod paths;
 mod python;
 mod readonly;
 mod store;
@@ -34,8 +31,6 @@ fn with_app_menu(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
 pub fn run() {
     with_app_menu(tauri::Builder::default())
         .plugin(tauri_plugin_opener::init())
-        // 带权限的窗口不许整页跳到远程网页;监控窗口和 iframe 的例外见 navigation.rs。
-        .plugin(navigation::init())
         .plugin(tauri_plugin_dialog::init())
         // 剪贴板:WKWebView 里 navigator.clipboard.readText() 会被拒,读剪贴板必须走原生插件。
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -52,14 +47,10 @@ pub fn run() {
             }
         })
         .manage(ai::AiEngine::default())
-        .manage(cloud_proxy::CloudProxy::default())
         .manage(python::PyRuntime::default())
         .invoke_handler(tauri::generate_handler![
             credentials::load_service_config,
             credentials::save_service_config,
-            cloud_proxy::cloud_model_request,
-            cloud_proxy::cloud_chat_stream,
-            cloud_proxy::cloud_model_cancel,
             workspace_lifecycle::enable_workspace_exit_guard,
             workspace_lifecycle::finish_workspace_exit,
             ai::ai_engine_status,
@@ -93,7 +84,6 @@ pub fn run() {
             commands::connections::delete_connection,
             commands::connections::test_connection,
             commands::connections::connect,
-            commands::connections::connection_has_saved_secret,
             commands::connections::disconnect,
             commands::objects::list_databases,
             commands::objects::list_schemas,
@@ -166,9 +156,8 @@ mod main_thread_guard {
             ("commands/objects.rs", include_str!("commands/objects.rs")),
             ("commands/query.rs", include_str!("commands/query.rs")),
             ("export.rs", include_str!("export.rs")),
-            ("ai/mod.rs", include_str!("ai/mod.rs")),
+            ("ai.rs", include_str!("ai.rs")),
             ("credentials.rs", include_str!("credentials.rs")),
-            ("cloud_proxy.rs", include_str!("cloud_proxy.rs")),
             ("dashboard_store.rs", include_str!("dashboard_store.rs")),
             ("dataset_store.rs", include_str!("dataset_store.rs")),
             ("monitor.rs", include_str!("monitor.rs")),

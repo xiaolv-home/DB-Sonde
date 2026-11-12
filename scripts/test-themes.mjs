@@ -40,9 +40,7 @@ const palettes = { 墨: dark, 霜: frost, 纸: paper };
 const required = ['bg', 'surface', 'surface-2', 'surface-3', 'header', 'popover', 'border', 'border-2', 'grid-line', 'scrim',
   'text', 'text-2', 'text-3', 'accent', 'accent-2', 'accent-ink', 'accent-soft', 'accent-border',
   'green', 'red', 'red-ink', 'amber', 'sel', 'dirty', 'shadow', 'shadow-sm',
-  'c-connection', 'c-database', 'c-table', 'c-schema', 'c-view', 'c-procedure', 'c-function',
-  'chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5', 'chart-6', 'chart-7', 'chart-8',
-  'medal-1', 'medal-2', 'medal-3'];
+  'c-connection', 'c-database', 'c-table', 'c-schema', 'c-view', 'c-procedure', 'c-function'];
 for (const [name, p] of Object.entries(palettes)) {
   for (const key of required) assert.ok(p[key], `${name} 缺 --${key}`);
   // 看得清

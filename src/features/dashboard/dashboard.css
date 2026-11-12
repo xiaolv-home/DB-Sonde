@@ -36,11 +36,7 @@
 .dash-canvas.preview .dash-widget-header { cursor: default; }
 .dash-widget-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; font-weight: 650; letter-spacing: -.01em; }
 .dash-widget-header .icon-btn { width: 20px; height: 20px; color: var(--text-3); }
-/* 抓手原来是一枚图标。收成按钮只为了能念出名字,尺寸贴着图标,不占标题栏额外的空。 */
-.dash-drag { display: inline-grid; place-items: center; padding: 0; border: 0; background: transparent; color: inherit; cursor: inherit; line-height: 0; }
 .dash-widget-body { flex: 1; min-height: 0; overflow: hidden; padding: 10px 12px; }
-.dash-chart-box { width: 100%; height: 100%; min-width: 0; min-height: 0; }
-.dash-flow-frame { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 
 .dash-tab-container { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .dash-tab-bar { min-height: 30px; flex: 0 0 auto; display: flex; align-items: end; gap: 3px; padding: 0 2px; border-bottom: 1px solid var(--border); }
@@ -287,9 +283,9 @@
 .dash-ranking li { display: flex; align-items: flex-start; gap: 10px; }
 .dash-rank-no { flex: none; width: 20px; height: 20px; display: grid; place-items: center; margin-top: 1px; border-radius: 6px; background: var(--surface-2); color: var(--text-3); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .dash-ranking li.top .dash-rank-no { color: #fff; }
-.dash-ranking li.top1 .dash-rank-no { background: var(--medal-1); }
-.dash-ranking li.top2 .dash-rank-no { background: var(--medal-2); }
-.dash-ranking li.top3 .dash-rank-no { background: var(--medal-3); }
+.dash-ranking li.top1 .dash-rank-no { background: #e5a630; }
+.dash-ranking li.top2 .dash-rank-no { background: #9aa4b2; }
+.dash-ranking li.top3 .dash-rank-no { background: #c08457; }
 .dash-rank-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .dash-rank-line { display: flex; align-items: baseline; gap: 8px; }
 .dash-rank-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; }

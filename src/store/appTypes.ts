@@ -141,14 +141,15 @@ export interface AppState {
     syntaxTheme: SyntaxTheme;
     language: Language;
     connections: ConnectionConfig[];
+    connectionsReady: boolean;
+    connectionsError?: string;
+    restoreNotice: Record<string, string>;
     meta: Record<string, ConnectionMeta>;
     databases: Record<string, string[]>;
     autocommit: Record<string, boolean>;
     catalogs: Record<string, CompletionCatalog>;
     catalogLoading: Record<string, boolean>;
     connecting: Record<string, boolean>;
-    /** Why a restored tab is still waiting. Empty while an attempt is in progress. */
-    restoreNotice: Record<string, string>;
     nodes: Record<string, TreeNode>;
     rootKeys: string[];
     tabs: WorkspaceTab[];
@@ -181,8 +182,6 @@ export interface AppState {
     refreshConnections: () => Promise<void>;
     deleteConnection: (id: string) => Promise<void>;
     connect: (id: string, password?: string | null, source?: "manual" | "restore") => Promise<void>;
-    /** Connect one restored tab that is actually on screen, and only when a secret is already saved. */
-    openRestoredConnection: (id: string, stillActive?: () => boolean) => Promise<void>;
     disconnect: (id: string) => Promise<void>;
     setAutocommit: (connId: string, enabled: boolean, database?: string) => Promise<void>;
     commitSession: (connId: string) => Promise<void>;

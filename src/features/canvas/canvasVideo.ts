@@ -6,7 +6,6 @@
  * 编码用系统自带的 WebCodecs(VideoEncoder,硬件 H.264),封装成 MP4 用 mp4-muxer。 */
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { VIDEO_LOOP_MAX_S, animationFrames, exportScale, yieldToUi, type PathProbe } from "./canvasAnimation";
-import { readVar } from "../../lib/themeColors";
 import { svgImage, type Measure } from "./canvasExport";
 import type { CanvasEdge, CanvasNode } from "./canvasModel";
 
@@ -115,7 +114,7 @@ export async function encodeMp4(nodes: CanvasNode[], edges: CanvasEdge[], measur
       if (failure) throw failure;
       const k = i % anim.frames.length;
       images[k] ??= await svgImage(anim.frames[k]);
-      ctx.fillStyle = readVar("--bg");
+      ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, w, h);
       ctx.drawImage(images[k].img, 0, 0, w, h);
       rgbaToI420(ctx.getImageData(0, 0, w, h).data, w, h, fullRange, yuv);

@@ -97,7 +97,7 @@
 }
 
 /* Workspace pages retain local edits while inactive. */
-.workspace-pane { position: relative; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
+.workspace-pane { flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
 .tab-unsaved { color: var(--amber); font-size: 10px; }
 
 /* 侧栏文件行里的内联改名输入框 */
@@ -108,11 +108,10 @@
   font-size: 13px;
 }
 
-/* 恢复的标签页还没连上库。卡片只铺在这个标签的内容区里，不盖住侧栏、标签条和顶栏。 */
+/* 恢复的标签页还没连上库。居中一张卡片:是什么、在哪、为什么没连、点这里。 */
 .disconnected {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -151,3 +150,22 @@
 .disconnected-where { margin: 0; font-size: 13px; color: var(--text-2); }
 .disconnected-why { margin: 8px 0 14px; font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
 .disconnected-card .btn { min-width: 140px; justify-content: center; }
+
+/* Opening is local to the content pane. A quick connection never shows a spinner;
+   a visible loader stays through metadata loading, then crossfades once. */
+.workspace-opening { position: relative; flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
+.workspace-opening-page { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; opacity: 1; transition: opacity 240ms ease-out; }
+.workspace-opening-page.is-covered { opacity: 0; }
+.workspace-opening-cover { position: absolute; inset: 0; display: grid; place-items: center; background: var(--bg); pointer-events: none; opacity: 1; transition: opacity 240ms ease-out; }
+.workspace-opening-cover.leaving { opacity: 0; }
+.workspace-opening-message { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 360px; padding: 24px; text-align: center; color: var(--text-3); opacity: 1; transition: opacity 200ms ease-out; }
+.workspace-opening-cover.waiting .workspace-opening-message { opacity: 0; }
+.workspace-opening-message > svg { color: var(--text-2); margin-bottom: 4px; }
+.workspace-opening-message strong { font-size: 14px; font-weight: 500; color: var(--text-2); }
+.workspace-opening-message span { font-size: 12px; overflow-wrap: anywhere; }
+.workspace-opening-line { width: 88px; height: 2px; margin-top: 6px; border-radius: 2px; background: var(--accent); animation: workspace-opening-breathe 1.6s ease-in-out infinite alternate; }
+@keyframes workspace-opening-breathe { from { opacity: .25; } to { opacity: .7; } }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-opening-page, .workspace-opening-cover, .workspace-opening-message { transition: none; }
+  .workspace-opening-line { animation: none; opacity: .5; }
+}

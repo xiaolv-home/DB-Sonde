@@ -1,28 +1,26 @@
 import { translate } from "../i18n";
 import { api } from "../lib/api";
-import { publicConnectError } from "../lib/connectError";
 import type { ConnectionConfig } from "../types";
 import type { AppSlice } from "./appTypes";
 import { connKey } from "./stateKeys";
 import { connectionNode } from "./treeModel";
 import { applyConnOrder, loadConnOrder } from "./treePreferences";
 const sessionPasswords = new Map<string, string>();
-/** Latest restored-tab attempt per connection. An older attempt must not connect after the tab was left. */
-const restoreEpoch = new Map<string, number>();
 type ConnectionsSlice = AppSlice<
   | "connections"
+  | "connectionsReady"
+  | "connectionsError"
+  | "restoreNotice"
   | "meta"
   | "databases"
   | "autocommit"
   | "connecting"
-  | "restoreNotice"
   | "dialogOpen"
   | "openDialog"
   | "closeDialog"
   | "refreshConnections"
   | "deleteConnection"
   | "connect"
-  | "openRestoredConnection"
   | "rememberSessionPassword"
   | "closePasswordPrompt"
   | "disconnect"
@@ -33,11 +31,12 @@ type ConnectionsSlice = AppSlice<
 
 export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
     connections: [],
+    connectionsReady: false,
+    restoreNotice: {},
     meta: {},
     databases: {},
     autocommit: {},
     connecting: {},
-    restoreNotice: {},
     dialogOpen: false,
     openDialog(editing) {
         set({ dialogOpen: true, dialogEditing: editing });
@@ -62,7 +61,7 @@ export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
             else
                 nodes[key] = { ...nodes[key], label: c.name };
         }
-        set({ connections, nodes, rootKeys });
+        set({ connections, nodes, rootKeys, connectionsReady: true, connectionsError: undefined });
         // A tab that outlives its connection is stranded: it cannot connect and it
         // cannot close itself, so it sits on "connect and open" forever — and since
         // the workspace is persisted, restarting brings it right back. Clean up here
@@ -96,9 +95,7 @@ export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
         if (!config) {
             // The connection was deleted. Returning silently makes the button in the
             // stranded-tab placeholder look dead — nothing happens, no explanation.
-            const text = translate(get().language, "connection.missing");
-            set((s) => ({ restoreNotice: { ...s.restoreNotice, [id]: text } }));
-            if (source === "manual") get().showToast({ kind: "error", text });
+            get().showToast({ kind: "error", text: translate(get().language, "connection.missing") });
             return;
         }
         const needsPassword = config.kind !== "sqlite";
@@ -114,15 +111,10 @@ export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
         });
         try {
             const meta = await api.connect(id, sessionPassword);
-            set((s) => {
-                const restoreNotice = { ...s.restoreNotice };
-                delete restoreNotice[id];
-                return {
-                    meta: { ...s.meta, [id]: meta },
-                    autocommit: { ...s.autocommit, [id]: true },
-                    restoreNotice,
-                };
-            });
+            set((s) => ({
+                meta: { ...s.meta, [id]: meta },
+                autocommit: { ...s.autocommit, [id]: true },
+            }));
             if (get().passwordPromptId === id) set({ passwordPromptId: undefined });
             // Auto-expand the connection root.
             const key = connKey(id);
@@ -140,7 +132,7 @@ export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
                     .then((dbs) => set((s) => ({ databases: { ...s.databases, [id]: dbs } })))
                     .catch(() => { });
             }
-            get().showToast({
+            if (source === "manual" || meta.credentialWarning) get().showToast({
                 kind: meta.credentialWarning ? "warn" : "success",
                 text: meta.credentialWarning ?? translate(get().language, "connection.success", {
                     version: meta.serverVersion || meta.kind,
@@ -148,62 +140,27 @@ export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
             });
         }
         catch (e) {
-            const raw = String(e);
-            const text = publicConnectError(raw, sessionPasswords.get(id));
+            const credentialMissing = String(e).includes("CREDENTIAL_REQUIRED");
+            const credentialRejected = String(e).includes("CREDENTIAL_REJECTED");
+            const message = translate(get().language, credentialMissing ? "workspace.noSavedSecret"
+                : credentialRejected ? "workspace.savedSecretRejected" : "workspace.connectFailed");
+            set(s => ({ restoreNotice: { ...s.restoreNotice, [id]: message } }));
             if (needsPassword)
                 sessionPasswords.delete(id);
-            const rejected = raw.includes("CREDENTIAL_REJECTED");
-            const required = raw.includes("CREDENTIAL_REQUIRED");
-            const friendly = rejected
-                ? translate(get().language, "workspace.savedSecretRejected")
-                : required
-                    ? translate(get().language, "workspace.noSavedSecret")
-                    : text;
-            set((s) => ({ restoreNotice: { ...s.restoreNotice, [id]: friendly } }));
-            // A restored tab reports the reason on its own card. Asking for a password
-            // is a separate, explicit click so the dialog does not cover the workspace.
+            // Automatic restoration never opens a global password dialog.
             if (source === "restore") return;
-            if (required || rejected) {
+            if (String(e).includes("CREDENTIAL_REQUIRED") || String(e).includes("CREDENTIAL_REJECTED")) {
                 set({ passwordPromptId: id });
-                if (rejected) get().showToast({ kind: "warn", text: friendly });
+                if (String(e).includes("CREDENTIAL_REJECTED"))
+                    get().showToast({ kind: "warn", text: "保存的密码已失效，请重新输入" });
                 return;
             }
-            get().showToast({ kind: "error", text: friendly });
+            get().showToast({ kind: "error", text: String(e) });
             throw e;
         }
         finally {
             set((s) => ({ connecting: { ...s.connecting, [id]: false } }));
         }
-    },
-    async openRestoredConnection(id, stillActive = () => true) {
-        if (get().meta[id] || get().connecting[id]) return;
-        const epoch = (restoreEpoch.get(id) ?? 0) + 1;
-        restoreEpoch.set(id, epoch);
-        const mine = () => restoreEpoch.get(id) === epoch && stillActive();
-        set((s) => {
-            const restoreNotice = { ...s.restoreNotice };
-            delete restoreNotice[id];
-            return { restoreNotice };
-        });
-        let saved = false;
-        try {
-            saved = await api.hasSavedSecret(id);
-        } catch (error) {
-            if (!mine()) return;
-            const text = publicConnectError(String(error));
-            set((s) => ({ restoreNotice: { ...s.restoreNotice, [id]: text } }));
-            return;
-        }
-        if (!mine() || get().meta[id] || get().connecting[id]) return;
-        if (!get().connections.some((item) => item.id === id)) {
-            set((s) => ({ restoreNotice: { ...s.restoreNotice, [id]: translate(get().language, "connection.missing") } }));
-            return;
-        }
-        if (!saved) {
-            set((s) => ({ restoreNotice: { ...s.restoreNotice, [id]: translate(get().language, "workspace.noSavedSecret") } }));
-            return;
-        }
-        await get().connect(id, null, "restore");
     },
     rememberSessionPassword(id, password) {
         sessionPasswords.set(id, password);
@@ -233,7 +190,9 @@ export const createConnectionsSlice: ConnectionsSlice = (set, get) => ({
         if (nodes[key]) {
             nodes[key] = { ...nodes[key], childKeys: [], loaded: false, expanded: false };
         }
-        set({ meta, autocommit, catalogs, nodes });
+        set(s => ({ meta, autocommit, catalogs, nodes,
+            restoreNotice: { ...s.restoreNotice, [id]: translate(s.language, "workspace.connectionClosed") },
+        }));
     },
     async setAutocommit(connId, enabled, database) {
         try {

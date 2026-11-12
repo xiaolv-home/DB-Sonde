@@ -3,12 +3,10 @@ import { nanoid } from "nanoid";
 import { WIDGET_SPECS, supportsSeries } from "./widgetSpecs";
 import type { QueryResult } from "../../types";
 import { maxOf } from "../../lib/numbers";
-import { chartPalette } from "../../lib/themeColors";
 
 
 export const DASHBOARD_SCHEMA_VERSION = 3 as const;
-/** 看板没单独设配色时的系列色,跟着当前主题。用户设过的 palette 不走这里。 */
-export const defaultDashboardPalette = (): string[] => chartPalette();
+export const DEFAULT_DASHBOARD_PALETTE = ["#4d8dff", "#2ed6a1", "#ffb547", "#a98bff", "#ff6b8a", "#35c6f4", "#ff7a45", "#66e0e5"] as const;
 
 /* 组件类型的**唯一定义处**。AI 的 schema、画布的下拉、导入时的白名单都从这里取 ——
    以前这串字面量在 4 个文件里各写一遍,加一种类型漏掉任何一处的表现是
@@ -183,7 +181,7 @@ export interface DashboardChartOptions {
   pieOuterRadius?: number; // 20-95 外半径 %，与内半径之差决定环宽
   pieShowLabels?: boolean;
   pieLegendPosition?: "bottom" | "left" | "right";
-  // 多级下钻(对齐 v1 pie_drill):有序维度链,点一层按下一维度重新分组,面包屑可回退。作用于折线/柱/饼/漏斗。
+  // 多级下钻(对齐 v1 pie_drill):有序维度链,点一层按下一维度重新分组,面包屑可回退。作用于 bar/pie。
   drillDimensions?: string[];
   /** 点图形时联动整个看板(按这一格的值筛所有用同一数据集的组件)。默认关 ——
    *  点一下整张看板全变、还找不到怎么变回来,不该是默认行为。 */
