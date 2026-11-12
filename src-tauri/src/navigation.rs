@@ -432,13 +432,15 @@ mod windows_frame {
 
     pub fn install<R: Runtime>(webview: &tauri::Webview<R>) {
         let label = webview.label().to_string();
+        // with_webview 把闭包送到别的线程,label 会被移进去。失败日志还要在外面用一次。
+        let hooked = label.clone();
         if let Err(err) = webview.with_webview(move |platform| {
-            if !claim(&label) {
+            if !claim(&hooked) {
                 return;
             }
             if let Err(err) = unsafe { attach(&platform.controller()) } {
-                release(&label);
-                eprintln!("DB Sonde: 子框架导航守卫没装上({label}): {err}");
+                release(&hooked);
+                eprintln!("DB Sonde: 子框架导航守卫没装上({hooked}): {err}");
             }
         }) {
             eprintln!("DB Sonde: 拿不到 WebView2({label}): {err}");
