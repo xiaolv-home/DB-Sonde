@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  WEEKDAYS, addDays, expandRange, monthCells, monthEnd, pad, parseYmd, startOfToday, ymd,
+} from "./dateRangeCalendar";
 
 interface Props {
   start: string;
@@ -10,13 +13,6 @@ interface Props {
 
 type Mode = "day" | "week" | "month" | "year";
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y || 2000, (m || 1) - 1, d || 1); };
-const startOfToday = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); };
-const addDays = (base: Date, n: number) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + n);
-const monthEnd = (y: number, m: number) => new Date(y, m + 1, 0);
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 const MONTHS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
 
 function presets(): { label: string; range: () => [string, string] }[] {
@@ -42,7 +38,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   const [mode, setMode] = useState<Mode>("day");
   const [pending, setPending] = useState<string | null>(null); // 已点起点、待点终点(代表日:日/周=当天,月=月首,年=年首)
   const [hover, setHover] = useState<string | null>(null);
-  const [view, setView] = useState(() => parse(end || start));
+  const [view, setView] = useState(() => parseYmd(end || start));
   const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -65,7 +61,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   };
   // 弹层画出来、尺寸确定之后再量一次(第一次 place 时还没有弹层,量不到高度)。
   useLayoutEffect(() => { if (open) place(); }, [open, mode]);
-  const openPop = () => { place(); const d = parse(end || start); setView(new Date(d.getFullYear(), d.getMonth(), 1)); setPending(null); setMode("day"); setOpen(true); };
+  const openPop = () => { place(); const d = parseYmd(end || start); setView(new Date(d.getFullYear(), d.getMonth(), 1)); setPending(null); setMode("day"); setOpen(true); };
   const close = () => { setOpen(false); setPending(null); };
 
   useEffect(() => {
@@ -77,25 +73,14 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
     return () => { document.removeEventListener("mousedown", onDoc); window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
   }, [open]);
 
-  const cells = useMemo(() => {
-    const first = new Date(view.getFullYear(), view.getMonth(), 1);
-    const gridStart = new Date(view.getFullYear(), view.getMonth(), 1 - first.getDay());
-    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
-  }, [view]);
+  const cells = useMemo(() => monthCells(view.getFullYear(), view.getMonth()), [view]);
 
   const activePreset = presets().find((p) => { const [s, e] = p.range(); return s === start && e === end; });
   const todayStr = ymd(startOfToday());
   const yearBase = Math.floor(view.getFullYear() / 12) * 12;
 
-  // 把两个"代表日"按当前粒度展开成完整区间。
-  const expand = (a: string, b: string): [string, string] => {
-    const [lo, hi] = [a, b].sort();
-    const s = parse(lo), e = parse(hi);
-    if (mode === "week") return [ymd(addDays(s, -s.getDay())), ymd(addDays(addDays(e, -e.getDay()), 6))];
-    if (mode === "month") return [ymd(new Date(s.getFullYear(), s.getMonth(), 1)), ymd(monthEnd(e.getFullYear(), e.getMonth()))];
-    if (mode === "year") return [`${s.getFullYear()}-01-01`, `${e.getFullYear()}-12-31`];
-    return [lo, hi];
-  };
+  // 把两个"代表日"按当前粒度展开成完整区间。周是周一到周日,和网格的一行对齐。
+  const expand = (a: string, b: string): [string, string] => expandRange(mode, a, b);
   // 当前高亮区间:待选终点时用 起点↔悬停;否则用 已选 start↔end。
   const hl = pending ? expand(pending, hover ?? pending) : [start, end];
 

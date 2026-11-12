@@ -157,8 +157,9 @@
     return root;
   }
 
-  // ---- 日期区间(对齐 DateRangePicker.tsx) ----
-  var WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+  // ---- 日期区间(对齐 DateRangePicker.tsx / dateRangeCalendar.ts) ----
+  // 周一为一周的第一天。网格起点、周界要和 dateRangeCalendar.ts 保持同一套算法。
+  var WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
   var MONTHS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
   function pad(n) { return String(n).padStart(2, "0"); }
   function ymd(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
@@ -166,6 +167,23 @@
   function startOfToday() { var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
   function addDays(b, n) { return new Date(b.getFullYear(), b.getMonth(), b.getDate() + n); }
   function monthEnd(y, m) { return new Date(y, m + 1, 0); }
+  /** JS 的 getDay() 周日是 0。换成周一为 0、周日为 6。与 dateRangeCalendar.mondayIndex 相同。 */
+  function mondayIndex(d) { return (d.getDay() + 6) % 7; }
+  function startOfWeek(d) { return addDays(d, -mondayIndex(d)); }
+  function monthCells(year, month) {
+    var gridStart = startOfWeek(new Date(year, month, 1));
+    var out = [];
+    for (var i = 0; i < 42; i++) out.push(addDays(gridStart, i));
+    return out;
+  }
+  function expandRange(mode, a, b) {
+    var lo = a < b ? a : b, hi = a < b ? b : a;
+    var s = parseYmd(lo), e = parseYmd(hi);
+    if (mode === "week") return [ymd(startOfWeek(s)), ymd(addDays(startOfWeek(e), 6))];
+    if (mode === "month") return [ymd(new Date(s.getFullYear(), s.getMonth(), 1)), ymd(monthEnd(e.getFullYear(), e.getMonth()))];
+    if (mode === "year") return [s.getFullYear() + "-01-01", e.getFullYear() + "-12-31"];
+    return [lo, hi];
+  }
   function presets() {
     var t = startOfToday();
     return [
@@ -209,14 +227,7 @@
       pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 540 - 8)) + "px";
     }
     // 把两个「代表日」按当前粒度展开成完整区间。
-    function expand(a, b) {
-      var lo = a < b ? a : b, hi = a < b ? b : a;
-      var s = parseYmd(lo), e = parseYmd(hi);
-      if (mode === "week") return [ymd(addDays(s, -s.getDay())), ymd(addDays(addDays(e, -e.getDay()), 6))];
-      if (mode === "month") return [ymd(new Date(s.getFullYear(), s.getMonth(), 1)), ymd(monthEnd(e.getFullYear(), e.getMonth()))];
-      if (mode === "year") return [s.getFullYear() + "-01-01", e.getFullYear() + "-12-31"];
-      return [lo, hi];
-    }
+    function expand(a, b) { return expandRange(mode, a, b); }
     function highlight() { return pending ? expand(pending, hover || pending) : [start, end]; }
     function pick(rep) {
       if (!pending) { pending = rep; hover = rep; paintBody(); return; }
@@ -302,10 +313,8 @@
 
         var grid = el("div", "dash-cal-grid");
         grid.onmouseleave = function () { if (pending) { hover = null; applyHighlight(); } };
-        var first = new Date(view.getFullYear(), view.getMonth(), 1);
-        var gridStart = new Date(view.getFullYear(), view.getMonth(), 1 - first.getDay());
         var today = ymd(startOfToday());
-        for (var i = 0; i < 42; i++) (function (day) {
+        monthCells(view.getFullYear(), view.getMonth()).forEach(function (day) {
           var s = ymd(day);
           var inMonth = day.getMonth() === view.getMonth();
           var cls = "dash-cal-day" + (inMonth ? "" : " other") + (s === today ? " today" : "");
@@ -315,7 +324,7 @@
           b.onmouseenter = function () { if (pending) { hover = s; applyHighlight(); } };
           cells.push({ key: s, node: b, kind: "day", cls: cls });
           grid.appendChild(b);
-        })(addDays(gridStart, i));
+        });
         bodyBox.appendChild(grid);
       }
       applyHighlight();
@@ -369,5 +378,10 @@
     return root;
   }
 
-  window.__DASH_CONTROLS__ = { multiSelect: multiSelect, dateRange: dateRange };
+  window.__DASH_CONTROLS__ = {
+    multiSelect: multiSelect,
+    dateRange: dateRange,
+    // 给测试对一下:离线页不能 import dateRangeCalendar.ts,算法必须和它一致。
+    calendar: { WEEKDAYS: WEEKDAYS, monthCells: monthCells, expandRange: expandRange, ymd: ymd },
+  };
 })();
