@@ -26,6 +26,11 @@ for (const file of [...files, join(root, 'features/dashboard/export/standalone.r
   assert(at < 0, `${relative(root, file)} 第 ${at} 字节是裸控制字符(0x${bytes[at]?.toString(16)}),写成转义 \\u00xx —— 否则这个文件搜不着`);
 }
 const graph = new Map();
+/* tauri-plugin-dialog 把 window.confirm 换成了 async 函数:返回 Promise,恒为真。
+   `if (!window.confirm(...)) return` 于是永远放行 —— 弹框还在,动作已经做完了。用 useConfirm / 应用内确认框。 */
+for (const file of files) {
+  assert(!/\bwindow\.confirm\s*\(/.test(readFileSync(file, 'utf8')), `${relative(root, file)} 用了 window.confirm:Tauri 下它返回 Promise、不会拦住后续动作,改用 useConfirm`);
+}
 const options = ts.readConfigFile('tsconfig.json', ts.sys.readFile).config.compilerOptions;
 for (const file of files) {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);

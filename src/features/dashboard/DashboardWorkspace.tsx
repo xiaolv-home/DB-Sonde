@@ -37,11 +37,13 @@ import { PanelLeftOpen } from "lucide-react";
 import { nanoid } from "nanoid";
 import "./studio/studio.css";
 import { useI18n } from "../../hooks/useI18n";
+import { useConfirm } from "../../components/useConfirm";
 import { activeDashboardFilters, type DashboardFilterValues } from "./filtering";
 import { useDashboardHistory } from "./useDashboardHistory";
 
 export default function DashboardWorkspace({ tab, active = true }: { tab: DashboardTab; active?: boolean }) {
   const { t } = useI18n();
+  const { askConfirm, confirmDialog } = useConfirm();
   const centralMetrics = useMetrics(s => s.metrics);
   const [documents, setDocuments] = useState<DashboardDocument[]>([]);
   const [storedDocument, setDocument] = useState<DashboardDocument>();
@@ -313,14 +315,16 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
     useApp.getState().updateDashboardTab(tab.id, { documentId: next.id, title: next.title });
   };
 
-  const selectDocument = (id: string) => {
-    if (dirty && !window.confirm(t("dashboard.confirmSwitch"))) return;
+  /* 确认一律走应用内弹框:tauri-plugin-dialog 把原生 confirm 换成了 async 函数,
+     返回的 Promise 恒为真,「取反 confirm 结果」的写法永远放行。 */
+  const selectDocument = async (id: string) => {
+    if (dirty && !(await askConfirm(t("dashboard.confirmSwitch"), t("dashboard.unsaved"), "放弃修改"))) return;
     const next = documents.find((item) => item.id === id);
     if (next) openDocument(next, { dirty: false });
   };
 
-  const newDocument = () => {
-    if (dirty && !window.confirm(t("dashboard.confirmNew"))) return;
+  const newDocument = async () => {
+    if (dirty && !(await askConfirm(t("dashboard.confirmNew"), t("dashboard.unsaved"), "放弃修改"))) return;
     openDocument(createDashboard(t("dashboard.untitled")), { dirty: true });
   };
 
@@ -330,18 +334,19 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
 
   /* 最后一张也能删 —— 删完开一张空白的。原来这里直接 return,按钮点了没反应,
      人只会以为「这软件不让删」。 */
-  const deleteDocument = (id: string) => {
+  const deleteDocument = async (id: string) => {
     const target = documents.find((item) => item.id === id) ?? (document?.id === id ? document : undefined);
-    if (!target || !window.confirm(`删除“${target.title || "未命名看板"}”?其草稿、发布版本与历史都会移除,不可恢复。`)) return;
+    if (!target || !(await askConfirm(`删除“${target.title || "未命名看板"}”?其草稿、发布版本与历史都会移除,不可恢复。`, "删除看板", "删除"))) return;
     void dashboardRepository.delete(id)
       .then(() => {
         const rest = documents.filter((item) => item.id !== id);
         setDocuments(rest);
         useApp.getState().showToast({ kind: "success", text: "页面已删除" });
+        /* 当前这张已经删了,它的未保存修改无从保留,直接换,不再问「放弃修改吗」。 */
         if (document?.id === id) {
           const next = rest[0];
-          if (next) selectDocument(next.id);
-          else newDocument();
+          if (next) openDocument(next, { dirty: false });
+          else openDocument(createDashboard(t("dashboard.untitled")), { dirty: true });
         }
       })
       .catch((error) => useApp.getState().showToast({ kind: "error", text: String(error) }));
@@ -422,14 +427,14 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
         exportingHtml={exportingHtml}
         storagePath={storagePath}
         onTitle={(title) => { updateDocument((current) => ({ ...current, title })); useApp.getState().updateDashboardTab(tab.id, { title }); }}
-        onSelectDocument={selectDocument}
-        onNewDocument={newDocument}
+        onSelectDocument={(id) => void selectDocument(id)}
+        onNewDocument={() => void newDocument()}
         onDuplicateDocument={() => openDocument({ ...structuredClone(document), id: `dashboard-${nanoid(10)}`, title: `${document.title} 副本`, revision: 1, status: "draft", updatedAt: new Date().toISOString() }, { dirty: true })}
         onAddWidget={addWidget}
         onPreview={() => { setSelectedWidgetId(undefined); setPreview((value) => !value); }}
         onUndo={undo}
         onSave={() => void save()}
-        onDelete={() => deleteDocument(document.id)}
+        onDelete={() => void deleteDocument(document.id)}
         onImport={importJson}
         onExportJson={exportJson}
         onExportHtml={() => void exportHtml()}
@@ -499,6 +504,7 @@ export default function DashboardWorkspace({ tab, active = true }: { tab: Dashbo
         {!preview && <Inspector widget={selectedWidget} scope={document.metricScope ?? defaultMetricScope()} onChange={updateWidget}
           onDelete={(id) => { deleteWidget(id); setSelectedWidgetId(undefined); }} />}
       </div>
+      {confirmDialog}
     </div>
   );
 }

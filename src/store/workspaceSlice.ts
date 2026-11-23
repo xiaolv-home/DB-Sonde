@@ -12,6 +12,8 @@ type WorkspaceSlice = AppSlice<
   | "savedQueries"
   | "dirtyTabs"
   | "setTabDirty"
+  | "closeRequests"
+  | "resolveCloseRequest"
   | "activeTabId"
   | "setTabDatabase"
   | "renameTab"
@@ -367,8 +369,12 @@ export const createWorkspaceSlice: WorkspaceSlice = (set, get) => ({
             get().showToast({ kind: "warn", text: "表格修改正在保存，请等待完成后关闭" });
             return;
         }
-        if (!discard && tab && isUnsavedTab(tab, get()) && !window.confirm(`「${tab.title}」有未保存内容，是否丢弃并关闭？`))
+        /* 不能用 window.confirm:tauri-plugin-dialog 把它换成了 async 函数,返回的 Promise 恒为真,
+           弹框还没回答标签就已经关了。改成排队,由应用内确认框(TabCloseConfirm)回答后再 closeTab(id, true)。 */
+        if (!discard && tab && isUnsavedTab(tab, get())) {
+            if (!get().closeRequests.includes(id)) set((s) => ({ closeRequests: [...s.closeRequests, id] }));
             return;
+        }
         // 关掉正在跑的查询标签:顺手让数据库取消那条语句,不然它关了还在服务器上跑、占着连接
         if (tab?.kind === "query" && tab.running) void get().stopTab(id);
         set((s) => {
@@ -378,8 +384,15 @@ export const createWorkspaceSlice: WorkspaceSlice = (set, get) => ({
             if (activeTabId === id) {
                 activeTabId = tabs[Math.max(0, idx - 1)]?.id;
             }
-            return { tabs, activeTabId };
+            return { tabs, activeTabId, closeRequests: s.closeRequests.filter((r) => r !== id) };
         });
+    },
+    closeRequests: [],
+    resolveCloseRequest(discard) {
+        const [id, ...rest] = get().closeRequests;
+        if (!id) return;
+        set({ closeRequests: rest });
+        if (discard) get().closeTab(id, true);
     },
     updateSql(tabId, sql) {
         const tab = get().tabs.find((t) => t.id === tabId);

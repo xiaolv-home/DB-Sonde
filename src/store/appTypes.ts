@@ -156,6 +156,10 @@ export interface AppState {
     savedQueries: SavedQuery[];
     dirtyTabs: Record<string, boolean>;
     setTabDirty: (id: string, dirty: boolean) => void;
+    /** 等用户确认「丢弃并关闭」的标签,按请求顺序排队;由 TabCloseConfirm 逐个问。 */
+    closeRequests: string[];
+    /** 回答队首那个关闭请求:true 丢弃并关闭,false 保留。 */
+    resolveCloseRequest: (discard: boolean) => void;
     hiddenKeys: string[];
     showHidden: boolean;
     nodeOrder: Record<string, string[]>;

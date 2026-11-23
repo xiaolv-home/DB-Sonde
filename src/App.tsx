@@ -8,6 +8,7 @@ import Sidebar from "./components/Sidebar";
 import { SyntaxThemePicker, ThemePicker } from "./components/ThemePickers";
 import StorageNotice from "./components/StorageNotice";
 import WorkspaceLifecycle from "./components/WorkspaceLifecycle";
+import TabCloseConfirm from "./components/TabCloseConfirm";
 import { useAi } from "./features/ai/aiStore";
 import { openAsset } from "./features/assets/AssetShell";
 import { AiFeature, AssetFeatures, EntityFeature } from "./features/FeatureHosts";
@@ -146,6 +147,7 @@ export default function App() {
       <AssetFeatures />
       <EntityFeature />
       <WorkspaceLifecycle />
+      <TabCloseConfirm />
       <Toast />
     </div>
   );

@@ -72,6 +72,18 @@ try {
   useApp.setState({tabs:[{...routine,running:false}]});
   useApp.getState().closeTab('routine');
   assert.equal(useApp.getState().tabs.length,0);
+  /* 关闭未保存的查询页:不能当场关掉,要排队等应用内确认框回答(window.confirm 在 Tauri 下返回 Promise,恒为真) */
+  const draft = { ...query, id:'draft', savedId: undefined, sql:'SELECT 42' };
+  useApp.setState({ tabs:[draft], activeTabId:'draft', dirtyTabs:{}, closeRequests:[] });
+  useApp.getState().closeTab('draft'); useApp.getState().closeTab('draft');
+  assert.equal(useApp.getState().tabs.length,1,'unsaved tab must stay open until confirmed');
+  assert.deepEqual(useApp.getState().closeRequests,['draft'],'one pending request per tab');
+  useApp.getState().resolveCloseRequest(false);
+  assert.equal(useApp.getState().tabs.length,1,'cancel keeps the tab');
+  assert.deepEqual(useApp.getState().closeRequests,[]);
+  useApp.getState().closeTab('draft'); useApp.getState().resolveCloseRequest(true);
+  assert.equal(useApp.getState().tabs.length,0,'confirm discards and closes');
+  assert.deepEqual(useApp.getState().closeRequests,[]);
   const node = { connId: 'fixture', database:'sample', schema:'public', kind:'procedure', label:'sample_proc(IN code text)' };
   useApp.getState().openRoutineTab(node); useApp.getState().openRoutineTab(node);
   assert.equal(useApp.getState().tabs.length,1,'same full routine identity reuses one tab');
