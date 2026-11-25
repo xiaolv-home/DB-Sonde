@@ -284,3 +284,28 @@ fn local_and_builtin_calls_omit_the_cloud_key() {
         resolve_proxy_target(&config, "builtin", "https://127.0.0.1:8899/v1", "models").is_err()
     );
 }
+
+#[tokio::test]
+async fn stalled_sse_stream_times_out_cleanly() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        if let Ok((mut sock, _)) = listener.accept() {
+            let mut buf = [0_u8; 1024];
+            let _ = sock.read(&mut buf);
+            let _ = sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+            let _ = sock.flush();
+            std::thread::sleep(Duration::from_millis(600));
+        }
+    });
+    let base = format!("http://127.0.0.1:{port}/v1");
+    let url = authorized_cloud_url(&base, &base, "chat/completions").unwrap();
+    let err = stream_chat(&client(), &url, "", "{}".into(), 150, |_| Ok(()))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("超时"),
+        "卡死的流式连接应按空闲超时断开,实际:{err}"
+    );
+}

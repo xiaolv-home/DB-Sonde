@@ -12,7 +12,7 @@ import "@xyflow/react/dist/style.css";
 import "./canvas.css";
 import {
   useCallback, useEffect, useMemo, useRef, useState,
-  type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode,
+  type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -21,35 +21,34 @@ import {
   type NodeChange, type EdgeChange, type Connection, type FinalConnectionState,
 } from "@xyflow/react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowLeft, ArrowLeftRight, Bold,
-  BringToFront, Clapperboard, ClipboardPaste, Copy, Database, Download, Film, Globe, ImageDown, Loader2, Network, Paintbrush,
-  History, Palette, Pencil, Plus, Redo2, Save, Scissors, SendToBack, Spline, Split, Trash2, Undo2, X,
+  Clapperboard, Copy, Database, Download, Film, Globe, History, ImageDown, Loader2,
+  Network, Paintbrush, Palette, Plus, Redo2, Save, Undo2,
 } from "lucide-react";
 import { useApp } from "../../store/appStore";
 import { themeBase } from "../../store/themes";
 import { useConfirm } from "../../components/useConfirm";
-import { api } from "../../lib/api";
 import { inTauri } from "../../lib/mockBackend";
 import {
-  ARROWS, COLOR_VALUE, FILLS, FILL_LABEL, FLOW_LABEL, FLOW_SPEEDS, FLOW_SPEED_LABEL, FLOW_STYLES,
-  FONT_SIZES, LAYOUT_DIRS, LAYOUT_LABEL, LINE_LABEL, LINE_TYPES, LINE_WIDTHS, DRAWN_SHAPES, SHAPE_LABEL, SHAPE_SIZE,
+  COLOR_VALUE, DRAWN_SHAPES, LAYOUT_DIRS, LAYOUT_LABEL, SHAPE_LABEL, SHAPE_SIZE,
   alignBoxes, autoLayout, branchHandles, branchStyle, cometSchedule, contentKey, nearestOnPath, splitEdge, explainCanvasProblem, hi, lo, distributeBoxes, duplicate, facingSides, findFreeSpot, layerColor, tablesToNodes, repairCanvas,
   newCanvas, newEdge, newNode, nextName, snapToGuides,
-  type AlignKind, type ArrowKind, type CanvasDoc, type CanvasEdge, type CanvasNode, type CometTrip,
-  type FillKind, type FlowStyle, type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
+  type AlignKind, type CanvasDoc, type CanvasEdge, type CanvasNode, type CometTrip,
+  type Guide, type LayoutDir, type Point, type Pos, type ShapeKind,
 } from "./canvasModel";
-import { blobToBase64, bytesToBase64, canvasMeasure, canvasToSvg, svgToPng } from "./canvasExport";
-import { animationFrames, encodeGif, svgPathProbe } from "./canvasAnimation";
-import { encodeMp4 } from "./canvasVideo";
-import { canvasToHtml } from "./canvasHtml";
-import { CANVAS_FOCUS_KEY, canvasHistoryRepository, canvasRepository, pushVersion, saveDraft, takeCanvasFocus, type CanvasHistory, type CanvasVersion } from "./canvasRepository";
+import {
+  CANVAS_FOCUS_KEY, canvasHistoryRepository, canvasRepository, loadCanvasHistoryAsync, loadCanvasesAsync,
+  pushVersion, saveCanvasHistoryAsync, saveCanvasesAsync, saveDraft, takeCanvasFocus,
+  type CanvasHistory, type CanvasVersion,
+} from "./canvasRepository";
 import {
   FlowSyncContext, ShapeContext, boxOf, fromFlowEdge, fromFlowNode, styleOf, toFlowEdge, toFlowNode, zOf,
   type FlowEdge, type FlowNode, type FlowSync, type NodeStyle, type ShapeCtx, type ShapeData, type Side,
 } from "./canvasFlow";
 import { GuideLines, LineEdge, ShapeIcon, ShapeNode } from "./CanvasShapes";
-import { Menu, Seg, Swatches, TablePicker, TextColorPicker } from "./CanvasControls";
+import { Menu, TablePicker } from "./CanvasControls";
+import { CanvasContextMenu, CanvasPropertyBar } from "./CanvasPropertyBar";
+import { CanvasSidebar } from "./CanvasSidebar";
+import { useCanvasExporter } from "./useCanvasExporter";
 
 /* 剪贴板放在模块里:在一张画布 ⌘C,换到另一张画布 ⌘V 也能贴 */
 let clipboard: { docId: string; nodes: CanvasNode[]; edges: CanvasEdge[]; pastes: number } | null = null;
@@ -60,11 +59,6 @@ const edgeTypes = { line: LineEdge };
 /* ---------- 历史(撤销/重做) ---------- */
 interface Snapshot { nodes: CanvasNode[]; edges: CanvasEdge[]; }
 const HISTORY_LIMIT = 100;
-const ALIGN_ICON: Record<AlignKind, [ReactNode, string]> = {
-  left: [<AlignStartVertical size={14} />, "左对齐"], hcenter: [<AlignCenterVertical size={14} />, "水平居中"],
-  right: [<AlignEndVertical size={14} />, "右对齐"], top: [<AlignStartHorizontal size={14} />, "顶对齐"],
-  vmiddle: [<AlignCenterHorizontal size={14} />, "垂直居中"], bottom: [<AlignEndHorizontal size={14} />, "底对齐"],
-};
 
 /** 保存的结果:ok=真的写进去了;fixed=存之前自动修掉的问题;error=没写进去的原因(这时已另存了草稿) */
 type SaveResult = { ok: boolean; fixed: string[]; error?: string };
@@ -100,8 +94,6 @@ function Editor({ doc, versions, onSave, onDirty }: {
   const [picker, setPicker] = useState(false);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [painter, setPainter] = useState<NodeStyle | null>(null);
-  /** 正在生成动图 / 视频时的进度(0~1),没在生成是 null */
-  const [animProgress, setAnimProgress] = useState<{ kind: "gif" | "mp4"; done: number } | null>(null);
   /** 右键菜单;at = 右键点在画布上的位置(在线上分叉用) */
   const [menu, setMenu] = useState<{ x: number; y: number; kind: "node" | "edge"; at: Point } | null>(null);
   const nudgeAt = useRef(0);
@@ -506,79 +498,7 @@ function Editor({ doc, versions, onSave, onDirty }: {
   }, [beginChange, painter]);
 
   /* ---------- 导出 ---------- */
-  const exportImage = async (kind: "png" | "svg" | "clipboard") => {
-    const snap = snapshot();
-    const out = canvasToSvg(snap.nodes, snap.edges, canvasMeasure());
-    if (!out) { toast({ kind: "info", text: "画布是空的" }); return; }
-    try {
-      if (kind === "clipboard") {
-        const png = svgToPng(out.svg, out.width, out.height);
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
-        toast({ kind: "success", text: "已复制为图片,可以直接粘贴到 PPT / 微信 / 文档里" });
-        return;
-      }
-      if (!inTauri) throw new Error("浏览器预览里不能存文件,请用桌面版");
-      const content = kind === "svg" ? out.svg : await blobToBase64(await svgToPng(out.svg, out.width, out.height));
-      const path = await api.saveExport(doc.name || "链路画布", kind, content);
-      toast({ kind: "success", text: `已导出到 ${path}` });
-    } catch (error) {
-      toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
-    }
-  };
-
-  /* 网页:浏览器打开就是画布原样(尺寸、弧度、流动都在),能缩放平移。最接近原样的导出 */
-  const exportHtml = async () => {
-    const snap = snapshot();
-    if (!snap.nodes.length) { toast({ kind: "info", text: "画布是空的" }); return; }
-    if (!inTauri) { toast({ kind: "error", text: "导出失败:浏览器预览里不能存文件,请用桌面版" }); return; }
-    const probe = svgPathProbe();
-    try {
-      const html = canvasToHtml(snap.nodes, snap.edges, canvasMeasure(), probe, doc.name)!;
-      const path = await api.saveExport(doc.name || "链路画布", "html", html);
-      toast({ kind: "success", text: `已导出到 ${path}。双击用浏览器打开就是画布原样:线在流,滚轮缩放、拖动平移;发给别人也一样能看` });
-    } catch (error) {
-      toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
-    } finally {
-      probe.dispose();
-    }
-  };
-
-  /* 会动的导出:流动的线真的在流。
-     视频(MP4):发微信能全屏放大看,PPT / WPS「插入 → 视频」能播;动图(GIF):Keynote / Word 里会动,WPS 只在放映时动。 */
-  const exportAnimated = async (kind: "gif" | "mp4") => {
-    if (animProgress !== null) return;
-    const snap = snapshot();
-    if (!snap.nodes.length) { toast({ kind: "info", text: "画布是空的" }); return; }
-    if (!snap.edges.some((e) => e.flow)) {
-      toast({ kind: "info", text: "画布上没有流动的线,导出了也不会动 —— 先给线打开「流动」,或者直接导出 PNG" });
-      return;
-    }
-    if (!inTauri) { toast({ kind: "error", text: "导出失败:浏览器预览里不能存文件,请用桌面版" }); return; }
-    const probe = svgPathProbe();
-    setAnimProgress({ kind, done: 0 });
-    const onProgress = (done: number) => setAnimProgress({ kind, done });
-    try {
-      const measure = canvasMeasure();
-      let bytes: Uint8Array;
-      if (kind === "mp4") {
-        bytes = await encodeMp4(snap.nodes, snap.edges, measure, probe, onProgress);
-      } else {
-        const anim = animationFrames(snap.nodes, snap.edges, measure, probe)!;
-        bytes = await encodeGif(anim.frames, anim.width, anim.height, onProgress);
-      }
-      const path = await api.saveExport(doc.name || "链路画布", kind, bytesToBase64(bytes));
-      const size = bytes.length >= 1024 * 1024 ? `${(bytes.length / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes.length / 1024)} KB`;
-      const tip = kind === "mp4"
-        ? "微信里当视频发(能全屏放大);PPT / WPS 用「插入 → 视频」,在视频选项里勾上「循环播放」"
-        : "Keynote / Word 里会动;WPS 要放映时才动;Mac 的「预览」不播动图,按空格快速查看才会动";
-      toast({ kind: "success", text: `已导出到 ${path}(${size})。${tip}` });
-    } catch (error) {
-      toast({ kind: "error", text: `导出失败:${error instanceof Error ? error.message : String(error)}` });
-    } finally {
-      probe.dispose();
-      setAnimProgress(null);
-    }
-  };
+  const { animProgress, exportImage, exportHtml, exportAnimated } = useCanvasExporter(doc.name, snapshot);
 
   /* ---------- 快捷键 ----------
      挂在 window 的捕获阶段并截住:主界面也有 ⌘S(保存 SQL 标签)等快捷键,
@@ -637,13 +557,7 @@ function Editor({ doc, versions, onSave, onDirty }: {
     setMenu({ x: Math.min(e.clientX - rect.left, rect.width - 190), y: Math.min(e.clientY - rect.top, rect.height - 300), kind,
       at: flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
   };
-  const run = (fn: () => void) => () => { setMenu(null); fn(); };
   const focusLabel = () => window.setTimeout(() => labelInputRef.current?.focus(), 30);
-
-  const one = selNodes[0]?.data;
-  /** 选中的全是分叉点:属性栏只给颜色(没有文字、填充、形状可改) */
-  const onlyJunctions = selNodes.length > 0 && selNodes.every((n) => n.data.shape === "junction");
-  const oneEdge = selEdges[0]?.data as CanvasEdge | undefined;
 
   return (
     <ShapeContext.Provider value={ctx}>
@@ -768,110 +682,48 @@ function Editor({ doc, versions, onSave, onDirty }: {
             </ReactFlow>
 
             {(selNodes.length > 0 || selEdges.length > 0) && !picker && (
-              <div className="cv-props" onMouseDown={(e) => e.stopPropagation()}>
-                {onlyJunctions && one && (
-                  <>
-                    <span className="cv-props-label">{selNodes.length > 1 ? `${selNodes.length} 个分叉点` : "分叉点"}</span>
-                    <Swatches value={one.color} onPick={(color) => patchNodes({ color })} />
-                    <span className="cv-props-tip">拖圆点挪位置 · 从四周的小圆圈拖出新分支</span>
-                  </>
-                )}
-                {selNodes.length > 0 && one && !onlyJunctions && (
-                  <>
-                    <span className="cv-props-label">{selNodes.length > 1 ? `${selNodes.length} 个形状` : SHAPE_LABEL[one.shape]}</span>
-                    <Swatches value={one.color} onPick={(color) => patchNodes({ color })} />
-                    <span className="cv-sep" />
-                    <Seg value={one.fill ?? "soft"} options={FILLS} labels={FILL_LABEL} onPick={(fill: FillKind) => patchNodes({ fill: fill === "soft" ? undefined : fill })} />
-                    <button className={`btn xs ${one.dashed ? "on" : ""}`} onClick={() => patchNodes({ dashed: !one.dashed || undefined })} title="边框画成虚线">虚线框</button>
-                    <select className="cv-select" value={one.shape} onChange={(e) => patchNodes({ shape: e.target.value as ShapeKind })} title="形状">
-                      {DRAWN_SHAPES.map((s) => <option key={s} value={s}>{SHAPE_LABEL[s]}</option>)}
-                    </select>
-                    <select className="cv-select" value={one.fontSize} onChange={(e) => patchNodes({ fontSize: Number(e.target.value) })} title="字号">
-                      {FONT_SIZES.map((s) => <option key={s} value={s}>{s}px</option>)}
-                    </select>
-                    <button className={`icon-btn ${one.bold ? "on" : ""}`} title="加粗" onClick={() => patchNodes({ bold: !one.bold })}><Bold size={14} /></button>
-                    {selNodes.length === 1 && <button className="icon-btn" title="改文字 (回车 / 双击)" onClick={() => setEditingId(selNodes[0].id)}><Pencil size={14} /></button>}
-                    <button className={`icon-btn ${painter ? "on" : ""}`} title="格式刷 (⌥⌘C):拿起这个样式,再点别的形状就刷上;Esc 放下"
-                      onClick={() => painter ? setPainter(null) : pickStyle()}><Paintbrush size={14} /></button>
-                    {selNodes.length > 1 && (
-                      <>
-                        <span className="cv-sep" />
-                        {(Object.keys(ALIGN_ICON) as AlignKind[]).map((k) => (
-                          <button key={k} className="icon-btn" title={ALIGN_ICON[k][1]} onClick={() => align(k)}>{ALIGN_ICON[k][0]}</button>
-                        ))}
-                        <button className="icon-btn" title="横向等距(至少 3 个)" disabled={selNodes.length < 3} onClick={() => distribute("h")}><AlignHorizontalDistributeCenter size={14} /></button>
-                        <button className="icon-btn" title="纵向等距(至少 3 个)" disabled={selNodes.length < 3} onClick={() => distribute("v")}><AlignVerticalDistributeCenter size={14} /></button>
-                      </>
-                    )}
-                    <span className="cv-sep" />
-                    <button className="icon-btn" title="复制一份 (⌘D)" onClick={duplicateSelected}><Copy size={14} /></button>
-                  </>
-                )}
-                {selNodes.length === 0 && oneEdge && (
-                  <>
-                    <span className="cv-props-label">{selEdges.length > 1 ? `${selEdges.length} 条连线` : "连线"}</span>
-                    <Swatches value={oneEdge.color} onPick={(color) => patchEdges({ color })} />
-                    <span className="cv-sep" />
-                    <Seg value={oneEdge.line} options={LINE_TYPES} labels={LINE_LABEL} onPick={(line) => patchEdges({ line })} />
-                    <Seg value={String(oneEdge.width ?? 1)} options={LINE_WIDTHS.map(String)} labels={{ 1: "细", 2: "中", 3: "粗" }} onPick={(w) => patchEdges({ width: Number(w) === 1 ? undefined : Number(w) })} />
-                    <Seg<(typeof ARROWS)[number]> value={oneEdge.arrow as (typeof ARROWS)[number]} options={ARROWS} labels={{ end: "单向", both: "双向", none: "无箭头" }} onPick={(arrow: ArrowKind) => patchEdges({ arrow })} />
-                    <button className={`btn xs ${oneEdge.dashed ? "on" : ""}`} onClick={() => patchEdges({ dashed: !oneEdge.dashed })}>虚线</button>
-                    <button className={`btn xs ${oneEdge.flow ? "on" : ""}`} title="让线动起来,表示数据从这儿流过"
-                      onClick={() => patchEdges(oneEdge.flow ? { flow: false } : { flow: true, flowStyle: oneEdge.flowStyle ?? lastFlow.current.flowStyle, flowSpeed: oneEdge.flowSpeed ?? lastFlow.current.flowSpeed, flowColor: oneEdge.flowColor ?? lastFlow.current.flowColor })}>流动</button>
-                    <button className="icon-btn" title="反转方向" onClick={reverseEdges}><ArrowLeftRight size={14} /></button>
-                    {selEdges.length === 1 && <button className="icon-btn" title="分叉:在线中间放一个分叉点,从它拖出更多分支(右键线上某一点 →「在这里分叉」可以指定位置)"
-                      onClick={() => splitAt(selEdges[0].id)}><Split size={14} /></button>}
-                    {selEdges.length === 1 && (
-                      <input key={oneEdge.id} ref={labelInputRef} className="cv-label-input" placeholder="线上的文字(双击线也能改)" defaultValue={oneEdge.label}
-                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }}
-                        onBlur={(e) => { if (e.target.value !== oneEdge.label) patchEdges({ label: e.target.value }); }} />
-                    )}
-                  </>
-                )}
-                <button className="icon-btn danger" title="删除 (Delete)" onClick={deleteSelected}><Trash2 size={14} /></button>
-                    {selNodes.length === 0 && oneEdge?.flow && (
-                      <div className="cv-props-row">
-                        <span className="cv-props-label">流动</span>
-                        <Seg value={oneEdge.flowStyle ?? "dash"} options={FLOW_STYLES} labels={FLOW_LABEL} onPick={(flowStyle: FlowStyle) => patchFlow({ flowStyle: flowStyle === "dash" ? undefined : flowStyle })} />
-                        <Seg value={String(oneEdge.flowSpeed ?? 2)} options={FLOW_SPEEDS.map(String)} labels={FLOW_SPEED_LABEL} onPick={(v) => patchFlow({ flowSpeed: Number(v) === 2 ? undefined : Number(v) })} />
-                        <button className={`btn xs ${oneEdge.flowColor ? "" : "on"}`} title="流动用线本身的颜色" onClick={() => patchFlow({ flowColor: undefined })}>同线色</button>
-                        <Swatches value={oneEdge.flowColor ?? null} onPick={(flowColor) => patchFlow({ flowColor })} />
-                      </div>
-                    )}
-                    {selNodes.length > 0 && one && !onlyJunctions && (
-                      <div className="cv-props-row">
-                        <span className="cv-props-label">文字颜色</span>
-                        <TextColorPicker value={one.textColor} onPick={(textColor) => patchNodes({ textColor })} />
-                      </div>
-                    )}
-              </div>
+              <CanvasPropertyBar
+                selNodes={selNodes}
+                selEdges={selEdges}
+                painter={painter}
+                lastFlow={lastFlow.current}
+                labelInputRef={labelInputRef}
+                onPatchNodes={patchNodes}
+                onPatchEdges={patchEdges}
+                onPatchFlow={patchFlow}
+                onStartEdit={setEditingId}
+                onTogglePainter={() => (painter ? setPainter(null) : pickStyle())}
+                onAlign={align}
+                onDistribute={distribute}
+                onDuplicate={duplicateSelected}
+                onReverseEdges={reverseEdges}
+                onSplitEdge={splitAt}
+                onDelete={deleteSelected}
+              />
             )}
             {painter && <div className="cv-painter-tip"><Paintbrush size={13} /> 格式刷:点形状刷上样式 · 点空白或 Esc 放下</div>}
             {animProgress !== null && <div className="cv-painter-tip"><Loader2 size={13} className="spin" /> 正在生成{animProgress.kind === "mp4" ? "视频" : "动图"} {Math.round(animProgress.done * 100)}%</div>}
 
             {menu && (
-              <div className="cv-ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
-                {menu.kind === "node" ? <>
-                  {selNodes.length === 1 && <button onClick={run(() => setEditingId(selNodes[0].id))}><Pencil size={13} /> 改文字<kbd>↩</kbd></button>}
-                  <button onClick={run(() => { copySelected(); })}><Copy size={13} /> 复制<kbd>⌘C</kbd></button>
-                  <button onClick={run(() => { if (copySelected()) deleteSelected(); })}><Scissors size={13} /> 剪切<kbd>⌘X</kbd></button>
-                  <button disabled={!clipboard} onClick={run(() => { paste(); })}><ClipboardPaste size={13} /> 粘贴<kbd>⌘V</kbd></button>
-                  <button onClick={run(duplicateSelected)}><Copy size={13} /> 原地复制一份<kbd>⌘D</kbd></button>
-                  <hr />
-                  <button onClick={run(pickStyle)}><Paintbrush size={13} /> 格式刷<kbd>⌥⌘C</kbd></button>
-                  <button onClick={run(() => restack("front"))}><BringToFront size={13} /> 置于顶层</button>
-                  <button onClick={run(() => restack("back"))}><SendToBack size={13} /> 置于底层</button>
-                  <hr />
-                  <button className="danger" onClick={run(deleteSelected)}><Trash2 size={13} /> 删除<kbd>⌫</kbd></button>
-                </> : <>
-                  <button onClick={run(focusLabel)}><Pencil size={13} /> 改线上的文字</button>
-                  {selEdges.length === 1 && <button onClick={run(() => splitAt(selEdges[0].id, menu.at))}><Split size={13} /> 在这里分叉</button>}
-                  <button onClick={run(reverseEdges)}><ArrowLeftRight size={13} /> 反转方向</button>
-                  {selEdges.some((e) => e.data?.bend) && <button onClick={run(() => patchEdges({ bend: undefined }))}><Spline size={13} /> 恢复默认弧度</button>}
-                  <hr />
-                  <button className="danger" onClick={run(deleteSelected)}><Trash2 size={13} /> 删除<kbd>⌫</kbd></button>
-                </>}
-              </div>
+              <CanvasContextMenu
+                menu={menu}
+                selNodesCount={selNodes.length}
+                selEdges={selEdges}
+                hasClipboard={!!clipboard}
+                onClose={() => setMenu(null)}
+                onEditNode={() => { if (selNodes[0]) setEditingId(selNodes[0].id); }}
+                onCopy={() => { copySelected(); }}
+                onCut={() => { if (copySelected()) deleteSelected(); }}
+                onPaste={() => { paste(); }}
+                onDuplicate={duplicateSelected}
+                onPickStyle={pickStyle}
+                onRestack={restack}
+                onFocusEdgeLabel={focusLabel}
+                onSplitEdgeAt={() => { if (selEdges[0]) splitAt(selEdges[0].id, menu.at); }}
+                onReverseEdges={reverseEdges}
+                onResetBend={() => patchEdges({ bend: undefined })}
+                onDelete={deleteSelected}
+              />
             )}
 
             {nodes.length === 0 && (
@@ -910,11 +762,11 @@ export default function CanvasOverlay({ onClose, standalone = false }: {
   standalone?: boolean;
 }) {
   const { askConfirm, confirmDialog } = useConfirm();
-  const [docs, setDocs] = useState<CanvasDoc[]>(() => canvasRepository.load());
+  const [docs, setDocs] = useState<CanvasDoc[]>(() => inTauri ? [] : canvasRepository.load());
   /* 编辑器卸载时(离开画布那一刻)还要存一次,那时这里的 state 可能已经不是最新的 —— 存盘一律从 ref 取 */
   const docsRef = useRef(docs); docsRef.current = docs;
   const [history, setHistory] = useState<CanvasHistory>(() => {
-    // 第一次用历史功能时,把每张画布现在的样子先记成第一份
+    if (inTauri) return {};
     let h = canvasHistoryRepository.load();
     for (const d of docs) if (!h[d.id]?.length) h = pushVersion(h, d.id, d.nodes, d.edges, d.updatedAt);
     return h;
@@ -929,7 +781,8 @@ export default function CanvasOverlay({ onClose, standalone = false }: {
 
   const persist = useCallback((next: CanvasDoc[]) => {
     try {
-      canvasRepository.save(next);
+      if (!inTauri) canvasRepository.save(next);
+      else void saveCanvasesAsync(next).catch((err) => useApp.getState().showToast({ kind: "error", text: `画布保存失败:${String(err)}` }));
       docsRef.current = next;
       setDocs(next);
       return true;
@@ -941,7 +794,9 @@ export default function CanvasOverlay({ onClose, standalone = false }: {
   const forgetHistory = (id: string) => {
     const { [id]: _gone, ...rest } = historyRef.current;
     void _gone;
-    try { canvasHistoryRepository.save(rest); setHistory(rest); } catch { /* 历史写不进去不影响画布本身 */ }
+    historyRef.current = rest;
+    setHistory(rest);
+    try { void saveCanvasHistoryAsync(rest); } catch { /* 历史写不进去不影响画布本身 */ }
   };
   /* 平时离开画布不用问:编辑器卸载时会把最后的改动存上。只有上一次保存失败了才拦一下 */
   const guard = async (): Promise<boolean> =>
@@ -949,8 +804,9 @@ export default function CanvasOverlay({ onClose, standalone = false }: {
 
   const create = async () => {
     if (!(await guard())) return;
-    const doc = newCanvas(nextName(docs.map((d) => d.name)));
-    if (persist([doc, ...docs])) { setActiveId(doc.id); setDirty(false); setRenaming(doc.id); }
+    const current = docsRef.current;
+    const doc = newCanvas(nextName(current.map((d) => d.name)));
+    if (persist([doc, ...current])) { setActiveId(doc.id); setDirty(false); setRenaming(doc.id); }
   };
   const open = async (id: string) => {
     if (id === activeId || !(await guard())) return;
@@ -990,70 +846,68 @@ export default function CanvasOverlay({ onClose, standalone = false }: {
       saveDraft({ ...old, nodes, edges, updatedAt: Date.now() });
       return { ok: false, fixed: repaired.fixed, error: problem };
     }
+    const next = current.map((d) => d.id === docId ? doc : d);
     try {
-      canvasRepository.save(current.map((d) => d.id === docId ? doc : d));
+      if (!inTauri) canvasRepository.save(next);
+      else void saveCanvasesAsync(next).catch((err) => { saveDraft(doc); useApp.getState().showToast({ kind: "error", text: `画布存盘失败:${String(err)}` }); });
     } catch (error) {
       saveDraft(doc);
       return { ok: false, fixed: repaired.fixed, error: String(error) };
     }
-    const next = current.map((d) => d.id === docId ? doc : d);
     docsRef.current = next;
     setDocs(next);
     try {
       const h = pushVersion(historyRef.current, docId, doc.nodes, doc.edges, doc.updatedAt, milestone);
-      if (h !== historyRef.current) { canvasHistoryRepository.save(h); historyRef.current = h; setHistory(h); }
+      if (h !== historyRef.current) { historyRef.current = h; setHistory(h); void saveCanvasHistoryAsync(h); }
     } catch { /* 历史写不进去不影响画布本身 */ }
     return { ok: true, fixed: repaired.fixed };
   }, []);
   const close = async () => { if (await guard()) onClose(); };
-  /* 主窗口在「数据资产 → 链路画布」里点了某一张(或「新建」):切过去。刚打开时读一次,开着时靠 storage 事件 */
+  /* 主窗口在「数据资产 → 链路画布」里点了某一张(或「新建」):桌面端走原生 Tauri 事件 + 初始化注入,浏览器模式走 storage 兜底 */
   const focusRef = useRef<(id: string) => void>(() => {});
   focusRef.current = (id) => { if (id === "new") void create(); else if (docsRef.current.some((d) => d.id === id)) void open(id); };
   useEffect(() => {
-    const take = () => { const id = takeCanvasFocus(); if (id) focusRef.current(id); };
-    take();
-    const onStorage = (e: StorageEvent) => { if (e.key === CANVAS_FOCUS_KEY && e.newValue) take(); };
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    void Promise.all([loadCanvasesAsync(), loadCanvasHistoryAsync()]).then(([loadedDocs, loadedHist]) => {
+      if (!alive) return;
+      let h = loadedHist;
+      for (const d of loadedDocs) if (!h[d.id]?.length) h = pushVersion(h, d.id, d.nodes, d.edges, d.updatedAt);
+      docsRef.current = loadedDocs;
+      historyRef.current = h;
+      setDocs(loadedDocs);
+      setHistory(h);
+      setActiveId((prev) => prev ?? loadedDocs[0]?.id ?? null);
+      const initialFocus = takeCanvasFocus();
+      if (initialFocus) focusRef.current(initialFocus);
+    });
+    if (inTauri) {
+      void import("@tauri-apps/api/event").then(({ listen }) =>
+        listen<string>("canvas://focus", (e) => { if (e.payload) focusRef.current(e.payload); }),
+      ).then((fn) => { if (alive) unlisten = fn; else fn(); });
+    }
+    const onStorage = (e: StorageEvent) => { if (e.key === CANVAS_FOCUS_KEY && e.newValue) { const id = takeCanvasFocus(); if (id) focusRef.current(id); } };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => { alive = false; unlisten?.(); window.removeEventListener("storage", onStorage); };
   }, []);
 
   return createPortal(
     <div className="cv-overlay" role="dialog" aria-modal="true" aria-label="链路画布">
-      <aside className="cv-side">
-        <div className="cv-side-head">
-          {standalone
-            ? <button className="icon-btn" title="关闭画布窗口" onClick={close}><X size={16} /></button>
-            : <button className="icon-btn" title="返回" onClick={close}><ArrowLeft size={16} /></button>}
-          <b>链路画布</b>
-          <div className="toolbar-spacer" />
-          <button className="icon-btn" title="新建画布" onClick={create}><Plus size={16} /></button>
-        </div>
-        <div className="cv-side-list">
-          {docs.length === 0 && <div className="cv-side-none">还没有画布。点右上角 + 新建一张。</div>}
-          {docs.map((d) => (
-            <div key={d.id} className={`cv-doc ${d.id === activeId ? "on" : ""}`} onClick={() => open(d.id)}
-              onDoubleClick={() => setRenaming(d.id)}>
-              {renaming === d.id ? (
-                <input className="cv-doc-input" autoFocus defaultValue={d.name}
-                  onFocus={(e) => e.currentTarget.select()}
-                  onClick={(e) => e.stopPropagation()}
-                  onBlur={(e) => rename(d.id, e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }} />
-              ) : (
-                <div className="cv-doc-main">
-                  <span className="cv-doc-name">{d.name}{d.id === activeId && dirty ? " ·" : ""}</span>
-                  <span className="cv-doc-meta">{d.nodes.length} 个形状 · {new Date(d.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                </div>
-              )}
-              <div className="cv-doc-acts" onClick={(e) => e.stopPropagation()}>
-                <button className="icon-btn" title="重命名" onClick={() => setRenaming(d.id)}><Pencil size={13} /></button>
-                <button className="icon-btn" title="复制一份" onClick={() => copyDoc(d.id)}><Copy size={13} /></button>
-                <button className="icon-btn danger" title="删除" onClick={() => remove(d.id)}><Trash2 size={13} /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </aside>
+      <CanvasSidebar
+        standalone={standalone}
+        docs={docs}
+        activeId={activeId}
+        dirty={dirty}
+        renaming={renaming}
+        onClose={() => void close()}
+        onCreate={() => void create()}
+        onOpen={(id) => void open(id)}
+        onStartRename={setRenaming}
+        onCancelRename={() => setRenaming(null)}
+        onCommitRename={rename}
+        onCopyDoc={copyDoc}
+        onRemoveDoc={(id) => void remove(id)}
+      />
       <main className="cv-main">
         {active ? (
           <ReactFlowProvider key={active.id}>

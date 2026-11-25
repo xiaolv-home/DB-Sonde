@@ -56,7 +56,7 @@ export const createQuerySlice: QuerySlice = (set, get) => {
       if (!tab || tab.kind !== "query" || tab.running || tab.savingEdits)
         return;
       if (get().dirtyTabs[tabId]) {
-        get().showToast({ kind: "warn", text: "请先保存或撤销表格修改，再执行 SQL" });
+        get().showToast({ kind: "warn", text: translate(get().language, "query.saveEditsBeforeRun") });
         return;
       }
       if (!get().meta[tab.connId]) {
@@ -130,7 +130,8 @@ export const createQuerySlice: QuerySlice = (set, get) => {
         tabs: s.tabs.map((t) => {
           if (t.id !== tabId || t.kind !== "query") return t;
           const index = t.runProgress?.currentIndex ?? t.activeExecutionIndex;
-          const executions = t.executions.map((e, i) => i === index && !e.result && !e.error ? { ...e, error: "已停止" } : e);
+          const stoppedLabel = translate(s.language, "query.stopped");
+          const executions = t.executions.map((e, i) => i === index && !e.result && !e.error ? { ...e, error: stoppedLabel } : e);
           return { ...t, running: false, executions, activeExecutionIndex: index, result: executions[index]?.result, error: executions[index]?.error,
             runProgress: t.runProgress ? { ...t.runProgress, finishedAt: Date.now() } : undefined };
         }),
@@ -139,16 +140,16 @@ export const createQuerySlice: QuerySlice = (set, get) => {
       try {
         const cancelled = await api.cancelQuery(statement.connId, statement.database, statement.runId);
         get().showToast(cancelled
-          ? { kind: "success", text: "已停止,数据库已取消这条语句" }
-          : { kind: "warn", text: "已停止等待。这种数据库不支持从这里取消,服务器上可能仍在执行" });
+          ? { kind: "success", text: translate(get().language, "query.cancelledServer") }
+          : { kind: "warn", text: translate(get().language, "query.cancelledLocalOnly") });
       } catch (error) {
-        get().showToast({ kind: "warn", text: `已停止等待,但没能通知数据库取消:${String(error)}` });
+        get().showToast({ kind: "warn", text: translate(get().language, "query.cancelFailed", { error: String(error) }) });
       }
     },
     selectExecution(tabId, index) {
       const current = get().tabs.find(tab => tab.id === tabId);
       if (current?.kind === "query" && current.activeExecutionIndex !== index && (get().dirtyTabs[tabId] || current.savingEdits)) {
-        get().showToast({ kind: "warn", text: "请先保存或撤销表格修改，再切换结果" });
+        get().showToast({ kind: "warn", text: translate(get().language, "query.saveEditsBeforeSwitch") });
         return;
       }
       set((s) => ({

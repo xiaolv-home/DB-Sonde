@@ -278,18 +278,38 @@ pub fn prepare_dashboard_query(
         let field = quote_identifier(kind, &filter.field)?;
         let expression = format!("CAST(sonde_source.{field} AS {cast_type})");
         let predicate = match filter.kind.as_str() {
+            "is_null" => format!("sonde_source.{field} IS NULL"),
             "in" => {
-                // 多选:value 用 SOH(char 1)连接多个值 → LOWER(expr) IN (LOWER(?), ...)
-                let vals: Vec<String> = filter.value.split('\u{1}').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
-                if vals.is_empty() {
+                // 多选:value 用 SOH(char 1)连接多个值;其中 STX+"NULL"(\u{2}NULL)专指 SQL NULL,
+                // 与字面量字符串 "NULL" 严格区分。
+                let mut has_sql_null = false;
+                let mut literals = Vec::new();
+                for item in filter.value.split('\u{1}').filter(|s| !s.is_empty()) {
+                    if item == "\u{2}NULL" {
+                        has_sql_null = true;
+                    } else {
+                        literals.push(item.to_string());
+                    }
+                }
+                if !has_sql_null && literals.is_empty() {
                     continue;
                 }
-                let phs: Vec<String> = vals.into_iter().map(|v| format!("LOWER({})", placeholder(v, &mut params))).collect();
-                format!("LOWER({expression}) IN ({})", phs.join(", "))
+                let phs: Vec<String> = literals
+                    .into_iter()
+                    .map(|v| format!("LOWER({})", placeholder(v, &mut params)))
+                    .collect();
+                match (has_sql_null, phs.is_empty()) {
+                    (true, true) => format!("sonde_source.{field} IS NULL"),
+                    (true, false) => format!(
+                        "(sonde_source.{field} IS NULL OR LOWER({expression}) IN ({}))",
+                        phs.join(", ")
+                    ),
+                    (false, false) => format!("LOWER({expression}) IN ({})", phs.join(", ")),
+                    (false, true) => unreachable!(),
+                }
             }
-            "select" if filter.value == "NULL" => {
-                let ph = placeholder(filter.value.clone(), &mut params);
-                format!("(sonde_source.{field} IS NULL OR LOWER({expression}) = LOWER({ph}))")
+            "select" if filter.value == "\u{2}NULL" => {
+                format!("sonde_source.{field} IS NULL")
             }
             "select" => {
                 let ph = placeholder(filter.value.clone(), &mut params);
@@ -394,6 +414,33 @@ mod tests {
         .unwrap();
         assert!(postgres.sql.contains("LOWER($1)"));
         assert!(postgres.sql.contains("POSITION(LOWER($2)"));
+
+        // 字面量 "NULL" 与 SQL NULL 哨兵("\u{2}NULL" / kind="is_null")严格区分
+        let literal_null = prepare_dashboard_query(
+            DbKind::Sqlite,
+            "SELECT * FROM sales",
+            &[ReadOnlyFilter {
+                field: "tag".to_string(),
+                kind: "select".to_string(),
+                value: "NULL".to_string(),
+            }],
+        )
+        .unwrap();
+        assert!(!literal_null.sql.contains("IS NULL"));
+        assert_eq!(literal_null.params, vec!["NULL"]);
+
+        let sql_null = prepare_dashboard_query(
+            DbKind::Sqlite,
+            "SELECT * FROM sales",
+            &[ReadOnlyFilter {
+                field: "tag".to_string(),
+                kind: "select".to_string(),
+                value: "\u{2}NULL".to_string(),
+            }],
+        )
+        .unwrap();
+        assert!(sql_null.sql.contains("IS NULL"));
+        assert!(sql_null.params.is_empty());
     }
 
     #[test]

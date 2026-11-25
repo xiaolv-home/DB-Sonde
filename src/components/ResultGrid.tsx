@@ -1,35 +1,18 @@
 import type { FilterOp, FilterCond, GridSort } from "../lib/queryResultView";
 import { lockDragCursor, perFrame, useFloatingCorner } from "../hooks/useDrag";
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  ChevronUp,
-  ClipboardPaste,
-  Copy,
-  Loader2,
-  Minus,
-  Plus,
-  Save,
-  Sparkles,
-  Trash2,
-  Undo2,
-  X,
-} from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { parseEditedValue } from "../lib/tableEditing";
-import CustomFilterDialog from "./CustomFilterDialog";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import type { Cell, EditDraft, QueryResult } from "../types";
 import { useAi } from "../features/ai/aiStore";
 import { useI18n } from "../hooks/useI18n";
-import { useViewportFit } from "../hooks/useViewportFit";
+import { GridFilterBar, ResultGridOverlays } from "./ResultGridOverlays";
 import {
-  aggregate, buildDisplayList, CANCELLED, cellKey, cellsEqual, cellText, classify, coerceFilterValue, columnInRanges,
-  DEFAULT_W, FILTER_OPS, formatAgg, inRanges, isNumericType, lineAggregateValues, menuValueLabel, MIN_W,
-  parseInsertValue, parsePasteMatrix, rectBounds, ROW_H, selectionBounds, selectionTsvLines, shortFilterVal,
+  buildDisplayList, CANCELLED, cellKey, cellsEqual, classify, columnInRanges,
+  DEFAULT_W, inRanges, isNumericType, lineAggregateValues, MIN_W,
+  parseInsertValue, parsePasteMatrix, rectBounds, ROW_H, selectionBounds, selectionTsvLines,
   type AggFn, type InsertRow, type Pos, type Rect, type UndoEntry, type UndoItem,
 } from "./resultGridModel";
 
@@ -114,10 +97,6 @@ export default function ResultGrid({
   const [customFilter, setCustomFilter] = useState<{ column: string; op: FilterOp } | null>(null);
   const [hClip, setHClip] = useState("");
   const [gutterMenu, setGutterMenu] = useState<{ x: number; y: number; vi: number } | null>(null);
-  // 三个右键菜单都按真实尺寸摆位,见 hooks/useViewportFit
-  const cellMenuFit = useViewportFit(cellMenu);
-  const headerMenuFit = useViewportFit(headerMenu);
-  const gutterMenuFit = useViewportFit(gutterMenu);
   const sorts = !sort ? [] : Array.isArray(sort) ? sort : [sort];
   /** Newly-added rows awaiting INSERT. `after` is the loaded-row index they
    *  render below (-1 = above the first loaded row); order is display-only. */
@@ -746,66 +725,25 @@ export default function ResultGrid({
     setCellMenu({ x: e.clientX, y: e.clientY, colName: cols[c].name, value: valueAt(r, c) });
   };
 
-  const menuValShort = cellMenu ? menuValueLabel(cellMenu.value) : "";
-
-  /** DBeaver 风格的筛选项:点一下直接生效,不用再选操作符、也没有「添加」按钮。 */
-  const filterItems = (colName: string, value: Cell, keyPrefix: string) => {
-    const shown = shortFilterVal(value);
-    const item = (op: FilterOp, render: string) => (
-      <div
-        key={keyPrefix + op}
-        className="ctx-item mono"
-        title={`${colName} ${op} ${cellText(value)}`}
-        onClick={() => { onFilterByValue?.(colName, value, op); setHeaderMenu(null); }}
-      >
-        {render}
-      </div>
-    );
-    return [
-      item("=", `${colName} = ${shown}`),
-      item("<>", `${colName} ≠ ${shown}`),
-      item(">", `${colName} > ${shown}`),
-      item("<", `${colName} < ${shown}`),
-      item("like", `${colName} LIKE %${shown}%`),
-    ];
-  };
-
-  const opSymbol = (op: FilterOp) => FILTER_OPS.find((o) => o.op === op)?.label ?? op;
+  const closeMenus = useCallback(() => {
+    setCellMenu(null);
+    setHeaderMenu(null);
+    setGutterMenu(null);
+  }, []);
 
   const items = virtualizer.getVirtualItems();
 
   return (
     <div className="grid-wrap" style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column" }}>
-    {filters && filters.length > 0 && (
-      <div className="grid-filter-bar">
-        <span className="gfb-label">筛选</span>
-        {filters.map((f, i) => (
-          <span className="gfb-chip" key={i} title={`${f.column} ${opSymbol(f.op)} ${f.value ?? "NULL"}`}>
-            <b>{f.column}</b> {opSymbol(f.op)} {f.value === null || f.value === undefined ? "NULL" : String(f.value)}
-            {onRemoveFilter && (
-              <span className="gfb-x" onClick={() => onRemoveFilter(i)} title="移除这一条">
-                <X size={11} />
-              </span>
-            )}
-          </span>
-        ))}
-        <span className="gfb-and">AND 连接</span>
-        <div className="toolbar-spacer" style={{ flex: 1 }} />
-        {onClearFilter && (
-          <span className="gfb-clear" onClick={onClearFilter}>
-            清除全部
-          </span>
-        )}
-      </div>
-    )}
-    <div
-      className={`grid ${editable ? "editable" : ""}`}
-      ref={parentRef}
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      onScroll={() => { if (headTip) setHeadTip(null); handleScroll(); }}
-      style={{ position: "relative", inset: "auto", flex: 1, minHeight: 0 }}
-    >
+      <GridFilterBar filters={filters} onRemoveFilter={onRemoveFilter} onClearFilter={onClearFilter} />
+      <div
+        className={`grid ${editable ? "editable" : ""}`}
+        ref={parentRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        onScroll={() => { if (headTip) setHeadTip(null); handleScroll(); }}
+        style={{ position: "relative", inset: "auto", flex: 1, minHeight: 0 }}
+      >
       <div className="grid-inner" style={{ width: contentWidth }}>
         <div className="grid-head">
           <div className="gh-gutter" style={{ width: gutterW }}>
@@ -930,196 +868,53 @@ export default function ResultGrid({
       </div>
       </div>
 
-      {multiCells && !editing && bounds && (
-        <div className="sel-info">
-          <span className="si-count">
-            {columnUpdateActive
-              ? t("grid.selInfoColumn")
-              : t("grid.selInfo", { rows: bounds.r1 - bounds.r0 + 1, cols: bounds.c1 - bounds.c0 + 1 })}
-          </span>
-          <span className="si-hint">
-            {columnUpdateActive
-              ? t("grid.selHintColumn")
-              : editable
-                ? t("grid.selHint")
-                : t("grid.selHintReadonly")}
-          </span>
-        </div>
-      )}
-
-      {aggValues && !editing && (
-        <div className="agg-info" style={aggFloat.style}>
-          <span className="agg-grip" title="拖动换位置 · 双击回到右下角" {...aggFloat.handleProps} />
-          <select
-            className="agg-fn"
-            value={aggFn}
-            onChange={(e) => {
-              const fn = e.target.value as AggFn;
-              setAggFn(fn);
-              localStorage.setItem("aggFn", fn);
-            }}
-          >
-            <option value="sum">{t("agg.sum")}</option>
-            <option value="avg">{t("agg.avg")}</option>
-            <option value="median">{t("agg.median")}</option>
-            <option value="min">{t("agg.min")}</option>
-            <option value="max">{t("agg.max")}</option>
-            <option value="count">{t("agg.count")}</option>
-          </select>
-          <span className="agg-val">{formatAgg(aggregate(aggValues, aggFn))}</span>
-          <span className="agg-n">{t("agg.items", { count: aggValues.length })}</span>
-        </div>
-      )}
-
-      {editable && dirtyCount > 0 && (
-        <div className="edit-bar">
-          {colOps.size > 0 && (
-            <span className="ec-count col">{t("edit.pendingColumns", { count: colOps.size })}</span>
-          )}
-          {inserts.length > 0 && <span className="ec-count add">{t("edit.pendingInserts", { count: inserts.length })}</span>}
-          {deletes.size > 0 && <span className="ec-count col">{t("edit.pendingDeletes", { count: deletes.size })}</span>}
-          {edits.size > 0 && <span className="ec-count">{t("edit.unsaved", { count: edits.size })}</span>}
-          <span className="ec-hint">{t("edit.undoHint")}</span>
-          <button className="btn sm" onClick={revertAll} disabled={saving}>
-            <Undo2 size={14} /> {t("edit.discardAll")}
-          </button>
-          <button className="btn primary sm" onClick={() => void save()} disabled={saving}>
-            {saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />}
-            {t("edit.saveChanges")}
-          </button>
-        </div>
-      )}
-
-      {(cellMenu || headerMenu || gutterMenu) && (
-        <div
-          className="ctx-backdrop"
-          onMouseDown={() => {
-            setCellMenu(null);
-            setHeaderMenu(null);
-            setGutterMenu(null);
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setCellMenu(null);
-            setHeaderMenu(null);
-            setGutterMenu(null);
-          }}
-        />
-      )}
-
-      {gutterMenu && (
-        <div className="ctx-menu" ref={gutterMenuFit.ref} style={gutterMenuFit.style}>
-          <div className="ctx-item" onClick={() => { addRow(); setGutterMenu(null); }}>
-            <Plus size={15} /> {t("edit.addRow")}
-          </div>
-          <div className="ctx-item danger" onClick={() => { deleteRows(gutterMenu.vi); setGutterMenu(null); }}>
-            <Trash2 size={15} /> {t("edit.deleteRow")}
-          </div>
-        </div>
-      )}
-
-      {cellMenu && (
-        <div className="ctx-menu" ref={cellMenuFit.ref} style={cellMenuFit.style}>
-          <div className="ctx-item" onClick={() => { copySelection(); setCellMenu(null); }}>
-            <Copy size={15} /> {t("action.copy")}
-          </div>
-          {editable && (
-            <div className="ctx-item" onClick={() => { void pasteSelection(); setCellMenu(null); }}>
-              <ClipboardPaste size={15} /> {t("action.paste")}
-            </div>
-          )}
-          <div className="ctx-item" onClick={() => { askAiAboutSelection(); setCellMenu(null); }}>
-            <Sparkles size={15} /> AI 解读
-          </div>
-          {onFilterByValue && (
-            <>
-              <div className="ctx-sep" />
-              <div className="ctx-item mono" onClick={() => { onFilterByValue(cellMenu.colName, cellMenu.value, "="); setCellMenu(null); }}>{cellMenu.colName} = {menuValShort}</div>
-              <div className="ctx-item mono" onClick={() => { onFilterByValue(cellMenu.colName, cellMenu.value, "<>"); setCellMenu(null); }}>{cellMenu.colName} ≠ {menuValShort}</div>
-              <div className="ctx-item mono" onClick={() => { onFilterByValue(cellMenu.colName, cellMenu.value, ">"); setCellMenu(null); }}>{cellMenu.colName} &gt; {menuValShort}</div>
-              <div className="ctx-item mono" onClick={() => { onFilterByValue(cellMenu.colName, cellMenu.value, "<"); setCellMenu(null); }}>{cellMenu.colName} &lt; {menuValShort}</div>
-              <div className="ctx-item mono" onClick={() => { onFilterByValue(cellMenu.colName, cellMenu.value, "like"); setCellMenu(null); }}>{cellMenu.colName} LIKE %{menuValShort}%</div>
-            </>
-          )}
-          {hasFilter && onClearFilter && (
-            <>
-              <div className="ctx-sep" />
-              <div className="ctx-item" onClick={() => { onClearFilter(); setCellMenu(null); }}>
-                <X size={15} /> {t("data.clearFilter")}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {headTip && createPortal(
-        <div className="gh-tip" style={{ left: headTip.x, top: headTip.y }} role="tooltip">
-          {headTip.comment && <div className="gh-tip-comment">{headTip.comment}</div>}
-          <div className="gh-tip-meta">{headTip.text}</div>
-        </div>,
-        document.body,
-      )}
-      {headerMenu && (
-        <div className="ctx-menu wide" ref={headerMenuFit.ref} style={headerMenuFit.style}>
-          <div className="ctx-head mono" title={cols[headerMenu.c]?.name}>{cols[headerMenu.c]?.name}</div>
-          <div className="ctx-item" onClick={() => { onSortColumn?.(cols[headerMenu.c].name, "asc"); setHeaderMenu(null); }}>
-            <ArrowUp size={15} /> {t("data.orderAsc")}
-          </div>
-          <div className="ctx-item" onClick={() => { onSortColumn?.(cols[headerMenu.c].name, "desc"); setHeaderMenu(null); }}>
-            <ArrowDown size={15} /> {t("data.orderDesc")}
-          </div>
-          {onAddSortColumn && <>
-            <div className="ctx-sep" />
-            <div className="ctx-item" onClick={() => { onAddSortColumn(cols[headerMenu.c].name, "asc"); setHeaderMenu(null); }}>
-              <ArrowUp size={15} /> {t("data.addOrderAsc")}
-            </div>
-            <div className="ctx-item" onClick={() => { onAddSortColumn(cols[headerMenu.c].name, "desc"); setHeaderMenu(null); }}>
-              <ArrowDown size={15} /> {t("data.addOrderDesc")}
-            </div>
-          </>}
-          {(onRemoveSortColumn || onClearSort) && <div className="ctx-sep" />}
-          {onRemoveSortColumn && sorts.some((item) => item.column === cols[headerMenu.c].name) && (
-            <div className="ctx-item" onClick={() => { onRemoveSortColumn(cols[headerMenu.c].name); setHeaderMenu(null); }}>
-              <Minus size={15} /> {t("data.removeColumnSort")}
-            </div>
-          )}
-          {onClearSort && <div className="ctx-item" onClick={() => { onClearSort(); setHeaderMenu(null); }}>
-            <X size={15} /> {onAddSortColumn ? t("data.clearAllSort") : t("data.orderNone")}
-          </div>}
-          {onFilterByValue && active && (
-            <>
-              <div className="ctx-sep" />
-              <div className="ctx-group">单元格的值</div>
-              {filterItems(cols[headerMenu.c].name, valueAt(active.r, headerMenu.c), "cell-")}
-            </>
-          )}
-          {onFilterByValue && hClip && (
-            <>
-              <div className="ctx-sep" />
-              <div className="ctx-group">剪贴板</div>
-              {filterItems(cols[headerMenu.c].name, coerceFilterValue(hClip, numericCols[headerMenu.c]), "clip-")}
-            </>
-          )}
-          {onFilterByValue && <>
-            <div className="ctx-sep"/><div className="ctx-group">自定义</div>
-            {(["=", "<>", ">", "<", "like"] as FilterOp[]).map(op=><div key={`custom-${op}`} className="ctx-item mono" onClick={()=>{setCustomFilter({column:cols[headerMenu.c].name,op});setHeaderMenu(null);}}>{cols[headerMenu.c].name} {op === "like" ? "LIKE" : op} …</div>)}
-          </>}
-          {onFilterByValue && hasFilter && onClearFilter && (
-            <>
-              <div className="ctx-sep" />
-              <div className="ctx-item" onClick={() => { onClearFilter(); setHeaderMenu(null); }}>
-                <X size={15} /> 清除全部筛选
-              </div>
-            </>
-          )}
-        </div>
-      )}
-      {customFilter && <CustomFilterDialog key={`${customFilter.column}:${customFilter.op}`} column={customFilter.column} op={customFilter.op} onClose={()=>setCustomFilter(null)} onApply={raw=>{
-        const column=cols.findIndex(c=>c.name===customFilter.column);
-        const number=Number(raw);
-        const value=customFilter.op!=="like" && numericCols[column] && raw.trim()!=="" && Number.isFinite(number) && (!Number.isInteger(number)||Number.isSafeInteger(number)) ? number : raw;
-        onFilterByValue?.(customFilter.column,value,customFilter.op);setCustomFilter(null);
-      }}/>}
+      <ResultGridOverlays
+        cols={cols}
+        numericCols={numericCols}
+        sorts={sorts}
+        editable={editable}
+        multiCells={multiCells}
+        editing={editing !== null}
+        bounds={bounds}
+        columnUpdateActive={columnUpdateActive}
+        aggValues={aggValues}
+        aggFn={aggFn}
+        onChangeAggFn={(fn) => {
+          setAggFn(fn);
+          localStorage.setItem("aggFn", fn);
+        }}
+        aggFloat={aggFloat}
+        dirtyCount={dirtyCount}
+        colOpsCount={colOps.size}
+        insertsCount={inserts.length}
+        deletesCount={deletes.size}
+        editsCount={edits.size}
+        saving={saving}
+        onRevertAll={revertAll}
+        onSave={() => void save()}
+        headTip={headTip}
+        cellMenu={cellMenu}
+        headerMenu={headerMenu}
+        gutterMenu={gutterMenu}
+        hClip={hClip}
+        active={active}
+        valueAt={valueAt}
+        onCloseMenus={closeMenus}
+        onAddRow={addRow}
+        onDeleteRows={deleteRows}
+        onCopySelection={copySelection}
+        onPasteSelection={() => void pasteSelection()}
+        onAskAi={askAiAboutSelection}
+        onFilterByValue={onFilterByValue}
+        hasFilter={hasFilter}
+        onClearFilter={onClearFilter}
+        onSortColumn={onSortColumn}
+        onAddSortColumn={onAddSortColumn}
+        onRemoveSortColumn={onRemoveSortColumn}
+        onClearSort={onClearSort}
+        customFilter={customFilter}
+        onSetCustomFilter={setCustomFilter}
+      />
     </div>
   );
 }

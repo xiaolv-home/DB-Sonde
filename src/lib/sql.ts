@@ -413,8 +413,28 @@ export function stripLeadingComments(sql: string): string {
   }
 }
 
-/** Oracle 的 PL/SQL 程序单元:体内的分号是它自己的一部分,结尾的 `END;` 也得原样带着发出去。 */
-const PLSQL_UNIT = /^(?:BEGIN|DECLARE|CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:NON)?EDITIONABLE\s+)?(?:PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE))\b/i;
+/** Oracle 的 PL/SQL 程序单元:体内的分号是它自己的一部分,结尾的 `END;` 也得原样带着发出去。
+ *  提取前几个顶层标识符词(自动跨过注释和任意长度换行),避免被超过 120 字符的头部注释截断。 */
+function isOraclePlsqlUnit(tail: string): boolean {
+  const words: string[] = [];
+  let pos = 0;
+  while (pos < tail.length && words.length < 6) {
+    const rest = stripLeadingComments(tail.slice(pos));
+    if (!rest) break;
+    pos = tail.length - rest.length;
+    const m = /^[A-Za-z_][A-Za-z0-9_$#]*/.exec(rest);
+    if (!m) break;
+    words.push(m[0].toUpperCase());
+    pos += m[0].length;
+  }
+  if (!words.length) return false;
+  if (words[0] === "BEGIN" || words[0] === "DECLARE") return true;
+  if (words[0] !== "CREATE") return false;
+  let idx = 1;
+  if (words[idx] === "OR" && words[idx + 1] === "REPLACE") idx += 2;
+  if (words[idx] === "EDITIONABLE" || words[idx] === "NONEDITIONABLE") idx += 1;
+  return /^(?:PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE)$/.test(words[idx] ?? "");
+}
 /** MySQL 客户端的 `DELIMITER $$`。分隔符只认符号 —— 拿一个词当分隔符(`DELIMITER DELETE`)
  *  会把那个词从语句里「吃掉」,只读校验就看不到它了。 */
 const DELIMITER_LINE = /^DELIMITER[ \t]+([^\w\s'"`]+)[ \t]*(?:\r?\n|$)/i;
@@ -465,7 +485,7 @@ export function splitSqlStatements(script: string, kind?: DbKind): string[] {
         return;
       }
       begun = true;
-      plsql = oracle && PLSQL_UNIT.test(script.slice(i, i + 120));
+      plsql = oracle && isOraclePlsqlUnit(script.slice(i));
     }
     if (oracle && ch === "/" && aloneOnLine(i)) push(i, i + 1);
     else if (!plsql && script.startsWith(delimiter, i)) push(i, i + delimiter.length);

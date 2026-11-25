@@ -440,7 +440,11 @@ fn tokenize(def: &str) -> Vec<String> {
                     if d == '\\' && c != '`' {
                         if let Some(e) = chars.next() { cur.push(e); }
                     } else if d == c {
-                        if chars.peek() == Some(&c) { cur.push(chars.next().unwrap()); } else { break; }
+                        if let Some(next_quote) = chars.next_if_eq(&c) {
+                            cur.push(next_quote);
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
@@ -448,7 +452,12 @@ fn tokenize(def: &str) -> Vec<String> {
                 cur.push(c);
                 while let Some(d) = chars.next() {
                     cur.push(d);
-                    if d == '*' && chars.peek() == Some(&'/') { cur.push(chars.next().unwrap()); break; }
+                    if d == '*' {
+                        if let Some(slash) = chars.next_if_eq(&'/') {
+                            cur.push(slash);
+                            break;
+                        }
+                    }
                 }
             }
             '(' => { depth += 1; cur.push(c); }

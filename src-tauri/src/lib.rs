@@ -1,5 +1,6 @@
 mod ai;
 mod app_menu;
+mod canvas_store;
 mod canvas_window;
 mod monitor;
 mod commands;
@@ -107,6 +108,10 @@ pub fn run() {
             commands::objects::preview_drop_object,
             commands::objects::drop_object,
             canvas_window::open_canvas_window,
+            canvas_store::load_canvases,
+            canvas_store::save_canvases,
+            canvas_store::load_canvas_history,
+            canvas_store::save_canvas_history,
             commands::objects::plan_column_change,
             commands::objects::apply_column_change,
             commands::query::run_read_only_query,
@@ -142,11 +147,22 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                if workspace_lifecycle::should_intercept(app) {
-                    api.prevent_exit();
-                    workspace_lifecycle::request_exit(app);
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    if workspace_lifecycle::should_intercept(app) {
+                        api.prevent_exit();
+                        workspace_lifecycle::request_exit(app);
+                    }
                 }
+                tauri::RunEvent::Exit => {
+                    if let Some(ai) = app.try_state::<ai::AiEngine>() {
+                        ai.shutdown();
+                    }
+                    if let Some(py) = app.try_state::<python::PyRuntime>() {
+                        py.shutdown();
+                    }
+                }
+                _ => {}
             }
         });
 }
@@ -156,18 +172,104 @@ mod safety_tests;
 
 #[cfg(test)]
 mod main_thread_guard {
+    /// Extract `(fn_name, body_text)` for every synchronous `#[tauri::command]`
+    /// (excluding `#[tauri::command(async)]` and `async fn`), handling comments,
+    /// intermediate attributes, `pub(crate) fn`, and multiline signatures.
+    fn sync_command_bodies(src: &str) -> Vec<(String, String)> {
+        let lines: Vec<&str> = src.lines().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < lines.len() {
+            let trimmed = lines[i].trim();
+            if trimmed.starts_with("#[tauri::command") && !trimmed.contains("async") {
+                i += 1;
+                let mut sig = String::new();
+                while i < lines.len() {
+                    let t = lines[i].trim();
+                    if t.starts_with("//") || t.starts_with('#') || t.is_empty() {
+                        i += 1;
+                        continue;
+                    }
+                    sig.push_str(t);
+                    sig.push(' ');
+                    if t.contains('{') {
+                        break;
+                    }
+                    i += 1;
+                }
+                let is_async = sig.contains("async fn ");
+                if !is_async {
+                    if let Some(after_fn) = sig.split("fn ").nth(1) {
+                        let name: String = after_fn
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
+                        // Collect balanced braces from the opening `{` line onward.
+                        let mut body = String::new();
+                        let mut depth = 0i32;
+                        let mut started = false;
+                        while i < lines.len() {
+                            let line = lines[i];
+                            body.push_str(line);
+                            body.push('\n');
+                            for ch in line.chars() {
+                                if ch == '{' {
+                                    depth += 1;
+                                    started = true;
+                                } else if ch == '}' {
+                                    depth -= 1;
+                                }
+                            }
+                            i += 1;
+                            if started && depth <= 0 {
+                                break;
+                            }
+                        }
+                        if !name.is_empty() {
+                            out.push((name, body));
+                        }
+                        continue;
+                    }
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
     /// 同步的 `#[tauri::command]` 默认在主线程(界面线程)执行,跑多久界面就卡多久。
-    /// 实测过:血缘扫描每条 SQL 都起一个 Python 进程并在主线程等它,153 个指标卡十几秒。
-    /// 这里守住:同步命令的函数体里若有「等子进程 / 读写文件 / 读目录 / 阻塞网络」,
+    /// 这里守住:同步命令的函数体里若有「等子进程 / 读写文件 / 封装的磁盘存储 helper / 阻塞网络」,
     /// 必须标成 `#[tauri::command(async)]`(放进线程池)或改成 async。
     #[test]
     fn blocking_work_never_runs_on_the_ui_thread() {
-        const BLOCKING: &[&str] = &[".output()", ".wait_with_output()", ".wait()", "read_to_string(", "fs::read(", "fs::write(", "read_dir(", "blocking::", "write_all("];
+        const BLOCKING: &[&str] = &[
+            ".output()",
+            ".wait_with_output()",
+            ".wait()",
+            "read_to_string(",
+            "fs::read(",
+            "fs::write(",
+            "fs::remove_file(",
+            "fs::rename(",
+            "read_dir(",
+            "blocking::",
+            "write_all(",
+            "store::load_",
+            "store::save_",
+            "credentials::",
+            "persistence::write_json_atomic(",
+            "load_path(",
+            "save_path(",
+            "upsert_document(",
+            "load_versions_path(",
+            "save_versions_path(",
+        ];
         let sources = [
             ("python/runtime.rs", include_str!("python/runtime.rs")),
             ("python/run.rs", include_str!("python/run.rs")),
             ("python/workspace.rs", include_str!("python/workspace.rs")),
             ("python/assist.rs", include_str!("python/assist.rs")),
+            ("canvas_store.rs", include_str!("canvas_store.rs")),
             ("canvas_window.rs", include_str!("canvas_window.rs")),
             ("commands/connections.rs", include_str!("commands/connections.rs")),
             ("commands/objects.rs", include_str!("commands/objects.rs")),
@@ -202,16 +304,19 @@ mod main_thread_guard {
         assert!(unlisted.is_empty(), "这些文件里有 #[tauri::command],但没登记进上面的 sources:{unlisted:?}");
         let mut offenders = Vec::new();
         for (file, src) in sources {
-            // 不按 #[cfg(test)] 截断:有的文件开头就有测试用的 thread_local,截断会漏扫整个文件
-            for (i, chunk) in src.split("#[tauri::command]\npub fn ").enumerate().skip(1) {
-                let _ = i;
-                let name: String = chunk.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-                let body = chunk.split("\n}\n").next().unwrap_or(chunk);
+            for (name, body) in sync_command_bodies(src) {
                 if let Some(hit) = BLOCKING.iter().find(|p| body.contains(**p)) {
                     offenders.push(format!("{file}::{name} ({hit})"));
                 }
             }
         }
         assert!(offenders.is_empty(), "这些同步命令在界面线程上做阻塞的事,会卡界面:\n  {}", offenders.join("\n  "));
+
+        // 守卫自检:多行签名、夹着注释或 pub(crate) 的同步命令也必须被扫出来
+        let sample = "#[tauri::command]\n// comment\npub(crate) fn sneaky(\n  a: String,\n) -> String {\n  store::load_connections(&app);\n}\n";
+        let detected = sync_command_bodies(sample);
+        assert_eq!(detected.len(), 1);
+        assert_eq!(detected[0].0, "sneaky");
+        assert!(detected[0].1.contains("store::load_connections("));
     }
 }

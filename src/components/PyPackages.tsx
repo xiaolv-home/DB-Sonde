@@ -55,7 +55,7 @@ export default function PyPackages({ onClose, initial }: { onClose: () => void; 
     if (inTauri) {
       const { listen } = await import("@tauri-apps/api/event");
       unlistenRef.current?.();
-      unlistenRef.current = await listen<{ runId: string; kind: string; text?: string; code?: number }>(
+      unlistenRef.current = await listen<{ runId: string; kind: string; text?: string; lines?: string[]; code?: number }>(
         "python://event",
         (e) => {
           const p = e.payload;
@@ -68,7 +68,10 @@ export default function PyPackages({ onClose, initial }: { onClose: () => void; 
             unlistenRef.current?.();
             unlistenRef.current = null;
           } else {
-            pushOut({ kind: p.kind as Line["kind"], text: p.text ?? "" });
+            const items = p.lines ?? (p.text !== undefined ? [p.text] : []);
+            for (const text of items) {
+              pushOut({ kind: p.kind as Line["kind"], text });
+            }
           }
         },
       );

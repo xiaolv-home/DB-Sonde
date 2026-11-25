@@ -143,20 +143,38 @@ fn mysql_exact_integer_guard(query: &mut QueryBuilder<'_, sqlx::MySql>, column: 
     }
 }
 
-fn push_sqlite_value(query: &mut QueryBuilder<'_, sqlx::Sqlite>, value: &Value) {
+fn push_sqlite_value(query: &mut QueryBuilder<'_, sqlx::Sqlite>, value: &Value) -> AppResult<()> {
     match value {
-        Value::Null => query.push("NULL"),
-        Value::Bool(value) => query.push_bind(*value),
+        Value::Null => {
+            query.push("NULL");
+        }
+        Value::Bool(value) => {
+            query.push_bind(*value);
+        }
         Value::Number(value) if value.is_i64() => {
-            query.push_bind(value.as_i64().unwrap_or_default())
+            query.push_bind(value.as_i64().unwrap_or_default());
         }
         Value::Number(value) if value.is_u64() => {
-            query.push_bind(i64::try_from(value.as_u64().unwrap_or_default()).unwrap_or(i64::MAX))
+            let raw = value.as_u64().unwrap_or_default();
+            let signed = i64::try_from(raw).map_err(|_| {
+                AppError::msg(format!(
+                    "SQLite 整数仅支持有符号 64 位范围(最大 {}),无法精确表示 {raw}",
+                    i64::MAX
+                ))
+            })?;
+            query.push_bind(signed);
         }
-        Value::Number(value) => query.push_bind(value.as_f64().unwrap_or_default()),
-        Value::String(value) => query.push_bind(value.clone()),
-        value => query.push_bind(value.to_string()),
-    };
+        Value::Number(value) => {
+            query.push_bind(value.as_f64().unwrap_or_default());
+        }
+        Value::String(value) => {
+            query.push_bind(value.clone());
+        }
+        value => {
+            query.push_bind(value.to_string());
+        }
+    }
+    Ok(())
 }
 
 fn mysql_update_query(request: &UpdateCellRequest, args: MySqlArgs) -> QueryBuilder<'_, sqlx::MySql> {
@@ -250,20 +268,20 @@ where
         .push(" SET ")
         .push(quote_ident(kind, &request.column))
         .push(" = ");
-    push_sqlite_value(&mut query, &request.new_value);
+    push_sqlite_value(&mut query, &request.new_value)?;
     query.push(" WHERE ");
     for (index, (column, value)) in request.primary_key.iter().enumerate() {
         if index > 0 {
             query.push(" AND ");
         }
         query.push(quote_ident(kind, column)).push(" IS ");
-        push_sqlite_value(&mut query, value);
+        push_sqlite_value(&mut query, value)?;
     }
     query
         .push(" AND ")
         .push(quote_ident(kind, &request.column))
         .push(" IS ");
-    push_sqlite_value(&mut query, &request.old_value);
+    push_sqlite_value(&mut query, &request.old_value)?;
     Ok(query.build().execute(executor).await?.rows_affected())
 }
 

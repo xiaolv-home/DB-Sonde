@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-use super::{python_bin, python_dir, runtime_root, workspace_dir, PyRuntime};
+use super::{lock_unpoisoned, python_bin, python_dir, runtime_root, workspace_dir, PyRuntime};
+
+/// Maximum runtime archive size accepted before SHA-256 verification (512 MB).
+const MAX_RUNTIME_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Bump when scripts/bundle-python.sh changes the python/packages, so the app
 /// re-extracts on upgrade. Must match RUNTIME_VERSION in that script.
@@ -75,14 +78,14 @@ pub struct PyStatus {
 fn make_status(app: &tauri::AppHandle, rt: &PyRuntime) -> PyStatus {
     PyStatus {
         installed: runtime_ready(),
-        extracting: *rt.extracting.lock().unwrap(),
+        extracting: *lock_unpoisoned(&rt.extracting),
         bundled: bundled_tar(app).is_some(),
         downloadable: runtime_asset().is_some_and(|(_, sha)| !sha.is_empty()),
-        progress: rt.progress.lock().unwrap().unwrap_or(0),
+        progress: lock_unpoisoned(&rt.progress).unwrap_or(0),
         version: RUNTIME_VERSION.to_string(),
         python: runtime_ready().then(|| python_bin().to_string_lossy().into_owned()),
         workspace: workspace_dir().to_string_lossy().into_owned(),
-        error: rt.error.lock().unwrap().clone(),
+        error: lock_unpoisoned(&rt.error).clone(),
     }
 }
 
@@ -95,7 +98,7 @@ pub fn python_status(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) -> 
 /// extraction runs on a thread. Poll `python_status` for `installed`.
 #[tauri::command]
 pub fn python_ensure(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) -> PyStatus {
-    if runtime_ready() || *rt.extracting.lock().unwrap() {
+    if runtime_ready() || *lock_unpoisoned(&rt.extracting) {
         return make_status(&app, &rt);
     }
     // 没内置就直接返回状态 —— 前端据此显示「一键安装」按钮,由用户决定要不要
@@ -105,8 +108,8 @@ pub fn python_ensure(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) -> 
         None => return make_status(&app, &rt),
     };
 
-    *rt.extracting.lock().unwrap() = true;
-    *rt.error.lock().unwrap() = None;
+    *lock_unpoisoned(&rt.extracting) = true;
+    *lock_unpoisoned(&rt.error) = None;
     let extracting = rt.extracting.clone();
     let error = rt.error.clone();
     let app2 = app.clone();
@@ -114,9 +117,9 @@ pub fn python_ensure(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) -> 
     std::thread::spawn(move || {
         let result = extract_runtime(&tar);
         if let Err(e) = &result {
-            *error.lock().unwrap() = Some(e.clone());
+            *lock_unpoisoned(&error) = Some(e.clone());
         }
-        *extracting.lock().unwrap() = false;
+        *lock_unpoisoned(&extracting) = false;
         // nudge the UI to re-read status
         let _ = app2.emit("python://ready", runtime_ready());
     });
@@ -129,7 +132,7 @@ pub fn python_ensure(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) -> 
 /// **校验 SHA256 之后**才解压。立刻返回,进度轮询 `python_status`。
 #[tauri::command]
 pub fn python_install(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) -> PyStatus {
-    if runtime_ready() || *rt.extracting.lock().unwrap() || rt.progress.lock().unwrap().is_some() {
+    if runtime_ready() || *lock_unpoisoned(&rt.extracting) || lock_unpoisoned(&rt.progress).is_some() {
         return make_status(&app, &rt);
     }
     if bundled_tar(&app).is_some() {
@@ -138,20 +141,20 @@ pub fn python_install(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) ->
     let (asset, sha) = match runtime_asset() {
         Some(a) => a,
         None => {
-            *rt.error.lock().unwrap() =
+            *lock_unpoisoned(&rt.error) =
                 Some(format!("这个平台({} {})没有预建的 Python 运行时,请自行用 scripts/bundle-python.sh 构建。",
                     std::env::consts::OS, std::env::consts::ARCH));
             return make_status(&app, &rt);
         }
     };
     if sha.is_empty() {
-        *rt.error.lock().unwrap() =
+        *lock_unpoisoned(&rt.error) =
             Some("这个平台的运行时校验和尚未配置,拒绝下载 —— 不校验就解压执行等于把机器交给下载源。请自行用 scripts/bundle-python.sh 构建。".into());
         return make_status(&app, &rt);
     }
 
-    *rt.progress.lock().unwrap() = Some(0);
-    *rt.error.lock().unwrap() = None;
+    *lock_unpoisoned(&rt.progress) = Some(0);
+    *lock_unpoisoned(&rt.error) = None;
     let (progress, extracting, error) = (rt.progress.clone(), rt.extracting.clone(), rt.error.clone());
     let app2 = app.clone();
     let url = format!("{RUNTIME_BASE}/{RUNTIME_TAG}/{asset}");
@@ -159,10 +162,10 @@ pub fn python_install(app: tauri::AppHandle, rt: tauri::State<'_, PyRuntime>) ->
     std::thread::spawn(move || {
         let result = download_and_extract(&url, sha, &progress, &extracting);
         if let Err(e) = &result {
-            *error.lock().unwrap() = Some(e.clone());
+            *lock_unpoisoned(&error) = Some(e.clone());
         }
-        *progress.lock().unwrap() = None;
-        *extracting.lock().unwrap() = false;
+        *lock_unpoisoned(&progress) = None;
+        *lock_unpoisoned(&extracting) = false;
         let _ = app2.emit("python://ready", runtime_ready());
     });
 
@@ -181,6 +184,9 @@ fn download_and_extract(
         return Err(format!("下载失败:HTTP {}", resp.status()));
     }
     let total = resp.content_length().unwrap_or(0);
+    if total > MAX_RUNTIME_DOWNLOAD_BYTES {
+        return Err("下载失败:运行时体积超过 512 MB 安全上限".into());
+    }
 
     let tmp = runtime_root().join("python-runtime.download");
     std::fs::create_dir_all(runtime_root()).map_err(|e| format!("建目录失败:{e}"))?;
@@ -191,11 +197,16 @@ fn download_and_extract(
     loop {
         let n = resp.read(&mut buf).map_err(|e| format!("下载中断:{e}"))?;
         if n == 0 { break; }
+        done += n as u64;
+        if done > MAX_RUNTIME_DOWNLOAD_BYTES {
+            drop(file);
+            let _ = std::fs::remove_file(&tmp);
+            return Err("下载失败:运行时体积超过 512 MB 安全上限".into());
+        }
         std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| format!("写盘失败:{e}"))?;
         sha2::Digest::update(&mut hasher, &buf[..n]);
-        done += n as u64;
         if let Some(percent) = (done * 100).checked_div(total) {
-            *progress.lock().unwrap() = Some((percent as u8).min(100));
+            *lock_unpoisoned(progress) = Some((percent as u8).min(100));
         }
     }
     drop(file);
@@ -206,7 +217,7 @@ fn download_and_extract(
         return Err(e);
     }
 
-    *extracting.lock().unwrap() = true;
+    *lock_unpoisoned(extracting) = true;
     let r = extract_runtime(&tmp);
     let _ = std::fs::remove_file(&tmp);
     r
@@ -241,22 +252,46 @@ fn check_sha256(got: &str, expect: &str) -> Result<(), String> {
 
 fn extract_runtime(tar: &Path) -> Result<(), String> {
     let root = runtime_root();
-    // fresh extract: drop any stale/partial runtime first
-    let _ = std::fs::remove_dir_all(python_dir());
-    std::fs::create_dir_all(&root).map_err(|e| format!("建目录失败:{e}"))?;
+    let staging = root.join("python.staging");
+    let backup = root.join("python.old");
+    let _ = std::fs::remove_dir_all(&staging);
+    let _ = std::fs::remove_dir_all(&backup);
+    std::fs::create_dir_all(&staging).map_err(|e| format!("建目录失败:{e}"))?;
     let status = Command::new("tar")
         .arg("-xzf")
         .arg(tar)
         .arg("-C")
-        .arg(&root)
+        .arg(&staging)
         .status()
         .map_err(|e| format!("解压失败:{e}"))?;
     if !status.success() {
+        let _ = std::fs::remove_dir_all(&staging);
         return Err("解压 Python 运行时失败".into());
     }
-    if !python_bin().exists() {
+    let staged_python = staging.join("python");
+    #[cfg(windows)]
+    let staged_bin = staged_python.join("python.exe");
+    #[cfg(not(windows))]
+    let staged_bin = staged_python.join("bin/python3");
+    if !staged_bin.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
         return Err("解压后未找到 python 可执行文件".into());
     }
+
+    let target = python_dir();
+    let had_existing = target.exists();
+    if had_existing {
+        std::fs::rename(&target, &backup).map_err(|e| format!("切换旧运行时失败:{e}"))?;
+    }
+    if let Err(e) = std::fs::rename(&staged_python, &target) {
+        if had_existing {
+            let _ = std::fs::rename(&backup, &target);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(format!("启用新运行时失败:{e}"));
+    }
+    let _ = std::fs::remove_dir_all(&backup);
+    let _ = std::fs::remove_dir_all(&staging);
     Ok(())
 }
 

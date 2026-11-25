@@ -119,8 +119,12 @@ export const api = {
   dropObject: (request: { connId: string; objectKind: DropObjectKind; database: string; schema?: string; table?: string; confirmation: string }) =>
     inTauri ? invoke<void>("drop_object", request) : Promise.reject(new Error("删除对象仅支持桌面端真实连接")),
 
-  /** 链路画布单独开一个系统窗口(已开着就拉到前面) */
-  openCanvasWindow: () => invoke<void>("open_canvas_window"),
+  /** 链路画布单独开一个系统窗口(已开着就拉到前面,并通知切到指定画布) */
+  openCanvasWindow: (focusId?: string) => invoke<void>("open_canvas_window", { focusId: focusId ?? null }),
+  loadCanvases: () => inTauri ? invoke<unknown>("load_canvases") : Promise.resolve(null),
+  saveCanvases: (documents: unknown) => inTauri ? invoke<void>("save_canvases", { documents }) : Promise.resolve(),
+  loadCanvasHistory: () => inTauri ? invoke<unknown>("load_canvas_history") : Promise.resolve(null),
+  saveCanvasHistory: (history: unknown) => inTauri ? invoke<void>("save_canvas_history", { history }) : Promise.resolve(),
 
   planColumnChange: (target: ColumnTarget, change: ColumnChange) =>
     inTauri ? invoke<ColumnChangePlan>("plan_column_change", { ...target, column: target.column ?? null, change })

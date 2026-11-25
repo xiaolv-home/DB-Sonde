@@ -203,23 +203,41 @@ pub async fn run_statements_on_tx(tx: &mut SessionTx, statements: &[String], exp
 }
 
 /// Run a statement inside a held session transaction (autocommit off).
+/// Wrapped in a SQL savepoint (`Acquire::begin`) so a single failed or timed-out
+/// statement rolls back only itself and never leaves a PostgreSQL manual session
+/// stuck in `current transaction is aborted` state.
 pub async fn run_query_on_tx(
     tx: &mut SessionTx,
     sql: &str,
     max_rows: Option<usize>,
 ) -> AppResult<QueryResult> {
-    // No cap when the caller passes None — the editor returns every row.
-    let cap = max_rows.unwrap_or(usize::MAX);
+    use sqlx::Acquire;
+    let cap = max_rows.unwrap_or(super::query::DEFAULT_MAX_ROWS_CEILING);
     let started = Instant::now();
 
-    if strip_leading_noise(sql).split_whitespace().next().is_some_and(|word|word.eq_ignore_ascii_case("CALL")) {
+    if strip_leading_noise(sql).split_whitespace().next().is_some_and(|word| word.eq_ignore_ascii_case("CALL")) {
         return routines::call_sql_tx(tx, sql, cap).await;
     }
     if !returns_rows(sql) {
         let affected = match tx {
-            SessionTx::MySql(t) => sqlx::Executor::execute(&mut **t, sql).await?.rows_affected(),
-            SessionTx::Postgres(t) => sqlx::query(sql).execute(&mut **t).await?.rows_affected(),
-            SessionTx::Sqlite(t) => sqlx::query(sql).execute(&mut **t).await?.rows_affected(),
+            SessionTx::MySql(t) => {
+                let mut sp = t.begin().await?;
+                let n = sqlx::Executor::execute(&mut *sp, sql).await?.rows_affected();
+                sp.commit().await?;
+                n
+            }
+            SessionTx::Postgres(t) => {
+                let mut sp = t.begin().await?;
+                let n = sqlx::query(sql).execute(&mut *sp).await?.rows_affected();
+                sp.commit().await?;
+                n
+            }
+            SessionTx::Sqlite(t) => {
+                let mut sp = t.begin().await?;
+                let n = sqlx::query(sql).execute(&mut *sp).await?.rows_affected();
+                sp.commit().await?;
+                n
+            }
         };
         return Ok(QueryResult {
             additional_results: None,
@@ -235,30 +253,35 @@ pub async fn run_query_on_tx(
     let mut truncated = false;
 
     macro_rules! collect_tx {
-        ($stream:expr, $cell:path) => {{
-            let mut stream = $stream;
-            while let Some(row) = stream.try_next().await? {
-                if columns.is_empty() {
-                    columns = value::columns_from_row(&row);
+        ($parent:expr, |$conn:ident| $stream:expr, $cell:path) => {{
+            let mut sp = $parent.begin().await?;
+            {
+                let $conn = &mut *sp;
+                let mut stream = $stream;
+                while let Some(row) = stream.try_next().await? {
+                    if columns.is_empty() {
+                        columns = value::columns_from_row(&row);
+                    }
+                    if rows.len() >= cap {
+                        truncated = true;
+                        break;
+                    }
+                    let n = row.columns().len();
+                    let mut cells = Vec::with_capacity(n);
+                    for i in 0..n {
+                        cells.push($cell(&row, i));
+                    }
+                    rows.push(cells);
                 }
-                if rows.len() >= cap {
-                    truncated = true;
-                    break;
-                }
-                let n = row.columns().len();
-                let mut cells = Vec::with_capacity(n);
-                for i in 0..n {
-                    cells.push($cell(&row, i));
-                }
-                rows.push(cells);
             }
+            sp.commit().await?;
         }};
     }
 
     match tx {
-        SessionTx::MySql(t) => collect_tx!(sqlx::Executor::fetch(&mut **t, sql), value::mysql_value),
-        SessionTx::Postgres(t) => collect_tx!(sqlx::query(sql).fetch(&mut **t), value::pg_value),
-        SessionTx::Sqlite(t) => collect_tx!(sqlx::query(sql).fetch(&mut **t), value::sqlite_value),
+        SessionTx::MySql(t) => collect_tx!(t, |c| sqlx::Executor::fetch(c, sql), value::mysql_value),
+        SessionTx::Postgres(t) => collect_tx!(t, |c| sqlx::query(sql).fetch(c), value::pg_value),
+        SessionTx::Sqlite(t) => collect_tx!(t, |c| sqlx::query(sql).fetch(c), value::sqlite_value),
     }
 
     Ok(QueryResult {
@@ -323,6 +346,12 @@ mod session_tests {
         )
         .await
         .unwrap();
+        // A failing statement rolls back only its savepoint; earlier work and RETURNING still work!
+        assert!(run_query_on_tx(&mut tx, "INSERT INTO items (id, name) VALUES (1, 'dup')", None).await.is_err());
+        let ret = run_query_on_tx(&mut tx, "INSERT INTO items (id, name) VALUES (2, 'new') RETURNING id, name", None)
+            .await
+            .unwrap();
+        assert_eq!(ret.rows, vec![vec![serde_json::json!(2), serde_json::json!("new")]]);
         commit_tx(tx).await.unwrap();
         assert_eq!(scalar_name(&pool).await, "after");
     }

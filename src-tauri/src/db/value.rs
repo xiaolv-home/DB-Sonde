@@ -23,12 +23,26 @@ pub fn exact_integer(v: impl Into<i128>) -> Value {
     }
 }
 
-/// Normalize scalar JSON integers from drivers whose JSON format can emit
-/// unquoted UInt64/Int64 values (e.g. ClickHouse with custom output settings).
+/// Recursively normalize JSON integers (top-level and nested inside JSON/JSONB
+/// objects or arrays) so 64-bit IDs outside JS safe-integer range travel as text
+/// instead of silently rounding in `JSON.parse`.
 pub fn exact_json_integer(value: Value) -> Value {
     match value {
-        Value::Number(ref n) if n.is_i64() => exact_integer(n.as_i64().unwrap()),
-        Value::Number(ref n) if n.is_u64() => exact_integer(n.as_u64().unwrap()),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                exact_integer(i)
+            } else if let Some(u) = n.as_u64() {
+                exact_integer(u)
+            } else {
+                Value::Number(n)
+            }
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(exact_json_integer).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| (k, exact_json_integer(v)))
+                .collect(),
+        ),
         other => other,
     }
 }
@@ -101,7 +115,12 @@ pub fn mysql_value(row: &sqlx::mysql::MySqlRow, i: usize) -> Value {
     // String would turn text IDs, "null", "true", or JSON-looking text into
     // different types, and long IDs would lose precision in the frontend.
     if row.column(i).type_info().name() == "JSON" {
-        return row.try_get::<Value, _>(i).unwrap_or(Value::Null);
+        return row
+            .try_get::<Option<Value>, _>(i)
+            .ok()
+            .flatten()
+            .map(exact_json_integer)
+            .unwrap_or(Value::Null);
     }
     decode_chain!(row, i;
         i64 => exact_integer,
@@ -140,7 +159,7 @@ pub fn pg_value(row: &sqlx::postgres::PgRow, i: usize) -> Value {
         NaiveDateTime => |v: NaiveDateTime| Value::String(v.format("%Y-%m-%d %H:%M:%S%.f").to_string()),
         NaiveDate => |v: NaiveDate| Value::String(v.to_string()),
         NaiveTime => |v: NaiveTime| Value::String(v.to_string()),
-        serde_json::Value => |v: serde_json::Value| v,
+        serde_json::Value => exact_json_integer,
         String => |v: String| Value::String(v),
         Vec<u8> => |v: Vec<u8>| bytes_to_value(v),
     )
@@ -292,5 +311,20 @@ mod bytes_tests {
         let long = vec![0xffu8; 40];
         let Value::String(s) = bytes_to_value(long) else { panic!() };
         assert!(s.starts_with("0xffff") && s.ends_with("(40 bytes)"), "长的真二进制截断并标长度:{s}");
+    }
+
+    #[test]
+    fn nested_unsafe_integers_inside_json_objects_and_arrays_become_exact_strings() {
+        let raw: Value = serde_json::from_str(
+            r#"{"safe":42,"snow":1859283749283749123,"items":[1,9007199254740993,-9007199254740995,1.5]}"#,
+        )
+        .unwrap();
+        let safe = super::exact_json_integer(raw);
+        assert_eq!(safe["safe"], serde_json::json!(42));
+        assert_eq!(safe["snow"], serde_json::json!("1859283749283749123"));
+        assert_eq!(
+            safe["items"],
+            serde_json::json!([1, "9007199254740993", "-9007199254740995", 1.5])
+        );
     }
 }

@@ -392,6 +392,19 @@ const zhCN = {
   "dashboard.widget.text": "文本",
   "dashboard.widget.image": "图片",
   "dashboard.widget.container": "Tab 容器",
+  "grid.filterLabel": "筛选",
+  "grid.removeFilter": "移除这一条",
+  "grid.filterAnd": "AND 连接",
+  "grid.askAi": "AI 解读",
+  "grid.cellValueGroup": "单元格的值",
+  "grid.clipboardGroup": "剪贴板",
+  "grid.customGroup": "自定义",
+  "query.saveEditsBeforeRun": "请先保存或撤销表格修改，再执行 SQL",
+  "query.saveEditsBeforeSwitch": "请先保存或撤销表格修改，再切换结果",
+  "query.stopped": "已停止",
+  "query.cancelledServer": "已停止，数据库已取消这条语句",
+  "query.cancelledLocalOnly": "已停止等待。这种数据库不支持从这里取消，服务器上可能仍在执行",
+  "query.cancelFailed": "已停止等待，但没能通知数据库取消：{error}",
 } as const;
 
 const en: Record<keyof typeof zhCN, string> = {
@@ -789,6 +802,19 @@ const en: Record<keyof typeof zhCN, string> = {
   "dashboard.widget.text": "Text",
   "dashboard.widget.image": "Image",
   "dashboard.widget.container": "Tab container",
+  "grid.filterLabel": "Filter",
+  "grid.removeFilter": "Remove condition",
+  "grid.filterAnd": "AND combined",
+  "grid.askAi": "Explain with AI",
+  "grid.cellValueGroup": "Cell value",
+  "grid.clipboardGroup": "Clipboard",
+  "grid.customGroup": "Custom",
+  "query.saveEditsBeforeRun": "Save or discard pending grid edits before running SQL",
+  "query.saveEditsBeforeSwitch": "Save or discard pending grid edits before switching results",
+  "query.stopped": "Stopped",
+  "query.cancelledServer": "Stopped and cancelled on database server",
+  "query.cancelledLocalOnly": "Stopped waiting; this database does not support server-side cancellation here",
+  "query.cancelFailed": "Stopped waiting, but failed to cancel on server: {error}",
 };
 
 export type TranslationKey = keyof typeof zhCN;

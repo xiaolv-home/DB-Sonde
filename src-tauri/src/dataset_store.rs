@@ -52,13 +52,13 @@ fn validate(dataset: &Value) -> AppResult<String> {
     Ok(id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_datasets(app: AppHandle) -> AppResult<Vec<Value>> {
     let _guard = lock_store()?;
     load_path(&datasets_path(&app)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_dataset(app: AppHandle, dataset: Value) -> AppResult<Value> {
     let _guard = lock_store()?;
     let id = validate(&dataset)?;
@@ -75,7 +75,7 @@ pub fn save_dataset(app: AppHandle, dataset: Value) -> AppResult<Value> {
     Ok(dataset)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_dataset(app: AppHandle, id: String) -> AppResult<()> {
     let _guard = lock_store()?;
     let path = datasets_path(&app)?;

@@ -21,12 +21,13 @@ try {
       export { sqlLiteral } from './src/lib/sql';
       export { buildDatasetSql, normalizeDataset } from './src/features/datasets/domain';
       export { buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate, buildRowInsert, dateLiteral } from './src/lib/sql';
-      export { isReadOnlySql } from './src/features/ai/readonly';`,
+      export { isReadOnlySql } from './src/features/ai/readonly';
+    export { parseEditedValue } from './src/lib/tableEditing';`,
       resolveDir: resolve('.'), loader: 'ts' },
     outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate, buildRowInsert, dateLiteral } = createRequire(import.meta.url)(outfile);
+  const { sqlLiteral, buildDatasetSql, buildRowDelete, splitSqlStatements, scanSql, sqlScanState, stripLeadingComments, isReadOnlySql, checkWhereClause, andWhere, buildDataQuery, buildCountQuery, buildColumnUpdate, buildRowInsert, dateLiteral, parseEditedValue } = createRequire(import.meta.url)(outfile);
 
   // ── 取值转义:以反斜杠结尾的值不能吃掉右引号 ────────────────────────────
   for (const kind of ['mysql', 'mariadb']) {
@@ -293,6 +294,21 @@ try {
     assert.equal(stripLeadingComments('#a\n-- b\n/* c */\n  SELECT 1'), 'SELECT 1', '混着也要剥干净');
     assert.equal(stripLeadingComments('#只有注释'), '', '只有注释就是空');
     assert.equal(stripLeadingComments('SELECT 1 #尾注'), 'SELECT 1 #尾注', '只剥开头,不动中间');
+    const sharedCases = JSON.parse(readFileSync(resolve('scripts/fixtures/sql-leading-noise.json'), 'utf8'));
+    for (const item of sharedCases) {
+      assert.equal(stripLeadingComments(item.sql), item.stripped, `前后端共享样例不一致: ${item.sql}`);
+    }
+    const longHeaderPlsql = `CREATE OR REPLACE /* ${'长版权注释说明 '.repeat(25)} */ PROCEDURE p AS BEGIN UPDATE t SET a = 1; COMMIT; END;\n/\nSELECT 1 FROM dual`;
+    assert.equal(splitSqlStatements(longHeaderPlsql, 'oracle').length, 2, 'Oracle 存储过程头部带超过 120 字符注释时仍按整块拆分');
+    assert.throws(
+      () => parseEditedValue('{"bill_id": 1859283749283749123}', { bill_id: '1' }, { number: 'n', boolean: 'b' }),
+      /精度上限/,
+      'JSON 编辑含超出 53 位精度裸整数时必须拦截,不能被 JSON.parse 静默抹掉末位',
+    );
+    assert.deepEqual(
+      parseEditedValue('{"bill_id": "1859283749283749123", "ok": 42}', { bill_id: '1' }, { number: 'n', boolean: 'b' }),
+      { bill_id: '1859283749283749123', ok: 42 },
+    );
 
     /* AI 的只读闸门:`#说明\nSELECT …` 是最常见的写法,不能被当成不可读运行。 */
     assert.equal(isReadOnlySql('#示例连锁网点实收日汇总\nSELECT a FROM t'), true, '注释挡在前面也要认出 SELECT');

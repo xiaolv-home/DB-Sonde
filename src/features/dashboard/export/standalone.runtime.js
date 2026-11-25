@@ -39,55 +39,23 @@
     node.innerHTML = "";
   }
 
-  // ---- 数值 / 指标工具(对齐 metricUtils) ----
-  function numberValue(v) {
-    if (typeof v === "number") return isFinite(v) ? v : 0;
-    var n = Number(v);
-    return isFinite(n) ? n : 0;
-  }
-  function fmt(v, decimals, grouping) {
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: decimals == null ? 2 : decimals, useGrouping: !!grouping }).format(v);
-  }
-  function metricLabel(m) { return m.unit && m.unit.trim() ? m.name + " (" + m.unit.trim() + ")" : m.name; }
-  // 单位换算 + 前后缀 —— 和在线端 metricUtils.scaledText 保持同一套语义,
-  // 否则同一个看板在线看是「1,234.6 万元」,导出后变成「12,345,678 元」。
-  var SCALE_DIV = { none: 1, wan: 1e4, yi: 1e8 };
-  var SCALE_WORD = { none: "", wan: "万", yi: "亿" };
-  function scaled(v, decimals, unit, nf, grouping) {
-    nf = nf || {};
-    var key = nf.scale || "none";
-    // auto:每个数按自己的量级选一档(跟看板同一条规则)
-    if (key === "auto") { var size = Math.abs(v); key = size >= 1e8 ? "yi" : size >= 1e4 ? "wan" : "none"; }
-    var text = fmt(v / (SCALE_DIV[key] || 1), decimals, grouping);
-    var suffix = nf.suffix == null ? (SCALE_WORD[key] || "") + (unit || "") : nf.suffix;
-    return (nf.prefix || "") + text + suffix;
-  }
-  function metricValue(m, v, nf) { return scaled(v, m.decimals, m.unit || "", nf, false); }
+  // ---- 数值 / 指标工具(共用 metricMath.runtime.js,与在线看板完全同源) ----
+  var MATH = globalThis.__DASH_MATH__;
+  var CROSSHAIR = globalThis.__DASH_CROSSHAIR__;
+  var SCALE_DIV = MATH.SCALE_DIV;
+  var numberValue = MATH.numberValue;
+  var fmt = MATH.formatNumber;
+  var metricLabel = MATH.metricLabel;
+  var scaled = MATH.scaledText;
+  var metricValue = MATH.metricValue;
+  var axisUnit = MATH.axisUnit;
   function colIndex(table, field) { return table.columns.indexOf(field); }
-  function aggregate(rows, m) {
-    var ci = m.ci, vals = [];
-    for (var i = 0; i < rows.length; i++) { var c = rows[i][ci]; if (c != null) vals.push(numberValue(c)); }
-    if (m.aggregation === "count") return vals.length;
-    if (!vals.length) return 0;
-    if (m.aggregation === "avg") { var s = 0; for (var j = 0; j < vals.length; j++) s += vals[j]; return s / vals.length; }
-    if (m.aggregation === "min") return Math.min.apply(null, vals);
-    if (m.aggregation === "max") return Math.max.apply(null, vals);
-    var t = 0; for (var k = 0; k < vals.length; k++) t += vals[k]; return t;
-  }
+  function aggregate(rows, m) { return MATH.aggregateColumn(rows, m.ci, m.aggregation); }
   function withCi(defs, table) {
     return defs.map(function (m) { var c = Object.assign({}, m); c.ci = colIndex(table, m.field); return c; }).filter(function (m) { return m.ci >= 0; });
   }
-  function axisUnit(metrics) {
-    var u = {}; metrics.forEach(function (m) { if (m.unit && m.unit.trim()) u[m.unit.trim()] = 1; });
-    var keys = Object.keys(u); return keys.length === 1 ? keys[0] : "";
-  }
   function buildMetricChoices(displayMode, groups, metrics) {
-    if (displayMode === "group_switch") {
-      return (groups || []).map(function (g) {
-        return { id: g.id, label: g.label || "指标", metrics: metrics.filter(function (m) { return g.metricIds.indexOf(m.key) >= 0; }) };
-      }).filter(function (c) { return c.metrics.length > 0; });
-    }
-    return metrics.map(function (m) { return { id: m.key, label: metricLabel(m), metrics: [m] }; });
+    return MATH.buildMetricChoices(displayMode, groups, metrics, "指标");
   }
   function cssVar(name, fallback) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -102,54 +70,22 @@
      老文件里没带 timeFields 就退回按名字猜,总比完全不认强。 */
   var isTimeDimOf = function (bw) {
     var list = bw && bw.timeFields;
-    if (list && list.length) return function (name) { return list.indexOf(name) >= 0; };
+    if (list && list.length) return function (name) { return list.indexOf(name >= 0 ? name : name) >= 0; };
     return function (name) { return /日期|周|月|年|day|week|month|year|date|time|^dt$/i.test(name); };
   };
 
-  /** v1 风格自由准星:画在 zrender 上,跟随鼠标真实位置,不吸附类目刻度(与在线一致)。 */
-  function installFreeCrosshair(chart, horizontalValueAxis) {
-    var g = echarts.graphic, zr = chart.getZr && chart.getZr();
-    if (!g || !g.Group || !g.Line || !g.Text || !zr) return function () {};
-    var order = { zlevel: 100, z: 100, z2: 100000 };
-    var lineStyle = { stroke: cssVar("--text-3", "#8b96a8"), lineWidth: 1, lineDash: [5, 5], opacity: 0.92 };
-    var group = new g.Group(Object.assign({ silent: true, invisible: true }, order));
-    var vertical = new g.Line(Object.assign({ silent: true, style: lineStyle }, order));
-    var horizontal = new g.Line(Object.assign({ silent: true, style: lineStyle }, order));
-    var label = new g.Text(Object.assign({ silent: true, style: {
-      fill: cssVar("--text", "#e8edf6"), backgroundColor: cssVar("--surface-3", "#1a2230"),
-      borderColor: cssVar("--border-2", "rgba(151,170,203,.24)"), borderWidth: 1, borderRadius: 4,
-      padding: [4, 7], font: "600 11px Inter, PingFang SC, sans-serif", align: "left", verticalAlign: "middle",
-    } }, order));
-    group.add(vertical); group.add(horizontal); group.add(label);
-    zr.add(group);
-    var latest = null, frame = 0;
-    var hide = function () { latest = null; group.attr({ invisible: true }); };
-    var paint = function () {
-      frame = 0;
-      if (!latest || chart.isDisposed()) return;
-      var model = chart.getModel && chart.getModel();
-      var comp = model && model.getComponent("grid", 0);
-      var rect = comp && comp.coordinateSystem && comp.coordinateSystem.getRect && comp.coordinateSystem.getRect();
-      if (!rect) return;
-      var x = latest.x, y = latest.y;
-      if (x < rect.x || x > rect.x + rect.width || y < rect.y || y > rect.y + rect.height) { hide(); return; }
-      var coord = chart.convertFromPixel({ gridIndex: 0 }, [x, y]);
-      var value = Number(Array.isArray(coord) ? coord[horizontalValueAxis ? 0 : 1] : coord);
-      vertical.setShape({ x1: x, y1: rect.y, x2: x, y2: rect.y + rect.height });
-      horizontal.setShape({ x1: rect.x, y1: y, x2: rect.x + rect.width, y2: y });
-      label.setStyle({
-        text: isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 2, useGrouping: false }) : "",
-        x: horizontalValueAxis ? x : rect.x + 2,
-        y: horizontalValueAxis ? rect.y + rect.height - 2 : y,
-        align: horizontalValueAxis ? "center" : "left",
-        verticalAlign: horizontalValueAxis ? "bottom" : "middle",
-      });
-      group.attr({ invisible: false });
-    };
-    var move = function (e) { latest = { x: e.offsetX, y: e.offsetY }; if (!frame) frame = requestAnimationFrame(paint); };
-    zr.on("mousemove", move);
-    zr.on("globalout", hide);
-    return function () { if (frame) cancelAnimationFrame(frame); zr.off("mousemove", move); zr.off("globalout", hide); zr.remove(group); };
+  /** v1 风格自由准星:委托共用的 freeCrosshair.runtime.js(与在线一致)。 */
+  function installFreeCrosshair(chart, horizontalValueAxis, nf, decimals, grouping) {
+    return CROSSHAIR.installFreeCrosshair(echarts, chart, {
+      horizontalValueAxis: horizontalValueAxis,
+      lineColor: cssVar("--text-3", "#8b96a8"),
+      labelColor: cssVar("--text", "#e8edf6"),
+      labelBackground: cssVar("--surface-3", "#1a2230"),
+      labelBorder: cssVar("--border-2", "rgba(151,170,203,.24)"),
+      formatValue: nf
+        ? function (v) { return scaled(v, decimals == null ? 2 : decimals, "", nf, !!grouping); }
+        : undefined,
+    });
   }
 
   // ---- 每个组件的 UI 状态(下钻路径 / 切换项) ----
@@ -535,7 +471,14 @@
       var inst = echarts.init(holder, null, { renderer: "canvas" });
       inst.setOption(option);
       if (bw.widget.type === "line" || bw.widget.type === "bar") {
-        installFreeCrosshair(inst, bw.widget.type === "bar" && (bw.widget.options.chart || {}).barOrientation === "horizontal");
+        var co2 = bw.widget.options.chart || {};
+        installFreeCrosshair(
+          inst,
+          bw.widget.type === "bar" && co2.barOrientation === "horizontal",
+          bw.widget.options.numberFormat,
+          bw.widget.options.decimals,
+          co2.grouping === true,
+        );
       }
       if (canDeeper) {
         inst.on("click", function (params) {

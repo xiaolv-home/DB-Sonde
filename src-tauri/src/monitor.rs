@@ -29,20 +29,54 @@ pub fn page_url(raw: &str) -> Result<tauri::Url, String> {
         return Err("不要把账号密码写在网址里,打开页面后在页面上登录".into());
     }
     let host = url.host_str().unwrap_or("").trim_end_matches('.');
+    let loopback = matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    let blocked_port = matches!(url.port(), Some(1420 | crate::ai::BUILTIN_PORT));
     if matches!(host, "tauri.localhost" | "ipc.localhost" | "asset.localhost")
-        || (url.port() == Some(1420) && matches!(host, "localhost" | "127.0.0.1" | "[::1]")) {
+        || (loopback && blocked_port)
+    {
         return Err("不能嵌本软件自己的页面".into());
     }
     Ok(url)
 }
 
 const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+const MAX_PROBE_REDIRECTS: usize = 10;
 
-#[derive(Serialize)]
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct ProbeRedirectBlocked(String);
+
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Embeddability {
     embeddable: bool,
     reason: Option<String>,
+}
+
+fn allows_tauri_ancestor(raw: &str) -> bool {
+    let token = raw.trim().to_ascii_lowercase();
+    if token == "*" || token == "tauri:" {
+        return true;
+    }
+    if let Some(rest) = token.strip_prefix("tauri://") {
+        let authority = rest.split('/').next().unwrap_or("");
+        let host = authority.split(':').next().unwrap_or("").trim_end_matches('.');
+        return matches!(host, "localhost" | "tauri.localhost" | "*");
+    }
+    let rest = token
+        .strip_prefix("http://")
+        .or_else(|| token.strip_prefix("https://"))
+        .unwrap_or(token.as_str());
+    if rest.contains("://") {
+        return false;
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = authority.split(':').next().unwrap_or("").trim_end_matches('.');
+    matches!(host, "tauri.localhost" | "*.localhost")
 }
 
 /// 按响应头判断这个页面准不准被嵌入。只看 X-Frame-Options 和 CSP 的 frame-ancestors:
@@ -58,7 +92,7 @@ pub fn judge_headers(x_frame: Option<&str>, csp: Option<&str>) -> Embeddability 
             let mut parts = directive.split_whitespace();
             if parts.next().is_some_and(|name| name.eq_ignore_ascii_case("frame-ancestors")) {
                 let sources: Vec<String> = parts.map(|s| s.to_ascii_lowercase()).collect();
-                let allows_app = sources.iter().any(|s| s == "*" || s == "tauri:" || s.starts_with("tauri://") || s.contains("tauri.localhost"));
+                let allows_app = sources.iter().any(|s| allows_tauri_ancestor(s));
                 if !allows_app {
                     return Embeddability { embeddable: false, reason: Some(format!("页面的 frame-ancestors 只允许 {}", if sources.is_empty() { "'none'".into() } else { sources.join(" ") })) };
                 }
@@ -66,6 +100,18 @@ pub fn judge_headers(x_frame: Option<&str>, csp: Option<&str>) -> Embeddability 
         }
     }
     Embeddability { embeddable: true, reason: None }
+}
+
+fn probe_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= MAX_PROBE_REDIRECTS {
+            return attempt.error(ProbeRedirectBlocked("重定向次数过多".into()));
+        }
+        match page_url(attempt.url().as_str()) {
+            Ok(_) => attempt.follow(),
+            Err(reason) => attempt.error(ProbeRedirectBlocked(reason)),
+        }
+    })
 }
 
 /// 打开前先看一眼对方允不允许被嵌入,不允许就让界面直接给「在独立窗口打开」,
@@ -78,6 +124,7 @@ pub async fn monitor_probe(url: String) -> Result<Embeddability, String> {
         .user_agent(BROWSER_UA)
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
+        .redirect(probe_redirect_policy())
         .build()
         .map_err(|e| e.to_string())?;
     match client.get(target).header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8").send().await {
@@ -85,7 +132,16 @@ pub async fn monitor_probe(url: String) -> Result<Embeddability, String> {
             let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
             Ok(judge_headers(header("x-frame-options").as_deref(), header("content-security-policy").as_deref()))
         }
-        Err(_) => Ok(Embeddability { embeddable: true, reason: None }),
+        Err(err) => {
+            let mut src: Option<&dyn std::error::Error> = std::error::Error::source(&err);
+            while let Some(inner) = src {
+                if let Some(blocked) = inner.downcast_ref::<ProbeRedirectBlocked>() {
+                    return Err(blocked.0.clone());
+                }
+                src = inner.source();
+            }
+            Ok(Embeddability { embeddable: true, reason: None })
+        }
     }
 }
 
@@ -117,7 +173,18 @@ mod tests {
     fn only_plain_http_pages_are_accepted() {
         assert!(page_url("http://192.0.2.10:18086").is_ok());
         assert!(page_url("https://example.com/dashboard?x=1").is_ok());
-        for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "http://user:pw@192.0.2.10", "ftp://x", "not a url", "http://tauri.localhost", "http://127.0.0.1:1420"] {
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "tauri://localhost",
+            "http://user:pw@192.0.2.10",
+            "ftp://x",
+            "not a url",
+            "http://tauri.localhost",
+            "http://127.0.0.1:1420",
+            "http://127.0.0.1:8899",
+            "http://localhost:8899/v1",
+        ] {
             assert!(page_url(bad).is_err(), "{bad} 应该被拒");
         }
     }
@@ -137,8 +204,24 @@ mod tests {
         assert!(!judge_headers(Some("sameorigin"), None).embeddable);
         assert!(!judge_headers(None, Some("default-src 'self'; frame-ancestors 'none'")).embeddable);
         assert!(!judge_headers(None, Some("frame-ancestors 'self' https://a.example")).embeddable);
+        assert!(!judge_headers(None, Some("frame-ancestors https://fake-tauri.localhost.evil.com")).embeddable);
+        assert!(!judge_headers(None, Some("frame-ancestors https://tauri.localhost.evil.com")).embeddable);
         assert!(judge_headers(None, Some("default-src 'self'; frame-ancestors 'self' tauri://localhost http://tauri.localhost")).embeddable);
         assert!(judge_headers(None, Some("frame-ancestors *")).embeddable);
         assert!(judge_headers(None, Some("default-src 'self'")).embeddable, "没写 frame-ancestors 就不限制");
+    }
+
+    #[tokio::test]
+    async fn probe_rejects_redirect_to_blocked_loopback_port() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok(req) = server.recv() {
+                let loc = tiny_http::Header::from_bytes(&b"Location"[..], &b"http://127.0.0.1:8899/v1/models"[..]).unwrap();
+                let _ = req.respond(tiny_http::Response::empty(302).with_header(loc));
+            }
+        });
+        let err = super::monitor_probe(format!("http://127.0.0.1:{port}/start")).await.unwrap_err();
+        assert!(err.contains("不能嵌本软件自己的页面"), "重定向到本机受保护端口应被拒绝,实际:{err}");
     }
 }

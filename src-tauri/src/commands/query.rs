@@ -34,6 +34,14 @@ pub async fn run_query(
         let mut session = cell.lock().await;
         let tx = session.transaction(&target)?;
         crate::readonly::validate_manual_sql(matches!(tx, db::SessionTx::MySql(_)), &sql)?;
+        if let Some(secs) = timeout_secs.filter(|&s| s > 0) {
+            return tokio::time::timeout(
+                std::time::Duration::from_secs(secs.clamp(1, 3600)),
+                db::run_query_on_tx(tx, &sql, max_rows),
+            )
+            .await
+            .map_err(|_| AppError::msg(format!("查询超过 {secs} 秒已中止，当前语句已回滚至保存点，手动事务内先前的修改仍保留")))?;
+        }
         return db::run_query_on_tx(tx, &sql, max_rows).await;
     }
     let (_kind, pool) = pool_for_database(&state, &conn_id, database.as_deref()).await?;
@@ -58,8 +66,12 @@ pub async fn cancel_query(
 async fn resolve_open_conn(state: &State<'_, AppState>, conn: &str) -> AppResult<String> {
     let guard = state.conns.read().await;
     if conn.is_empty() {
+        if guard.len() == 1 {
+            if let Some(only) = guard.keys().next() {
+                return Ok(only.clone());
+            }
+        }
         return match guard.len() {
-            1 => Ok(guard.keys().next().unwrap().clone()),
             0 => Err(AppError::msg("没有已连接的数据库,先在左侧连上一个")),
             _ => {
                 let names: Vec<String> = guard.values().map(|c| c.config.name.clone()).collect();

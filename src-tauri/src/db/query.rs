@@ -111,6 +111,111 @@ pub async fn run_read_only_query(
     Ok(result)
 }
 
+/// Hard safety ceiling when `max_rows` is omitted so an unbounded `SELECT *`
+/// on a multi-million-row table cannot OOM the Rust process or WebView IPC.
+pub const DEFAULT_MAX_ROWS_CEILING: usize = 200_000;
+
+/// Does a DML statement carry a top-level `RETURNING` clause (outside quotes,
+/// comments, dollar-quoted strings, and subqueries)?
+fn has_top_level_returning(sql: &str) -> bool {
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    let mut depth = 0usize;
+    let mut word_start: Option<usize> = None;
+
+    let check_word = |start: Option<usize>, end: usize, depth: usize| -> bool {
+        if depth != 0 {
+            return false;
+        }
+        if let Some(s) = start {
+            return sql[s..end].eq_ignore_ascii_case("RETURNING");
+        }
+        false
+    };
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        let is_word = b.is_ascii_alphanumeric() || b == b'_';
+        if is_word {
+            if word_start.is_none() {
+                word_start = Some(i);
+            }
+            i += 1;
+            continue;
+        }
+        if check_word(word_start.take(), i, depth) {
+            return true;
+        }
+        match (b, next) {
+            (b'-', Some(b'-')) | (b'#', _) => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            (b'/', Some(b'*')) => {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+            }
+            (b'\'' | b'"' | b'`', _) => {
+                let q = b;
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' && q != b'`' {
+                        i += 2;
+                        continue;
+                    }
+                    if bytes[i] == q {
+                        if bytes.get(i + 1) == Some(&q) {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            (b'$', _) => {
+                // Skip PostgreSQL $tag$...$tag$ or $$...$$ dollar-quoted blocks.
+                let mut end = i + 1;
+                while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                    end += 1;
+                }
+                if end < bytes.len() && bytes[end] == b'$' && (end == i + 1 || !bytes[i + 1].is_ascii_digit()) {
+                    let tag = &bytes[i..=end];
+                    i = end + 1;
+                    while i + tag.len() <= bytes.len() {
+                        if &bytes[i..i + tag.len()] == tag {
+                            i += tag.len();
+                            break;
+                        }
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            (b'(', _) => {
+                depth += 1;
+                i += 1;
+            }
+            (b')', _) => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    check_word(word_start, bytes.len(), depth)
+}
+
 /// Does this statement return a result set we should render as a grid?
 pub(crate) fn returns_rows(sql: &str) -> bool {
     let trimmed = strip_leading_noise(sql);
@@ -119,7 +224,7 @@ pub(crate) fn returns_rows(sql: &str) -> bool {
         .take_while(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()
         .to_ascii_uppercase();
-    matches!(
+    if matches!(
         first.as_str(),
         "SELECT"
             | "WITH"
@@ -130,7 +235,13 @@ pub(crate) fn returns_rows(sql: &str) -> bool {
             | "PRAGMA"
             | "VALUES"
             | "TABLE"
-    )
+    ) {
+        return true;
+    }
+    if matches!(first.as_str(), "INSERT" | "UPDATE" | "DELETE" | "REPLACE" | "MERGE") {
+        return has_top_level_returning(trimmed);
+    }
+    false
 }
 
 /// Strip leading whitespace, `--` line comments and `/* */` block comments so
@@ -178,8 +289,7 @@ pub async fn run_query(
     sql: &str,
     max_rows: Option<usize>,
 ) -> AppResult<QueryResult> {
-    // No cap when the caller passes None — the editor returns every row.
-    let cap = max_rows.unwrap_or(usize::MAX);
+    let cap = max_rows.unwrap_or(DEFAULT_MAX_ROWS_CEILING);
     let started = Instant::now();
 
     // Oracle runs on the synchronous ODPI-C driver, handled end-to-end there.
@@ -384,13 +494,40 @@ mod statement_shape_tests {
         assert!(!returns_rows("#注释\nUPDATE t SET a = 1"));
         assert!(!returns_rows("INSERT INTO t VALUES (1)"));
         assert!(!returns_rows("#只有注释没有语句"));
+        assert!(!returns_rows("UPDATE t SET note = 'RETURNING *' WHERE id = 1"));
+        assert!(!returns_rows("INSERT INTO t SELECT * FROM (DELETE FROM s RETURNING id)"));
+    }
+
+    #[test]
+    fn dml_with_top_level_returning_is_rendered_as_rows() {
+        assert!(returns_rows("INSERT INTO t (name) VALUES ('a') RETURNING id, name"));
+        assert!(returns_rows("UPDATE t SET a = 2 WHERE id = 1 returning *"));
+        assert!(returns_rows("DELETE FROM t WHERE id IN (SELECT id FROM old) RETURNING id"));
+    }
+
+    #[test]
+    fn shared_leading_noise_fixtures_match_frontend_contract() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            sql: String,
+            stripped: String,
+            #[serde(rename = "returnsRows")]
+            returns_rows: bool,
+        }
+        let raw = include_str!("../../../scripts/fixtures/sql-leading-noise.json");
+        let cases: Vec<Case> = serde_json::from_str(raw).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_eq!(super::strip_leading_noise(&case.sql), case.stripped, "strip mismatch: {:?}", case.sql);
+            assert_eq!(super::returns_rows(&case.sql), case.returns_rows, "returns_rows mismatch: {:?}", case.sql);
+        }
     }
 }
 
 /// Editor context is passed explicitly; no driver parses SQL comments to recover ownership.
 pub async fn run_query_with_context(pool: &DbPool, sql: &str, max_rows: Option<usize>, run_id: Option<&str>, timeout_secs: Option<u64>) -> AppResult<QueryResult> {
     if let DbPool::ClickHouse(handle) = pool {
-        return clickhouse_driver::run_query_with_options(handle, sql, max_rows.unwrap_or(usize::MAX),
+        return clickhouse_driver::run_query_with_options(handle, sql, max_rows.unwrap_or(DEFAULT_MAX_ROWS_CEILING),
             clickhouse_driver::QueryOptions::new(run_id, timeout_secs)).await;
     }
     run_query(pool, sql, max_rows).await

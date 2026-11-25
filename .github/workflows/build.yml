@@ -61,11 +61,15 @@ jobs:
 
       - run: npm ci
 
-      # 守卫跑一次就够(和平台无关),放在 Apple Silicon 那条上。
-      # 其余平台用 --no-check 跳过,避免三倍时间。
+      # 守卫在 Apple Silicon 与 Windows 各跑一遍:覆盖 POSIX 与 Windows 路径分隔符差异;
+      # 仅同在 macos-15 交叉编译的 Intel 目标跳过重复执行。
       - name: 守卫与类型检查
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: matrix.target != 'x86_64-apple-darwin'
         run: npm run check
+
+      - name: Rust Clippy 静态检查
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
 
       - name: 前端构建
         run: npx vite build
@@ -95,10 +99,14 @@ jobs:
           codesign -dv "$app" 2>&1 | grep -q 'Sealed Resources version=2'
           hdiutil detach "$mnt" >/dev/null
 
-      # runner 的架构就是目标架构,不用 --target:带上它 cargo 会进"交叉编译"模式,
-      # 构建脚本和 proc-macro 产出的 DLL 落在 host 的 target/debug,测试 exe 却在
-      # target/<triple>/debug,Windows 上加载期就炸(0xc0000139)。
-      - name: Rust 单元测试
+      # macOS 上带 --target 以确保交叉编译的 x86_64 产物也真正通过单测(Rosetta 2 执行);
+      # Windows runner 本机架构即目标架构,不带 --target 避免 proc-macro DLL 目录错位(0xc0000139)。
+      - name: Rust 单元测试 (macOS)
+        if: runner.os == 'macOS'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --target ${{ matrix.target }}
+
+      - name: Rust 单元测试 (Windows)
+        if: runner.os == 'Windows'
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       # 上一步在 Windows 上挂过 STATUS_ENTRYPOINT_NOT_FOUND —— 那是 DLL 找到了
@@ -118,10 +126,8 @@ jobs:
           if ($dumpbin) { & $dumpbin.FullName /dependents $exe.FullName }
           else { Write-Output 'dumpbin not found' }
 
-      # 即使单元测试挂了也要传产物 —— Windows 上应用构建是成功的,
-      # 挂的是测试 exe 的加载(0xc0000139)。不传的话就没法下载来实际试。
+      # 只有构建、签名与单元测试全部通过才上传正式发布产物,严禁带病发版。
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: db-sonde-${{ matrix.target }}
           path: |

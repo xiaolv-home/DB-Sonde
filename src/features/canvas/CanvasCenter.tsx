@@ -6,7 +6,7 @@ import AssetShell from "../assets/AssetShell";
 import { api } from "../../lib/api";
 import { inTauri } from "../../lib/mockBackend";
 import { useApp } from "../../store/appStore";
-import { canvasRepository, requestCanvasFocus } from "./canvasRepository";
+import { canvasRepository, loadCanvasesAsync, requestCanvasFocus } from "./canvasRepository";
 import "./canvas.css";
 import type { CanvasDoc } from "./canvasModel";
 import { useCanvasCenter } from "./canvasCenterStore";
@@ -25,20 +25,33 @@ export default function CanvasCenter() {
   const open = useCanvasCenter((s) => s.open);
   const [docs, setDocs] = useState<CanvasDoc[]>([]);
   const [inline, setInline] = useState(false);
-  // 每次打开都重新读:画布在另一个窗口里改,这边列表要跟上
-  useEffect(() => { if (open) setDocs(canvasRepository.load()); }, [open]);
+  const refreshDocs = () => { void loadCanvasesAsync().then(setDocs); };
+  // 每次打开都重新读;另一个窗口保存时会发 Tauri canvas://updated 事件(非桌面端退回 storage 事件)
+  useEffect(() => { if (open) refreshDocs(); }, [open]);
   useEffect(() => {
     if (!open) return;
+    let unlisten: (() => void) | undefined;
+    if (inTauri) {
+      void import("@tauri-apps/api/event").then(({ listen }) =>
+        listen("canvas://updated", refreshDocs),
+      ).then((fn) => { unlisten = fn; });
+    }
     const onStorage = (e: StorageEvent) => { if (e.key === "sonde.lineageCanvases.v1") setDocs(canvasRepository.load()); };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      unlisten?.();
+      window.removeEventListener("storage", onStorage);
+    };
   }, [open]);
 
   /** 打开画布(id 给了就切到那一张;"new" = 新建一张) */
   const launch = (id?: string) => {
-    if (id) requestCanvasFocus(id);
-    if (!inTauri) { setInline(true); return; }
-    api.openCanvasWindow().catch((error) => useApp.getState().showToast({ kind: "error", text: `画布窗口打开失败:${String(error)}` }));
+    if (!inTauri) {
+      if (id) requestCanvasFocus(id);
+      setInline(true);
+      return;
+    }
+    api.openCanvasWindow(id).catch((error) => useApp.getState().showToast({ kind: "error", text: `画布窗口打开失败:${String(error)}` }));
   };
 
   if (!open) return null;
@@ -71,7 +84,7 @@ export default function CanvasCenter() {
       </div>
       {inline && (
         <Suspense fallback={null}>
-          <CanvasOverlay onClose={() => { setInline(false); setDocs(canvasRepository.load()); }} />
+          <CanvasOverlay onClose={() => { setInline(false); refreshDocs(); }} />
         </Suspense>
       )}
     </AssetShell>

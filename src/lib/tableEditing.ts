@@ -37,6 +37,33 @@ import type {
  * 拿 Number() 一转 `100.00` 就成了 `100`,金额列会悄悄丢小数位。
  * 所以 columnIsNumeric 只用来**放行**(非数字列别拦),不用来收紧。
  */
+/** 检查 JSON 文本在引号外是否含有超出 JS 安全整数范围(±2^53-1)的裸整数。
+ *  `JSON.parse` 会静默把 19 位雪花 ID 四舍五入抹掉末位 —— 宁可报错提示加引号或走 SQL,绝不把错数写回库里。 */
+function assertSafeJsonIntegers(raw: string): void {
+  let inString = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      if (ch === "\\") { i += 1; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "-" || (ch >= "0" && ch <= "9")) {
+      const m = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(raw.slice(i));
+      if (m) {
+        const token = m[0];
+        if (/^-?\d+$/.test(token) && token.replace(/^-/, "").length >= 16) {
+          const big = BigInt(token);
+          if (big > 9007199254740991n || big < -9007199254740991n) {
+            throw new Error(`JSON 中包含超出 53 位精度上限的裸整数(${token}),直接解析会丢失末位精度;请将其改为字符串或使用 SQL 更新`);
+          }
+        }
+        i += token.length - 1;
+      }
+    }
+  }
+}
 export function parseEditedValue(
   input: string,
   original: Cell,
@@ -69,6 +96,7 @@ export function parseEditedValue(
   }
   if (typeof original === "object" && original !== null) {
     if (blank) return null;
+    assertSafeJsonIntegers(input);
     return JSON.parse(input) as object;
   }
   return input;

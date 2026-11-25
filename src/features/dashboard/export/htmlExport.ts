@@ -14,6 +14,9 @@ import pieGeometrySource from "../pieGeometry.runtime.js?inline-min";
 import tooltipTextSource from "../tooltipText.runtime.js?inline-min";
 /* 散点 / 雷达 / 热力 / 矩形树 / 瀑布 / 排行榜的配置,跟看板共用同一份。 */
 import moreChartsSource from "../moreCharts.runtime.js?inline-min";
+/* 数值换算 / 分组聚合 / 自由准星与在线看板共用同一份源码,避免双轨走散。 */
+import metricMathSource from "../metricMath.runtime.js?inline-min";
+import freeCrosshairSource from "../freeCrosshair.runtime.js?inline-min";
 
 /** 离线看板页面的样式(主题感知:跟随系统深浅色)。内嵌进导出的 HTML。 */
 const STANDALONE_CSS = `
@@ -173,6 +176,8 @@ export async function buildDashboardHtml(baked: BakedDashboard): Promise<string>
 <script>${labelOrderSource}</script>
 <script>${pieGeometrySource}</script>
 <script>${tooltipTextSource}</script>
+<script>${metricMathSource}</script>
+<script>${freeCrosshairSource}</script>
 <script>${moreChartsSource}</script>
 <script>window.__DASH__=${json};</script>
 <script>${runtimeSource}</script>

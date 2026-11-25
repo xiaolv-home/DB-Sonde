@@ -1,8 +1,10 @@
+import { api } from "../../lib/api";
+import { inTauri } from "../../lib/mockBackend";
 import { isRecord, storedRepository } from "../../lib/storedRepository";
 import { writeStoredJson } from "../../lib/jsonStorage";
 import { isCanvasEdge, isCanvasList, isCanvasNode, type CanvasDoc, type CanvasEdge, type CanvasNode } from "./canvasModel";
 
-/** 链路画布存在本机。格式不对的整份不认(由 jsonStorage 保留原文并提示),不会悄悄丢图。 */
+/** 浏览器预览 / 单测下的本地存储兜底;桌面端主存储位于应用配置目录 lineage-canvases.json(不受 5MB localStorage 限制)。 */
 export const canvasRepository = storedRepository<CanvasDoc[]>(
   "sonde.lineageCanvases.v1", () => [], isCanvasList,
 );
@@ -24,6 +26,59 @@ const isHistory = (v: unknown): v is CanvasHistory =>
 export const canvasHistoryRepository = storedRepository<CanvasHistory>(
   "sonde.lineageCanvases.history.v1", () => ({}), isHistory,
 );
+
+/** 从桌面端原子 JSON 文件读取画布列表;首次升级若文件不存在但 localStorage 有旧画布,自动无损迁移到文件存储。 */
+export async function loadCanvasesAsync(): Promise<CanvasDoc[]> {
+  if (!inTauri) return canvasRepository.load();
+  try {
+    const raw = await api.loadCanvases();
+    if (raw !== null && raw !== undefined) {
+      return isCanvasList(raw) ? raw : [];
+    }
+    const legacy = canvasRepository.load();
+    if (legacy.length > 0) {
+      await api.saveCanvases(legacy);
+      try { localStorage.removeItem("sonde.lineageCanvases.v1"); } catch { /* ignore */ }
+    }
+    return legacy;
+  } catch {
+    return canvasRepository.load();
+  }
+}
+
+export async function saveCanvasesAsync(docs: CanvasDoc[]): Promise<void> {
+  if (!inTauri) {
+    canvasRepository.save(docs);
+    return;
+  }
+  await api.saveCanvases(docs);
+}
+
+export async function loadCanvasHistoryAsync(): Promise<CanvasHistory> {
+  if (!inTauri) return canvasHistoryRepository.load();
+  try {
+    const raw = await api.loadCanvasHistory();
+    if (raw !== null && raw !== undefined) {
+      return isHistory(raw) ? raw : {};
+    }
+    const legacy = canvasHistoryRepository.load();
+    if (Object.keys(legacy).length > 0) {
+      await api.saveCanvasHistory(legacy);
+      try { localStorage.removeItem("sonde.lineageCanvases.history.v1"); } catch { /* ignore */ }
+    }
+    return legacy;
+  } catch {
+    return canvasHistoryRepository.load();
+  }
+}
+
+export async function saveCanvasHistoryAsync(history: CanvasHistory): Promise<void> {
+  if (!inTauri) {
+    canvasHistoryRepository.save(history);
+    return;
+  }
+  await api.saveCanvasHistory(history);
+}
 
 const sameContent = (a: CanvasVersion, nodes: CanvasNode[], edges: CanvasEdge[]) =>
   JSON.stringify([a.nodes, a.edges]) === JSON.stringify([nodes, edges]);
@@ -47,14 +102,19 @@ export function saveDraft(doc: CanvasDoc): void {
   catch { /* 草稿也写不进去就只能靠界面上的提示了 */ }
 }
 
-/* 「打开这一张」:主窗口点了某张画布,画布窗口(另一个页面)切过去。走 localStorage:
-   画布窗口刚打开时读一次;已经开着的,靠 storage 事件收到。"new" = 新建一张。
-   只认 30 秒内的请求,免得下次打开画布莫名其妙跳到很久以前点过的那张。 */
+/* 桌面端优先走 Tauri 原生窗口注入(__SONDE_CANVAS_FOCUS__)与 canvas://focus 事件;
+   localStorage 仅保留给浏览器内联预览模式兜底。 */
 export const CANVAS_FOCUS_KEY = "sonde.lineageCanvases.focus";
 export function requestCanvasFocus(id: string): void {
   try { localStorage.setItem(CANVAS_FOCUS_KEY, JSON.stringify({ id, at: Date.now() })); } catch { /* 写不进去就只是不切过去 */ }
 }
 export function takeCanvasFocus(now = Date.now()): string | null {
+  const injected = (globalThis as { __SONDE_CANVAS_FOCUS__?: unknown }).__SONDE_CANVAS_FOCUS__;
+  if (typeof injected === "string" && injected.length > 0) {
+    (globalThis as { __SONDE_CANVAS_FOCUS__?: unknown }).__SONDE_CANVAS_FOCUS__ = null;
+    try { localStorage.removeItem(CANVAS_FOCUS_KEY); } catch { /* ignore */ }
+    return injected;
+  }
   try {
     const raw = localStorage.getItem(CANVAS_FOCUS_KEY);
     if (!raw) return null;

@@ -14,6 +14,10 @@ use tauri::{AppHandle, State};
 use tokio::sync::oneshot;
 
 const CANCELLED: &str = "已取消";
+/// Maximum non-streaming HTTP response payload accepted into RAM (16 MB).
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// Default per-chunk idle timeout for SSE chat streams (allows long reasoning pauses while catching dead sockets).
+const DEFAULT_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
 mod inflight;
 mod redaction;
@@ -122,10 +126,22 @@ async fn execute(
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|value| value.to_str().ok())
         .map(|value| scrub(value, api_key));
-    let text = response
-        .text()
-        .await
-        .map_err(|err| public_error(&err, api_key))?;
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_RESPONSE_BYTES as u64)
+    {
+        return Err(AppError::msg("模型响应超过 16 MB 安全上限"));
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|err| public_error(&err, api_key))?;
+        if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(AppError::msg("模型响应超过 16 MB 安全上限"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let text = String::from_utf8_lossy(&bytes);
     Ok(ProxyHttpResponse {
         status,
         body: scrub(&text, api_key),
@@ -144,10 +160,18 @@ async fn stream_chat<F>(
 where
     F: FnMut(ChatStreamEvent) -> AppResult<()>,
 {
-    let response = request_builder(client, "POST", url, api_key, Some(body), timeout_ms)?
-        .send()
-        .await
-        .map_err(|err| public_error(&err, api_key))?;
+    let idle_timeout = if timeout_ms > 0 {
+        Duration::from_millis(timeout_ms.min(600_000))
+    } else {
+        DEFAULT_STREAM_IDLE_TIMEOUT
+    };
+    let response = tokio::time::timeout(
+        idle_timeout,
+        request_builder(client, "POST", url, api_key, Some(body), 0)?.send(),
+    )
+    .await
+    .map_err(|_| AppError::msg("流式响应连接超时"))?
+    .map_err(|err| public_error(&err, api_key))?;
     if !response.status().is_success() {
         return Err(AppError::msg(format!(
             "HTTP {}",
@@ -157,7 +181,13 @@ where
     let mut stream = response.bytes_stream();
     let mut pending = Vec::new();
     let mut scrubber = Scrubber::new(api_key);
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let next = tokio::time::timeout(idle_timeout, stream.next())
+            .await
+            .map_err(|_| AppError::msg("流式响应超时:长时间未收到模型数据"))?;
+        let Some(chunk) = next else {
+            break;
+        };
         let chunk = chunk.map_err(|err| public_error(&err, api_key))?;
         let text = take_utf8(&mut pending, &chunk);
         let visible = scrubber.push(&text);

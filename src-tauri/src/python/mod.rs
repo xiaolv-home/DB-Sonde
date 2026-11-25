@@ -20,11 +20,15 @@ pub mod workspace;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use assist::JediProc;
 
 use crate::paths::home_dir;
+
+pub(super) fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Default)]
 pub struct PyRuntime {
@@ -38,6 +42,28 @@ pub struct PyRuntime {
     bridge: Mutex<Option<(u16, String)>>,
     /// Persistent jedi completion server (stdin/stdout line protocol).
     jedi: Mutex<Option<JediProc>>,
+}
+
+impl PyRuntime {
+    /// Stop all running Python scripts and the persistent jedi server on app exit.
+    pub fn shutdown(&self) {
+        if let Some(jp) = lock_unpoisoned(&self.jedi).take() {
+            jp.shutdown();
+        }
+        let running: Vec<Arc<Mutex<Child>>> = lock_unpoisoned(&self.procs)
+            .drain()
+            .map(|(_, shared)| shared)
+            .collect();
+        for shared in running {
+            run::force_kill_shared_child(&shared);
+        }
+    }
+}
+
+impl Drop for PyRuntime {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
 }
 
 /// The `sonde` Python module written into the runtime's pylib dir. It POSTs

@@ -165,7 +165,7 @@ print(pd.DataFrame({\"n\": [1, 2, 3], \"n2\": [1, 4, 9]}))\n";
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn py_delete_file(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !in_workspace(&p) {
@@ -174,7 +174,7 @@ pub fn py_delete_file(path: String) -> Result<(), String> {
     std::fs::remove_file(&p).map_err(|e| format!("删除失败:{e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn py_rename_file(path: String, new_name: String) -> Result<PyFile, String> {
     let p = PathBuf::from(&path);
     if !in_workspace(&p) {

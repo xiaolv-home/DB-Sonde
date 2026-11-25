@@ -10,12 +10,12 @@ use crate::store;
 
 // --- saved connection profiles --------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_connections(app: AppHandle) -> AppResult<Vec<ConnectionConfig>> {
     store::load_connections(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_connection(app: AppHandle, config: ConnectionConfig) -> AppResult<ConnectionConfig> {
     let mut list = store::load_connections(&app)?;
     if let Some(existing) = list.iter_mut().find(|c| c.id == config.id) {

@@ -1,0 +1,42 @@
+[
+  {
+    "sql": "#示例连锁网点实收日汇总-点评平台\nSELECT FLOW_DATE FROM t",
+    "stripped": "SELECT FLOW_DATE FROM t",
+    "returnsRows": true
+  },
+  {
+    "sql": "  # 带缩进的注释\n  SELECT 1",
+    "stripped": "SELECT 1",
+    "returnsRows": true
+  },
+  {
+    "sql": "#a\n-- b\n/* c */\n  SELECT 1",
+    "stripped": "SELECT 1",
+    "returnsRows": true
+  },
+  {
+    "sql": "-- 说明\nWITH x AS (SELECT 1) SELECT * FROM x",
+    "stripped": "WITH x AS (SELECT 1) SELECT * FROM x",
+    "returnsRows": true
+  },
+  {
+    "sql": "#只有注释没有语句",
+    "stripped": "",
+    "returnsRows": false
+  },
+  {
+    "sql": "/* 未闭合块注释 SELECT 1",
+    "stripped": "",
+    "returnsRows": false
+  },
+  {
+    "sql": "#注释\nUPDATE t SET a = 1",
+    "stripped": "UPDATE t SET a = 1",
+    "returnsRows": false
+  },
+  {
+    "sql": "SELECT 1 #尾注不剥离",
+    "stripped": "SELECT 1 #尾注不剥离",
+    "returnsRows": true
+  }
+]

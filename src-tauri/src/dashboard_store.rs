@@ -94,13 +94,13 @@ pub async fn dashboard_storage_path(app: AppHandle) -> AppResult<String> {
     Ok(dashboards_path(&app)?.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_dashboards(app: AppHandle) -> AppResult<Vec<Value>> {
     let _guard = lock_store()?;
     load_path(&dashboards_path(&app)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_dashboard(app: AppHandle, document: Value) -> AppResult<Value> {
     let _guard = lock_store()?;
     let id = validate_document(&document)?;
@@ -109,7 +109,7 @@ pub fn save_dashboard(app: AppHandle, document: Value) -> AppResult<Value> {
     Ok(document)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn publish_dashboard(app: AppHandle, document: Value) -> AppResult<Value> {
     let _guard = lock_store()?;
     let id = validate_document(&document)?;
@@ -135,7 +135,7 @@ pub fn publish_dashboard(app: AppHandle, document: Value) -> AppResult<Value> {
     Ok(document)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_dashboard_versions(app: AppHandle, id: String) -> AppResult<Vec<Value>> {
     let _guard = lock_store()?;
     let mut history = load_versions_path(&versions_path(&app)?)?
@@ -151,7 +151,7 @@ pub fn list_dashboard_versions(app: AppHandle, id: String) -> AppResult<Vec<Valu
     Ok(history)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_dashboard(app: AppHandle, id: String) -> AppResult<()> {
     let _guard = lock_store()?;
     let path = dashboards_path(&app)?;
